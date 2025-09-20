@@ -1,0 +1,29 @@
+services:
+  # This is our PostgreSQL database service (no changes here)
+  db:
+    image: postgres:15-alpine
+    container_name: personal_finance_db
+    environment:
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=${DB_NAME}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # This is our new FastAPI backend service
+  backend:
+    build: ./backend  # Tells Docker to build the image from the ./backend folder
+    container_name: personal_finance_api
+    ports:
+      - "8000:8000" # Maps the container's port 8000 to your computer's port 8000
+    volumes:
+      - ./backend:/app # Mounts your local code for live-reloading
+    env_file:
+      - ./.env        # Passes the .env file to the container
+    depends_on:
+      - db            # Ensures the database is started before the backend
+
+volumes:
+  postgres_data:
