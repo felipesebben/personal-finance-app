@@ -8,22 +8,41 @@ services:
       - POSTGRES_PASSWORD=${DB_PASSWORD}
       - POSTGRES_DB=${DB_NAME}
     ports:
-      - "5432:5432"
+      - 5432:5432
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # This is our new FastAPI backend service
   backend:
     build: ./backend  # Tells Docker to build the image from the ./backend folder
     container_name: personal_finance_api
     ports:
-      - "8000:8000" # Maps the container's port 8000 to your computer's port 8000
+      - 8000:8000 # Maps the container's port 8000 to your computer's port 8000
     volumes:
       - ./backend:/app # Mounts your local code for live-reloading
     env_file:
       - ./.env        # Passes the .env file to the container
     depends_on:
-      - db            # Ensures the database is started before the backend
+      db:
+        condition: service_healthy # Waits for the healthcheck to pass
 
+# PGAdmin service
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: personal_finance_pgadmin
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=${PGADMIN_DEFAULT_EMAIL}
+      - PGADMIN_DEFAULT_PASSWORD=${PGADMIN_DEFAULT_PASSWORD}
+    ports:
+      - 5050:80 # Maps PGAdmin to localhost:5050
+    depends_on:
+      db:
+        condition: service_healthy
+        
 volumes:
   postgres_data:
