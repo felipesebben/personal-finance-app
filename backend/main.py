@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
+from typing import List
 
 import models
 import schemas
@@ -34,3 +35,18 @@ def create_expenditure(expenditure: schemas.ExpenditureCreate, db: Session = Dep
     db.refresh(db_expenditure)
 
     return db_expenditure
+
+@app.get("/people/", response_model=List[schemas.Person])
+def get_people(db: Session = Depends(get_db)):
+    people = db.query(models.DimPerson).all()
+    return people
+
+@app.get("/categories/", response_model=List[schemas.Category])
+def get_categories(db: Session = Depends(get_db)):
+    categories = db.query(models.DimCategory).all()
+    return categories
+
+@app.get("/payment_methods/", response_model=List[schemas.PaymentMethod])
+def get_payment_methods(db: Session = Depends(get_db)):
+    payment_methods = db.query(models.DimPaymentMethod).all()
+    return payment_methods
