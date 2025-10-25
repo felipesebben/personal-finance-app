@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, Float, DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy.orm import relationship
 from database import Base
 
 # --- All attributes are now in snake_case ---
@@ -34,3 +35,8 @@ class Expenditure(Base):
     person_id = Column(Integer, ForeignKey("dim_person.person_id"))
     category_id = Column(Integer, ForeignKey("dim_category.category_id"))
     payment_method_id = Column(Integer, ForeignKey("dim_paymentmethod.payment_method_id"))
+
+    # Define the relationships
+    person = relationship("DimPerson")
+    category = relationship("DimCategory")
+    payment_method = relationship("DimPaymentMethod")

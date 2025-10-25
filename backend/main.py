@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from typing import List
 
 import models
@@ -50,3 +50,20 @@ def get_categories(db: Session = Depends(get_db)):
 def get_payment_methods(db: Session = Depends(get_db)):
     payment_methods = db.query(models.DimPaymentMethod).all()
     return payment_methods
+
+# New: Get All expenditures endpoint
+@app.get("/expenditures/", response_model=List[schemas.ExpenditureRead])
+def get_expenditures(db: Session = Depends(get_db)):
+    """
+    Fetch all expenditures with their related dimension data.
+    """
+    expenditures = (
+        db.query(models.Expenditure)
+        .options(
+            joinedload(models.Expenditure.person),
+            joinedload(models.Expenditure.category),
+            joinedload(models.Expenditure.payment_method)
+        )
+        .all()
+    )
+    return expenditures

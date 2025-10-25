@@ -38,3 +38,16 @@ class ExpenditureCreate(BaseModel):
 
     class Config:
         from_attributes = True # Changed from orm_mode
+
+class ExpenditureRead(BaseModel):
+    expenditure_id: int
+    transaction_timestamp: datetime
+    price: float
+
+    # Nest the other schemas to show full objects
+    person: Person
+    category: Category
+    payment_method: PaymentMethod
+
+    class Config:
+        from_attributes = True
