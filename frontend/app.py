@@ -7,7 +7,7 @@ import pandas as pd
 st.set_page_config(
     page_title="Expenditure Tracker",
     page_icon="🤑",
-    layout="centered"
+    layout="wide"
 )
 
 
@@ -118,9 +118,53 @@ if submitted:
             # Check the response from the server
             if response.status_code == 200:
                 st.success("Expenditure added successfully! ✅")
+                # Clear the cache so the dashboard updates
+                st.cache_data.clear()
             else:
                 # Show error details if something went wrong
                 st.error(f"Error: {response.status_code} – {response.text}")
         except requests.exceptions.ConnectionError:
             st.error("Connection Error: Could not connect to the API. Is the backend running?")
+
+# New Section : Dashboard
+st.divider()
+st.header("📈 Expenditure Dashboard")
+
+# Fetch all expenditure data
+expenditure_data = get_data("expenditures")
+
+if not expenditure_data:
+        st.info("No expenditures recorded yet. Add one above to get started!")
+else:
+    # The data from the API is a nested Json.
+    # We can use pd.json_normalize to flatten it into a table.
+    all_expenditures_df = pd.json_normalize(expenditure_data)
+
+    st.subheader("All Expenditures")
+
+    # Define which columns we want to display and give them friendly names
+    columns_to_display = {
+        "transaction_timestamp": "Timestamp",
+        "price": "Price",
+        "person.person_name": "Person",
+        "category.primary_category": "Category",
+        "category.sub_category": "Sub-Category",
+        "payment_method.method_name": "Payment Method"
+    }
+
+    # Filter the DataFrame to only the columns we care about
+    display_df = all_expenditures_df[columns_to_display.keys()].rename(columns=columns_to_display)
+
+    # Sort by timestamp to show the latest first
+    display_df = display_df.sort_values(by="Timestamp", ascending=False)
+
+    st.dataframe(display_df, use_container_width=True)
+
+    # Simple chart
+    st.subheader("Spending by Category")
+
+    # Group by the flattened 'category.primary_category' column and sum the 'price'
+    category_spending = all_expenditures_df.groupby('category.primary_category')["price"].sum()
+
+    st.bar_chart(category_spending)
 
