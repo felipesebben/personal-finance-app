@@ -158,7 +158,7 @@ else:
     # Sort by timestamp to show the latest first
     display_df = display_df.sort_values(by="Timestamp", ascending=False)
 
-    st.dataframe(display_df, use_container_width=True)
+    st.dataframe(display_df, width="stretch")
 
     # Simple chart
     st.subheader("Spending by Category")

@@ -36,6 +36,31 @@ def create_expenditure(expenditure: schemas.ExpenditureCreate, db: Session = Dep
 
     return db_expenditure
 
+@app.post("/people/", response_model=schemas.Person)
+def create_person(person: schemas.PersonCreate, db: Session = Depends(get_db)):
+    db_person = models.DimPerson(**person.model_dump())
+    db.add(db_person)
+    db.commit()
+    db.refresh(db_person)
+    return db_person
+
+@app.post("/categories/", response_model=schemas.Category)
+def create_category(category: schemas.CategoryCreate, db: Session=Depends(get_db)):
+    db_category = models.DimCategory(**category.model_dump())
+    db.add(db_category)
+    db.commit()
+    db.refresh(db_category)
+    return db_category
+
+@app.post("/payment_methods/", response_model=schemas.PaymentMethod)
+def create_payment_method(method: schemas.PaymentMethodCreate, db: Session=Depends(get_db)):
+    db_method = models.DimPaymentMethod(**method.model_dump())
+    db.add(db_method)
+    db.commit()
+    db.refresh(db_method)
+    return db_method
+
+
 @app.get("/people/", response_model=List[schemas.Person])
 def get_people(db: Session = Depends(get_db)):
     people = db.query(models.DimPerson).all()

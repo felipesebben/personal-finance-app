@@ -3,8 +3,24 @@ from datetime import datetime
 
 
 # -- Dimension Schemas --
-# Create a base and a full schema for each dimension.
+# Create schemas for dimensions
 
+class PersonCreate(BaseModel):
+    person_name: str
+
+class CategoryCreate(BaseModel):
+    primary_category: str
+    sub_category: str
+    # While these were formely optional or defaulted to values in SQL,
+    # we'll make them strings for simplicity as of now.
+    cost_type: str = "Variable"
+    nature: str = "Normal"
+
+class PaymentMethodCreate(BaseModel):
+    method_name: str
+    institution: str | None = None
+
+    
 class Person(BaseModel):
     person_id: int
     person_name: str
