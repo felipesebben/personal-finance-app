@@ -5,7 +5,7 @@ import pandas as pd
 
 # Page Configuration
 st.set_page_config(
-    page_title="Expenditure Tracker",
+    page_title="Tracker & Dashboard",
     page_icon="🤑",
     layout="wide"
 )
@@ -31,6 +31,8 @@ def get_data(endpoint: str):
         st.error(f"Connection Error: Could not connect to the API to fetch {endpoint}.")
         return []
     
+
+# 1. Load Data
 # Fetch the dimension data
 people_data = get_data("people")
 categories_data = get_data("categories")
@@ -44,6 +46,8 @@ payment_methods_df = pd.DataFrame(payment_methods_data)
 # -- Main Page UI --
 st.title("💰 Personal Expenditure Tracker")
 
+
+#  2. Input Form
 # Form for New Expenditure
 st.header("Add a New Expenditure")
 
@@ -54,15 +58,19 @@ with st.form("expenditure_form", clear_on_submit=True):
     with col1:
         date_input = st.date_input("Date", datetime.date.today(), format="DD/MM/YYYY")
 
+        
+        person_options = people_df["person_name"] if not people_df.empty else []
+
         # Dropdown for Person
         person_name = st.selectbox(
             "Person",
-            options=people_df["person_name"],
+            options=person_options,
             index=None,
             placeholder="Select a person..."
         ) 
 
-        # Dropdown for Payment Method
+        # Dropdown for Payment Options
+        payment_options =  payment_methods_df["method_name"] if not payment_methods_df.empty else []
         payment_method_name = st.selectbox(
             "Payment Method",
             options=payment_methods_df["method_name"],
@@ -74,12 +82,15 @@ with st.form("expenditure_form", clear_on_submit=True):
         time_input = st.time_input("Time", datetime.datetime.now().time())
         price = st.number_input("Price", min_value=0.0, format="%.2f")
 
-        # Dropdown for Category
-        # We'll create a user-friendly name for the dropdown
-        categories_df["display_name"] = categories_df["primary_category"] + " – " + categories_df["sub_category"]
+        if not categories_df.empty:
+          categories_df["display_name"] = categories_df["primary_category"] + " – " + categories_df["sub_category"]
+          cat_options = categories_df["display_name"]
+        else:
+            cat_options = []
+
         category_display_name = st.selectbox(
             "Category",
-            options=categories_df["display_name"],
+            options=cat_options,
             index=None,
             placeholder="Select a category..."
         )
@@ -126,24 +137,17 @@ if submitted:
         except requests.exceptions.ConnectionError:
             st.error("Connection Error: Could not connect to the API. Is the backend running?")
 
-# New Section : Dashboard
+# 3. Dashboard
 st.divider()
 st.header("📈 Expenditure Dashboard")
 
 # Fetch all expenditure data
 expenditure_data = get_data("expenditures")
 
-if not expenditure_data:
-        st.info("No expenditures recorded yet. Add one above to get started!")
-else:
-    # The data from the API is a nested Json.
-    # We can use pd.json_normalize to flatten it into a table.
+if  expenditure_data:
     all_expenditures_df = pd.json_normalize(expenditure_data)
-
-    st.subheader("All Expenditures")
-
     # Define which columns we want to display and give them friendly names
-    columns_to_display = {
+    cols_to_display = {
         "transaction_timestamp": "Timestamp",
         "price": "Price",
         "person.person_name": "Person",
@@ -151,20 +155,11 @@ else:
         "category.sub_category": "Sub-Category",
         "payment_method.method_name": "Payment Method"
     }
+    valid_cols = {k: v for k, v in cols_to_display.items() if k in all_expenditures_df}
+    display_df = all_expenditures_df[valid_cols.keys()].rename(columns=valid_cols)
 
-    # Filter the DataFrame to only the columns we care about
-    display_df = all_expenditures_df[columns_to_display.keys()].rename(columns=columns_to_display)
+    st.dataframe(display_df.sort_values(by="Timestamp", ascending=False), width="stretch")
 
-    # Sort by timestamp to show the latest first
-    display_df = display_df.sort_values(by="Timestamp", ascending=False)
-
-    st.dataframe(display_df, width="stretch")
-
-    # Simple chart
-    st.subheader("Spending by Category")
-
-    # Group by the flattened 'category.primary_category' column and sum the 'price'
-    category_spending = all_expenditures_df.groupby('category.primary_category')["price"].sum()
-
-    st.bar_chart(category_spending)
-
+else:
+    st.info("No expenditures recorded yet. Add one above to get started!")
+ 
