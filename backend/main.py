@@ -92,3 +92,50 @@ def get_expenditures(db: Session = Depends(get_db)):
         .all()
     )
     return expenditures
+
+# New: DELETE Endpoints
+
+@app.delete("/people/{person_id}")
+def delete_person(person_id: int, db: Session = Depends(get_db)):
+    person = db.query(models.DimPerson).filter(models.DimPerson.person_id == person_id).first()
+    if not person:
+        raise HTTPException(status_code=404, detail="Person not found")
+    
+    try:
+        db.delete(person)
+        db.commit()
+    except Exception:
+        # This happens if you try to delete a person who already has expenditures registered.
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Cannot delete: This item is used in existing records.")
+    
+    return {"message": "Person deleted successfully"}
+
+@app.delete("/categories/{category_id}")
+def delete_category(category_id: int, db: Session = Depends(get_db)):
+    category = db.query(models.DimCategory).filter(models.DimCategory.category_id == category_id).first()
+    if not category:
+        raise HTTPException(status_code=404, detail="Category not found")
+    
+    try:
+        db.delete(category)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Cannot delete: This category is used in existign records.")
+    
+    return {"message": "Person deleted successfully"}
+
+@app.delete("/payment_methods/{payment_method_id}")
+def delete_payment_method(payment_method_id: int, db: Session = Depends(get_db)):
+    method = db.query(models.DimPaymentMethod).filter(models.DimPaymentMethod.payment_method_id == payment_method_id).first()
+    if not method:
+        raise HTTPException(status_code=404, detail="Payment Method not found")
+    try:
+        db.delete(method)
+        db.commit()
+    except Exception: 
+        db.rollback()   
+        raise HTTPException(status_code=400, detail="Cannot delete: this payment method is used in existing records")
+    
+    return {"message": "Payment Method deleted successfully"}

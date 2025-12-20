@@ -13,7 +13,11 @@ class DimPaymentMethod(Base):
     __tablename__ = "dim_paymentmethod"
     payment_method_id = Column(Integer, primary_key=True)
     method_name = Column(String(255), nullable=False)
-    institution = Column(String(255))
+    institution = Column(String(255), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("method_name", "institution", name="uq_payment_method"),
+    )
 
 class DimCategory(Base):
     __tablename__ = "dim_category"
@@ -22,8 +26,11 @@ class DimCategory(Base):
     sub_category = Column(String(255), nullable=False)
     cost_type = Column(String(50))
     nature = Column(String(50))
-    __table_args__ = (UniqueConstraint('primary_category', 'sub_category'),)
-
+    
+    __table_args__ = (
+        UniqueConstraint('primary_category', 'sub_category',name="uq_category"),
+    )
+    
 class Expenditure(Base):
     __tablename__ = "fact_expenditures"
 
