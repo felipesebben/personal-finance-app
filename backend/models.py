@@ -21,11 +21,10 @@ class DimPaymentMethod(Base):
 
 class DimCategory(Base):
     __tablename__ = "dim_category"
-    category_id = Column(Integer, primary_key=True)
+    category_id = Column(Integer, primary_key=True, index=True)
     primary_category = Column(String(255), nullable=False)
     sub_category = Column(String(255), nullable=False)
-    cost_type = Column(String(50))
-    nature = Column(String(50))
+    cost_type = Column(String(50), nullable=False)
     
     __table_args__ = (
         UniqueConstraint('primary_category', 'sub_category',name="uq_category"),
@@ -37,6 +36,9 @@ class Expenditure(Base):
     expenditure_id = Column(Integer, primary_key=True, index=True)
     transaction_timestamp = Column(DateTime(timezone=True), nullable=False)
     price = Column(Float, nullable=False)
+    
+    # Nature of cost
+    nature = Column(String, default="Normal")
     
     # Foreign keys now consistently match the primary key names
     person_id = Column(Integer, ForeignKey("dim_person.person_id"))

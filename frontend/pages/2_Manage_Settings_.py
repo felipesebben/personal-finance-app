@@ -78,14 +78,15 @@ with col2:
     with st.form("add_category", clear_on_submit=True):
         new_primary = st.text_input("Primary Category")
         new_sub = st.text_input("Sub Category")
-        submit_cat = st.form_submit_button("Add Category")
+        
+        # Let user choose Fixed/Variable definition
+        new_type = st.radio("Cost Type", ["Variable", "Fixed"], horizontal=True)
 
-        if submit_cat and new_sub and new_primary:
+        if st.form_submit_button("Add") and new_sub and new_primary:
             payload = {
                 "primary_category": new_primary,
                 "sub_category": new_sub,
                 "cost_type": "Variable",
-                "nature": "Normal"
             }
             send_post_request("categories", payload, f"Added {new_primary} – {new_sub}!")
 

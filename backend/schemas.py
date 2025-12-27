@@ -14,7 +14,6 @@ class CategoryCreate(BaseModel):
     # While these were formely optional or defaulted to values in SQL,
     # we'll make them strings for simplicity as of now.
     cost_type: str = "Variable"
-    nature: str = "Normal"
 
 class PaymentMethodCreate(BaseModel):
     method_name: str
@@ -51,6 +50,7 @@ class ExpenditureCreate(BaseModel):
     person_id: int
     category_id: int
     payment_method_id: int
+    nature: str = "Normal"
 
     class Config:
         from_attributes = True # Changed from orm_mode

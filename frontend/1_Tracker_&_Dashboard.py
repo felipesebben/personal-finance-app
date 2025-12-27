@@ -54,86 +54,112 @@ st.title("Expenditure Tracker")
 if people_df.empty or categories_df.empty or payment_methods_df.empty:
     st.warning("⚠️ Your database is empty! Please go to **Manage Settings** in the sidebar to add People, Categories, and Payment Methods first.")
 else:
-# st.header("Add a New Expenditure")
-    with st.form("expenditure_form", clear_on_submit=True):
-        # Use columns to organize the form
-        col1, col2 = st.columns(2)
+    col1, col2 = st.columns(2)
 
-        with col1:
-            date_input = st.date_input("Date", datetime.date.today(), format="DD/MM/YYYY")
-
-            
-            # Safe to access to columns
-            # Dropdown for Person
-            person_name = st.selectbox(
-                "Person",
-                options=people_df["person_name"],
-                index=None,
-                placeholder="Select a person..."
-            ) 
-
-            # Dropdown for Payment Options
-            payment_method_name = st.selectbox(
-                "Payment Method",
-                options=payment_methods_df["method_name"],
-                index=None,
-                placeholder="Select a payment method..."
-            )
-            
-        with col2:
-            time_input = st.time_input("Time", datetime.datetime.now().time())
-            price = st.number_input("Price", min_value=0.0, format="%.2f")
-
-            categories_df["display_name"] = categories_df["primary_category"] + " - " + categories_df["sub_category"]
-
-            category_display_name = st.selectbox(
-                "Category",
-                options=categories_df["display_name"],
-                index=None,
-                placeholder="Select a category..."
-            )
+    with col1:
+        date_input = st.date_input("Date", datetime.date.today(), format="DD/MM/YYYY")
 
         
-        # Submit button for the form
-        submitted = st.form_submit_button("Submit Expenditure")
+        # Safe to access to columns
+        # Dropdown for Person
+        person_name = st.selectbox(
+            "Person",
+            options=people_df["person_name"] if not people_df.empty else [],
+            index=None,
+            placeholder="Select a person..."
+        ) 
 
-    if submitted:
-        # -- Data Validation --
-        if not all([person_name, payment_method_name, category_display_name, price > 0]):
-            st.warning("Please fill out all fields.")
+        # Dropdown for Payment Options
+        payment_method_name = st.selectbox(
+            "Payment Method",
+            options=payment_methods_df["method_name"] if not payment_methods_df.empty else [],
+            index=None,
+            placeholder="Select a payment method..."
+        )
+        
+    with col2:
+        time_input = st.time_input("Time", datetime.datetime.now().time())
+        price = st.number_input("Price", min_value=0.0, format="%.2f")
+
+        # Cascading Dropdowns
+        # 1. Get unique Primary Categories
+        # Sort them alphabetically
+
+        primary_categories = sorted(categories_df["primary_category"].unique()) if not categories_df.empty else []
+
+        selected_primary = st.selectbox(
+            "Category",
+            options=primary_categories,
+            index=None,
+            placeholder="Select Category..."
+        )
+
+        # 2. Filter Sub-categories based on selection
+        if selected_primary:
+            # Filter the DataFrame to only rows matching the selected primary
+            filtered_subs = categories_df[categories_df["primary_category"] == selected_primary]
+            sub_options = sorted(filtered_subs["sub_category"].unique())
+            disabled_sub = False
         else:
-            #  Find the IDs corresponding to the selected names
-            person_id = people_df[people_df["person_name"] == person_name]["person_id"].iloc[0]
-            category_id = categories_df[categories_df["display_name"] == category_display_name]["category_id"].iloc[0]
-            payment_method_id = payment_methods_df[payment_methods_df["method_name"] == payment_method_name]["payment_method_id"].iloc[0]
+            sub_options = []
+            disabled_sub = True # Lock the box if no primary is selected
+        selected_sub = st.selectbox(
+            "Sub-Category",
+            options=sub_options,
+            index=None,
+            placeholder="Select Sub-Category...",
+            disabled=disabled_sub
+        )
+
+        # Nature checkbox
+        is_extraordinary = st.checkbox("Extraordinary Event? ")
+    
+# Submit button for the form
+if st.button("Submit Expenditure", type="primary"):
+
+    # -- Data Validation --
+    if not all([person_name, payment_method_name, selected_primary, selected_sub, price > 0]):
+        st.warning("Please fill out all fields.")
+    else:
+        #  Find the IDs corresponding to the selected names
+        person_id = people_df[people_df["person_name"] == person_name]["person_id"].iloc[0]
+        payment_method_id = payment_methods_df[payment_methods_df["method_name"] == payment_method_name]["payment_method_id"].iloc[0]
+
+        # Smart lookup: Find the ID where both primary and sub match
+        category_id = categories_df[
+            (categories_df["primary_category"] == selected_primary) &
+            (categories_df["sub_category"] == selected_sub)
+        ]["category_id"].iloc[0]
         
-            # Combine date and time into single datetime object
-            transaction_timestamp = datetime.datetime.combine(date_input, time_input)
+        # Combine date and time into single datetime object
+        transaction_timestamp = datetime.datetime.combine(date_input, time_input)
 
-            # Prepare the data payload in the format expected by the API
-            payload = {
-                "transaction_timestamp": transaction_timestamp.isoformat(),
-                "price": price,
-                "person_id": int(person_id),
-                "category_id": int(category_id),
-                "payment_method_id": int(payment_method_id)
-            }
+        nature_value = "Extraordinary" if is_extraordinary else "Normal"
+        # Prepare the data payload in the format expected by the API
+        payload = {
+            "transaction_timestamp": transaction_timestamp.isoformat(),
+            "price": price,
+            "person_id": int(person_id),
+            "category_id": int(category_id),
+            "payment_method_id": int(payment_method_id),
+            "nature": nature_value
+        }
 
 
-            try:
-                # Send the POST request to the backend
-                response = requests.post(f"{API_BASE_URL}/expenditures/", json=payload)
+        try:
+            # Send the POST request to the backend
+            response = requests.post(f"{API_BASE_URL}/expenditures/", json=payload)
 
-                # Check the response from the server
-                if response.status_code == 200:
-                    st.success("Expenditure added successfully! ✅")
-                    # Clear the cache so the dashboard updates
-                    st.cache_data.clear()
-                else:
-                    # Show error details if something went wrong
-                    st.error(f"Error: {response.status_code} – {response.text}")
-            except requests.exceptions.ConnectionError:
-                st.error("Connection Error: Could not connect to the API. Is the backend running?")
+            # Check the response from the server
+            if response.status_code == 200:
+                st.success("Expenditure added successfully! ✅")
+                # Clear the cache so the dashboard updates
+                st.cache_data.clear()
+            else:
+                # Show error details if something went wrong
+                st.error(f"Error: {response.status_code} – {response.text}")
+        except requests.exceptions.ConnectionError:
+            st.error("Connection Error: Could not connect to the API. Is the backend running?")
 
 # 3. Dashboard
 st.divider()
