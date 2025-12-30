@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, Float, DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy import Column, Boolean, Integer, Float, DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -30,18 +30,17 @@ class DimCategory(Base):
         UniqueConstraint('primary_category', 'sub_category',name="uq_category"),
     )
     
-class Expenditure(Base):
+class FactExpenditure(Base):
     __tablename__ = "fact_expenditures"
 
     expenditure_id = Column(Integer, primary_key=True, index=True)
     transaction_timestamp = Column(DateTime(timezone=True), nullable=False)
     price = Column(Float, nullable=False)
-    
-    # Nature of cost
     nature = Column(String, default="Normal")
-    
-    # Foreign keys now consistently match the primary key names
-    person_id = Column(Integer, ForeignKey("dim_person.person_id"))
+    is_shared = Column(Boolean, default=True)
+
+    # Foreign keys
+    person_id = Column(Integer, ForeignKey("dim_person.person_id"), nullable=False)
     category_id = Column(Integer, ForeignKey("dim_category.category_id"))
     payment_method_id = Column(Integer, ForeignKey("dim_paymentmethod.payment_method_id"))
 

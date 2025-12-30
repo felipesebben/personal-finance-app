@@ -27,7 +27,7 @@ def get_db():
 @app.post("/expenditures/", response_model=schemas.ExpenditureCreate)
 def create_expenditure(expenditure: schemas.ExpenditureCreate, db: Session = Depends(get_db)): # Runs the get_db function and pass the resulting database session to our endpoint.
     # Create a SQLAlchemy model instance from the Pydantic schema data
-    db_expenditure = models.Expenditure(**expenditure.model_dump())
+    db_expenditure = models.FactExpenditure(**expenditure.model_dump())
 
     # Add the new expenditure to the session and commit it to the database
     db.add(db_expenditure)
@@ -83,11 +83,11 @@ def get_expenditures(db: Session = Depends(get_db)):
     Fetch all expenditures with their related dimension data.
     """
     expenditures = (
-        db.query(models.Expenditure)
+        db.query(models.FactExpenditure)
         .options(
-            joinedload(models.Expenditure.person),
-            joinedload(models.Expenditure.category),
-            joinedload(models.Expenditure.payment_method)
+            joinedload(models.FactExpenditure.person),
+            joinedload(models.FactExpenditure.category),
+            joinedload(models.FactExpenditure.payment_method)
         )
         .all()
     )
@@ -139,3 +139,13 @@ def delete_payment_method(payment_method_id: int, db: Session = Depends(get_db))
         raise HTTPException(status_code=400, detail="Cannot delete: this payment method is used in existing records")
     
     return {"message": "Payment Method deleted successfully"}
+
+@app.delete("/expenditures/{expenditure_id}")
+def delete_expenditure(expenditure_id: int, db: Session = Depends(get_db)):
+    exp = db.query(models.FactExpenditure).filter(models.FactExpenditure.expenditure_id == expenditure_id).first()
+    if not exp:
+        raise HTTPException(status_code=404, detail="Expenditure not found")
+    
+    db.delete(exp)
+    db.commit()
+    return {"message": "Deleted successfully"}

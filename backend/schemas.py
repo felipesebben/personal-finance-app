@@ -51,6 +51,7 @@ class ExpenditureCreate(BaseModel):
     category_id: int
     payment_method_id: int
     nature: str = "Normal"
+    is_shared: bool = True
 
     class Config:
         from_attributes = True # Changed from orm_mode
@@ -59,6 +60,8 @@ class ExpenditureRead(BaseModel):
     expenditure_id: int
     transaction_timestamp: datetime
     price: float
+    nature: str
+    is_shared: bool
 
     # Nest the other schemas to show full objects
     person: Person
