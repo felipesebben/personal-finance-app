@@ -31,7 +31,63 @@ def get_data(endpoint: str):
     except requests.exceptions.ConnectionError:
         st.error(f"Connection Error: Could not connect to the API to fetch {endpoint}.")
         return []
-    
+
+def cascading_selectbox(
+        label_primary: str, label_secondary: str,
+        df: pd.DataFrame, col_primary: str, col_secondary: str,
+        force_na_if=None,
+        help_text_secondary=""
+ ):
+    """
+    Creates two connected selectboxes
+    `force_na_if`: A value (string) in the primary box that forces the secondary box to be `N/A`
+    """   
+    # 1. Primary dropdown
+    # Sort the unique values
+    primary_options = sorted(df[col_primary].unique()) if not df.empty else []
+
+    selected_primary = st.selectbox(
+        label_primary,
+        options=primary_options,
+        index=None,
+        placeholder=f"Select {label_primary}..."
+    )
+
+    # 2. Secondary dropdown logic
+    # Default state
+    secondary_options = []
+    disabled_secondary = True
+    index_secondary = None
+    dynamic_help = ""
+
+    if selected_primary:
+        # Check if there is a special "Force N/A condition"
+        if force_na_if and selected_primary == force_na_if:
+            secondary_options = ["N/A"]
+            disabled_secondary = True
+            index_secondary = 0 # Auto-select the first item (N/A)
+            dynamic_help = f"⚠️ When selecting **{force_na_if}**, defaults to `N/A`."
+        else:
+            filtered_df = df[df[col_primary] == selected_primary]
+            secondary_options = sorted([x for x in filtered_df[col_secondary].unique() if x])
+
+            if secondary_options:
+                disabled_secondary = False
+                dynamic_help = help_text_secondary
+            else:
+                # Fallback if list is empty
+                disabled_secondary = True
+
+    selected_secondary = st.selectbox(
+        label_secondary,
+        options=secondary_options,
+        index=index_secondary,
+        placeholder=f"Select {label_secondary}...",
+        disabled=disabled_secondary,
+        help=dynamic_help
+    )
+
+    return selected_primary, selected_secondary
 
 # 1. Load Data
 # Fetch the dimension data
@@ -71,49 +127,59 @@ else:
             placeholder="Select Payer..."
         ) 
 
-        # Cascading payment dropdowns
-        # 1. Get unique Payment Types (e.g., Credit Card, Pix, Cash)
-        unique_methods = sorted(payment_methods_df["method_name"].unique()) if not payment_methods_df.empty else []
         
-        # Dropdown for Payment Options
-        selected_method_name = st.selectbox(
-            "Payment Method",
-            options=unique_methods,
-            index=None,
-            placeholder="Select Method..."
+        
+        # # Cascading payment dropdowns
+        selected_method_name, selected_institution = cascading_selectbox(
+            label_primary="Payment Method",
+            label_secondary="Institution",
+            df=payment_methods_df,
+            col_primary="method_name",
+            col_secondary="institution",
+            force_na_if="Cash"
         )
-
-        # 2. Filter Institutions based on selection
-        if selected_method_name:
-            filtered_insts = payment_methods_df[payment_methods_df["method_name"] == selected_method_name]
-            # Handle cases where institution might be None/Empty
-            inst_options = sorted([i for i in filtered_insts["institution"].unique() if i])
+        # # 1. Get unique Payment Types (e.g., Credit Card, Pix, Cash)
+        # unique_methods = sorted(payment_methods_df["method_name"].unique()) if not payment_methods_df.empty else []
         
-            # Logic for Cash:
-            # If the user chose "Cash", force the option to be "N/A".
-            if selected_method_name == "Cash":
-                inst_options = ["N/A"]
-                disabled_inst = True
-                default_index = 0
-            else:
-                disabled_inst = False if inst_options else True
-                default_index = None
+        # # Dropdown for Payment Options
+        # selected_method_name = st.selectbox(
+        #     "Payment Method",
+        #     options=unique_methods,
+        #     index=None,
+        #     placeholder="Select Method..."
+        # )
 
-        else:
-            inst_options = []
-            disabled_inst = True
-            default_index = None
-
-        help_msg = "⚠️ When selecting **Cash**, defaults to `N/A`." if selected_method_name == "Cash" else ""
+        # # 2. Filter Institutions based on selection
+        # if selected_method_name:
+        #     filtered_insts = payment_methods_df[payment_methods_df["method_name"] == selected_method_name]
+        #     # Handle cases where institution might be None/Empty
+        #     inst_options = sorted([i for i in filtered_insts["institution"].unique() if i])
         
-        selected_institution = st.selectbox(
-            "Institution",
-            options=inst_options,
-            index=default_index,
-            placeholder="Select Institution...",
-            disabled=disabled_inst,
-            help=help_msg
-        )
+        #     # Logic for Cash:
+        #     # If the user chose "Cash", force the option to be "N/A".
+        #     if selected_method_name == "Cash":
+        #         inst_options = ["N/A"]
+        #         disabled_inst = True
+        #         default_index = 0
+        #     else:
+        #         disabled_inst = False if inst_options else True
+        #         default_index = None
+
+        # else:
+        #     inst_options = []
+        #     disabled_inst = True
+        #     default_index = None
+
+        # help_msg = "⚠️ When selecting **Cash**, defaults to `N/A`." if selected_method_name == "Cash" else ""
+        
+        # selected_institution = st.selectbox(
+        #     "Institution",
+        #     options=inst_options,
+        #     index=default_index,
+        #     placeholder="Select Institution...",
+        #     disabled=disabled_inst,
+        #     help=help_msg
+        # )
         # New flag: Shared Expense
         st.write("---")
         is_shared = st.toggle("Shared Household Expense?", value=True,
@@ -129,32 +195,39 @@ else:
         price = st.number_input("Price", min_value=0.0, format="%.2f")
 
         # Cascading Dropdowns
-        # 1. Get unique Primary Categories, sorted alphabetically
-        primary_categories = sorted(categories_df["primary_category"].unique()) if not categories_df.empty else []
-
-        selected_primary = st.selectbox(
-            "Category",
-            options=primary_categories,
-            index=None,
-            placeholder="Select Category..."
+        selected_primary, selected_sub = cascading_selectbox(
+            label_primary="Category",
+            label_secondary="Sub-Category",
+            df=categories_df,
+            col_primary="primary_category",
+            col_secondary="sub_category"
         )
+        # # 1. Get unique Primary Categories, sorted alphabetically
+        # primary_categories = sorted(categories_df["primary_category"].unique()) if not categories_df.empty else []
 
-        # 2. Filter Sub-categories based on selection
-        if selected_primary:
-            # Filter the DataFrame to only rows matching the selected primary
-            filtered_subs = categories_df[categories_df["primary_category"] == selected_primary]
-            sub_options = sorted(filtered_subs["sub_category"].unique())
-            disabled_sub = False
-        else:
-            sub_options = []
-            disabled_sub = True # Lock the box if no primary is selected
-        selected_sub = st.selectbox(
-            "Sub-Category",
-            options=sub_options,
-            index=None,
-            placeholder="Select Sub-Category...",
-            disabled=disabled_sub
-        )
+        # selected_primary = st.selectbox(
+        #     "Category",
+        #     options=primary_categories,
+        #     index=None,
+        #     placeholder="Select Category..."
+        # )
+
+        # # 2. Filter Sub-categories based on selection
+        # if selected_primary:
+        #     # Filter the DataFrame to only rows matching the selected primary
+        #     filtered_subs = categories_df[categories_df["primary_category"] == selected_primary]
+        #     sub_options = sorted(filtered_subs["sub_category"].unique())
+        #     disabled_sub = False
+        # else:
+        #     sub_options = []
+        #     disabled_sub = True # Lock the box if no primary is selected
+        # selected_sub = st.selectbox(
+        #     "Sub-Category",
+        #     options=sub_options,
+        #     index=None,
+        #     placeholder="Select Sub-Category...",
+        #     disabled=disabled_sub
+        # )
 
         # Nature checkbox
         st.write("---")
@@ -277,7 +350,7 @@ else:
 
     # Sort by date (most recent first)
     if "transaction_timestamp" in all_expenditures_df.columns:
-        all_expenditures_df["transaction_timestamp"] = pd.to_datetime(all_expenditures_df["transaction_timestamp"])
+        all_expenditures_df["transaction_timestamp"] = pd.to_datetime(all_expenditures_df["transaction_timestamp"], format="mixed")
         all_expenditures_df = all_expenditures_df.sort_values(by="transaction_timestamp", ascending=False)
     
 
