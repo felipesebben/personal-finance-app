@@ -70,3 +70,7 @@ venv.bak/
 
 # Streamlit
 .streamlit/
+
+# Ignore generated data files
+artifacts/
+*.hyper
