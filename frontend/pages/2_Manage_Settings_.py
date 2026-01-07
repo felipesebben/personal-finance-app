@@ -16,6 +16,7 @@ def send_post_request(endpoint: str, payload: dict, success_message: str):
             st.success(success_message)
             # Clear the cache so that the main page re-fetches the new data next time
             st.cache_data.clear()
+            st.rerun() # Updates the list immediately
         elif response.status_code == 500:
             # Creates a more meaningful error message if tried to duplicate.
             st.error("Error: Could not add item. It might already exist.")
@@ -76,28 +77,33 @@ with col1:
 with col2:
     st.subheader("Add Category")
     with st.form("add_category", clear_on_submit=True):
-        new_primary = st.text_input("Primary Category")
-        new_sub = st.text_input("Sub Category")
+        new_primary = st.text_input("Primary Category (e.g., Food)")
+        new_sub = st.text_input("Sub Category (e.g., Groceries)")
         
-        # Let user choose Fixed/Variable definition
+        # 1. Capture the user's choice
         new_type = st.radio("Cost Type", ["Variable", "Fixed"], horizontal=True)
 
         if st.form_submit_button("Add") and new_sub and new_primary:
             payload = {
                 "primary_category": new_primary,
                 "sub_category": new_sub,
-                "cost_type": "Variable",
+                "cost_type": new_type,
             }
             send_post_request("categories", payload, f"Added {new_primary} – {new_sub}!")
 
 
     st.divider()
     st.caption("Existing Categories")
-    for c in categories:
-        c1, c2 = st.columns([4, 1])
-        c1.text(f"{c["primary_category"]} - {c["sub_category"]}")
-        if c2.button("🗑️", key=f"del_c_{c["category_id"]}"):
-            delete_item("categories", c["category_id"])
+    # Sort items so they don't look random
+    if categories:
+        sorted_cats = sorted(categories, key=lambda x: (x["primary_category"], x["sub_category"]))
+        for c in sorted_cats:
+            c1, c2 = st.columns([4, 1])
+            # Display formatted as 'primary > sub (type)'
+            c1.text(f"{c["primary_category"]} > {c["sub_category"]} ({c.get('cost_type', '?')[0]})")
+            
+            if c2.button("🗑️", key=f"del_c_{c["category_id"]}"):
+                delete_item("categories", c["category_id"])
 
 # Column 3: Payment Methods
 with col3:

@@ -31,6 +31,7 @@ class Category(BaseModel):
     category_id: int
     primary_category: str
     sub_category: str
+    cost_type: str
 
     class Config:
         from_attributes = True
