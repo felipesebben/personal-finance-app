@@ -51,6 +51,7 @@ def extract_data():
         p.person_name,
         c.primary_category,
         c.sub_category,
+        c.cost_type,
         pm.method_name,
         pm.institution
     FROM fact_expenditures f
