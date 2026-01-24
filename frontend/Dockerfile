@@ -1,4 +1,4 @@
-# backend/Dockerfile
+# frontend/Dockerfile
 
 # Use an official Python runtime as a parent image
 FROM python:3.12-slim
@@ -33,6 +33,12 @@ RUN poetry config virtualenvs.create false \
 # Copy the rest of the application code into the container
 COPY . .
 
-# Command to run the application
-# For now, keep reload to avoid having to restart the container while building features
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+# Expose the port
+#  - Streamlit runs on 8501 by default
+EXPOSE 8501
+
+# Run Streamlit
+#   - --server.port=8501: forces the port
+#   - --server.address=0.0.0.0 : very important for Docker as we are telling it
+# to accept connections from outside the container.
+CMD ["streamlit", "run", "1_Tracker_&_Dashboard.py", "--server.port=8501", "--server.address=0.0.0.0"]

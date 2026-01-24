@@ -1,5 +1,7 @@
 services:
-  # This is our PostgreSQL database service (no changes here)
+  # --------------------------------------------------------
+  #  1. Database (Postgres)
+  # --------------------------------------------------------
   db:
     image: postgres:15-alpine
     container_name: personal_finance_db
@@ -8,21 +10,23 @@ services:
       - POSTGRES_PASSWORD=${DB_PASSWORD}
       - POSTGRES_DB=${DB_NAME}
     ports:
-      - 5433:5432
+      - "${DB_PORT}:5432" # Map local port to the container (5433)
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
-      interval: 10s
+      interval: 5s
       timeout: 5s
       retries: 5
 
-  # This is our new FastAPI backend service
+  # --------------------------------------------------------
+  #  2. Backend (FastAPI)
+  # --------------------------------------------------------
   backend:
     build: ./backend  # Tells Docker to build the image from the ./backend folder
     container_name: personal_finance_api
     ports:
-      - 8000:8000 # Maps the container's port 8000 to your computer's port 8000
+      - 8000:8000 # Open port 8000 so that we can test the API in the browser
     volumes:
       - ./backend:/app # Mounts your local code for live-reloading
     env_file:
@@ -30,6 +34,9 @@ services:
     depends_on:
       db:
         condition: service_healthy # Waits for the healthcheck to pass
+    environment:
+      - DB_HOST=db
+      - DB_PORT=5432
 
 # PGAdmin service
   pgadmin:
@@ -43,6 +50,22 @@ services:
     depends_on:
       db:
         condition: service_healthy
-        
+
+  frontend:
+    build: ./frontend
+    container_name: personal_finance_frontend
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./frontend:/app # Hot Reload for streamlit. Change code, refresh browser, and see changes.
+    env_file:
+      - .env
+    depends_on:
+      - backend # Waits for API to start
+    environment:
+      # Override networking magic
+      # Use the service name (backend) defined above
+      - API_URL=http://backend:8000
+
 volumes:
   postgres_data:
