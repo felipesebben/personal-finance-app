@@ -127,3 +127,26 @@ with col3:
         c1.text(f"{pm["method_name"]} {pm["institution"]}")
         if c2.button("🗑️", key=f"del_pm_{pm["payment_method_id"]}"):
             delete_item("payment_methods", pm["payment_method_id"])
+
+# ETL Trigger
+st.divider()
+st.header("Data Synchronization")
+st.info("Click the button below to manually trigger the ETL pipeline. This will extract data from the database, generate the Hyper file, and publish it to Tableau.")
+
+if st.button("Run ETL Pipeline", type="primary"):
+    with st.spinner("Pipeline running... (This may take a moment)"):
+        try:
+            # Use the /refresh endpoint in backend
+            response = requests.post(f"{API_BASE_URL}/refresh")
+
+            if response.status_code == 200:
+                data = response.json()
+                st.success("ETL Finished Successfully!")
+                st.json(data)
+            else:
+                st.error(f"Server Error: ({response.status_code})")
+                st.code(response.text)
+        
+        except requests.exceptions.ConnectionError:
+            st.error("Connection Failed")
+            st.warning(f"Could not reach the backend at `{API_BASE_URL}`. Is the Docker container running?")

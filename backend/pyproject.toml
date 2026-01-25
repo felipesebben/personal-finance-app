@@ -14,6 +14,10 @@ psycopg2-binary = "^2.9.10"
 pydantic = "^2.11.9"
 python-dotenv = "^1.1.1"
 
+pandas = "^2.2.0"
+pantab = "^5.2.2"
+tableauhyperapi = ">=0.0.24081"
+tableauserverclient = "^0.30"
 
 [build-system]
 requires = ["poetry-core"]

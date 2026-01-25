@@ -2,14 +2,13 @@ import pandas as pd
 from sqlalchemy import create_engine
 import os
 from dotenv import load_dotenv
+import pandas as pd
 import pantab
 from tableauhyperapi import TableName
-from tableau_manager import TableauManager
+from etl.tableau_manager import TableauManager
 
-# Load credentias from .env
-load_dotenv()
 
-# 1. Database Logic
+# Helper functions
 def get_db_connection():
     """
     Creates the connection string for SQLAlchemy.
@@ -71,7 +70,7 @@ def extract_data():
         print(f"Database Extraction Failed: {e}")
         return None
 
-# 2. Hyper Logic
+    # 2. Hyper Logic
 def generate_hyper_file(df, filename="expenditures.hyper"):
     """
     Step 2: Testing Hyper File Generation
@@ -92,7 +91,7 @@ def generate_hyper_file(df, filename="expenditures.hyper"):
     
     try:
         pantab.frame_to_hyper(df, file_path, table="Expenditures")
-  
+
         # Verify the file was actually created
         if os.path.exists(file_path):
             size_mb = os.path.getsize(file_path) / (1024 * 1024)
@@ -106,19 +105,39 @@ def generate_hyper_file(df, filename="expenditures.hyper"):
         print(f"Hyper Generation Failed: {e}")
         return None
 
-if __name__ == "__main__":
+# Main pipeline function - called by API #
+# Define the function
+def run_pipeline():
+    """
+    Runs the entire ETL pipeline sequence.
+    """
+
+    # Load credentias from .env
+    # load_dotenv()
+
     # 1. Extract
     df = extract_data()
+    if df is None:
+        print("Pipeline stopped: Extraction failed.")
+        return
+    
+    # 2. Transform / Generate File
+    hyper_file = generate_hyper_file(df)
+    if not hyper_file:
+        print("Pipeline stopped: Hyper file generation failed.")
+        return
+    
+    # 3. Publish
+    try:
+        print("Publishing to Tableau...")
+        manager = TableauManager()
+        manager.publish_hyper(hyper_file, targer_project_name="Finance App 2026")
+        print("ETL Finished Successfully!")
 
-    # 2. Generate file
-    # Only run if Step 1 returned actual data
-    if df is not None:
-        hyper_file = generate_hyper_file(df, filename="expenditures.hyper")
-
-        # Only run if file was created successfully
-        if hyper_file:
-            # 3. Publish using new Class
-            manager = TableauManager()
-
-            # Test:  change project name to an unexisting value.
-            manager.publish_hyper(hyper_file, targer_project_name="Finance App 2026")
+    except Exception as e:
+        print(f"Publishing failed: {e}")
+        # Raise the error so the API knows it failed (trigger 500 error)
+        raise e
+    
+if __name__ == "__main__":
+    run_pipeline()

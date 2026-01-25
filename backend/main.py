@@ -2,9 +2,11 @@ from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 from typing import List
 
+from pydantic import BaseModel
 import models
 import schemas
 from database import SessionLocal, engine
+from etl.main import run_pipeline
 
 # This line creates the database tables if they don't exist
 # based on our models.py definitions.
@@ -124,7 +126,7 @@ def delete_category(category_id: int, db: Session = Depends(get_db)):
         db.rollback()
         raise HTTPException(status_code=400, detail="Cannot delete: This category is used in existign records.")
     
-    return {"message": "Person deleted successfully"}
+    return {"message": "Category deleted successfully"}
 
 @app.delete("/payment_methods/{payment_method_id}")
 def delete_payment_method(payment_method_id: int, db: Session = Depends(get_db)):
@@ -149,3 +151,20 @@ def delete_expenditure(expenditure_id: int, db: Session = Depends(get_db)):
     db.delete(exp)
     db.commit()
     return {"message": "Deleted successfully"}
+
+@app.post("/refresh")
+def refresh_data():
+    """
+    Triggers the ETL to update the database and Tableau.
+    """
+    try:
+        print("API received request: Starting ETL process...")
+
+        # Calls the function to run pipeline
+        run_pipeline()
+
+        return {"status": "success", "message": "Data refreshed successfully!"}
+    
+    except Exception as e:
+        print(f"ETL Failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
