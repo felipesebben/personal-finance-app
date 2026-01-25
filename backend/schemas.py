@@ -1,12 +1,22 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from datetime import datetime
 
 
 # -- Dimension Schemas --
 # Create schemas for dimensions
 
-class PersonCreate(BaseModel):
-    person_name: str
+class UserCreate(BaseModel):
+    full_name: str
+    email: EmailStr
+    password: str
+
+class User(BaseModel):
+    user_id: int
+    email: str
+    full_name: str | None = None
+
+    class Config:
+        from_attributes = True
 
 class CategoryCreate(BaseModel):
     primary_category: str
@@ -18,14 +28,6 @@ class CategoryCreate(BaseModel):
 class PaymentMethodCreate(BaseModel):
     method_name: str
     institution: str | None = None
-
-    
-class Person(BaseModel):
-    person_id: int
-    person_name: str
-
-    class Config:
-        from_attributes = True
 
 class Category(BaseModel):
     category_id: int
@@ -65,7 +67,7 @@ class ExpenditureRead(BaseModel):
     is_shared: bool
 
     # Nest the other schemas to show full objects
-    person: Person
+    person: User
     category: Category
     payment_method: PaymentMethod
 

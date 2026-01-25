@@ -2,12 +2,18 @@ from sqlalchemy import Column, Boolean, Integer, Float, DateTime, ForeignKey, St
 from sqlalchemy.orm import relationship
 from database import Base
 
-# --- All attributes are now in snake_case ---
 
-class DimPerson(Base):
-    __tablename__ = "dim_person"
-    person_id = Column(Integer, primary_key=True)
-    person_name = Column(String(255), nullable=False, unique=True)
+class DimUser(Base):
+    __tablename__ = "dim_users"
+
+    user_id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True, nullable=False)
+    # Store the hash, not the password itself
+    hashed_password = Column(String, nullable=False)
+    full_name = Column(String)
+
+    # Relationship - one user has many expenditures
+    expenditures = relationship("FactExpenditure", back_populates="user")
 
 class DimPaymentMethod(Base):
     __tablename__ = "dim_paymentmethod"
@@ -40,11 +46,12 @@ class FactExpenditure(Base):
     is_shared = Column(Boolean, default=True)
 
     # Foreign keys
-    person_id = Column(Integer, ForeignKey("dim_person.person_id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("dim_users.user_id"), nullable=False)
+    
     category_id = Column(Integer, ForeignKey("dim_category.category_id"))
     payment_method_id = Column(Integer, ForeignKey("dim_paymentmethod.payment_method_id"))
 
     # Define the relationships
-    person = relationship("DimPerson")
+    user = relationship("DimUser", back_populates="expenditures")
     category = relationship("DimCategory")
     payment_method = relationship("DimPaymentMethod")

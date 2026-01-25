@@ -46,32 +46,42 @@ def get_data(endpoint):
     
 
 st.title("⚙️ Manage Settings")
-st.info("Use this page to add new people, categories, or payment methods, to your system.")
+st.info("Use this page to add new Users, Categories, or Payment Methods.")
 
 # Fetch data
-people = get_data("people")
+users = get_data("users")
 categories = get_data("categories")
 payment_methods = get_data("payment_methods")
 
 col1, col2, col3 = st.columns(3)
 
-# Column 1: People
+# Column 1: Users
 with col1:
-    st.subheader("Add Person")
-    with st.form("add_person", clear_on_submit=True):
-        new_person = st.text_input("Name")
-        submit_person = st.form_submit_button("Add Person")
+    st.subheader("Add User")
+    with st.form("add_user", clear_on_submit=True):
+        new_name = st.text_input("Name")
+        new_email = st.text_input("Email")
 
-        if submit_person and new_person:
-            send_post_request("people", {"person_name": new_person}, f"Added {new_person}!")
+        new_pass = st.text_input("Password", type="password")
+        submit_user = st.form_submit_button("Add Person")
+
+        if submit_user and new_email and new_name:
+            payload = {
+                "full_name": new_name,
+                "email": new_email,
+                "password": new_pass
+            }
+            send_post_request("users", payload, f"Added user {new_name}!")
 
     st.divider()
-    st.caption("Existing People")
-    for p in people:
-        c1, c2 = st.columns([4, 1])
-        c1.text(p["person_name"])
-        if c2.button("🗑️", key=f"del_p_{p["person_id"]}"):
-            delete_item("people", p["person_id"])
+    st.caption("Existing Users")
+    if users:
+        for u in users:
+            c1, c2 = st.columns([4, 1])
+            c1.text(f"{u["full_name"]} ({u["email"]})")
+            
+            if c2.button("🗑️", key=f"del_u_{u["user_id"]}"):
+                delete_item("users", u["user_id"])
 
 # Column 2: Categories
 with col2:

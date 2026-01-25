@@ -38,13 +38,26 @@ def create_expenditure(expenditure: schemas.ExpenditureCreate, db: Session = Dep
 
     return db_expenditure
 
-@app.post("/people/", response_model=schemas.Person)
-def create_person(person: schemas.PersonCreate, db: Session = Depends(get_db)):
-    db_person = models.DimPerson(**person.model_dump())
-    db.add(db_person)
+@app.post("/users/", response_model=schemas.User)
+def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
+    # Check if email already exists
+    db_user = db.query(models.DimUser).filter(models.DimUser.email == user.email).first()
+    if db_user:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    # Create the user (We will add hashig here in the following task)
+    fake_hashed_password = user.password + "notreallyhashed"
+
+    new_user = models.DimUser(
+        email = user.email,
+        hashed_password=fake_hashed_password,
+        full_name=user.full_name
+    )
+
+    db.add(new_user)
     db.commit()
-    db.refresh(db_person)
-    return db_person
+    db.refresh(new_user)
+    return new_user
 
 @app.post("/categories/", response_model=schemas.Category)
 def create_category(category: schemas.CategoryCreate, db: Session=Depends(get_db)):
@@ -63,9 +76,9 @@ def create_payment_method(method: schemas.PaymentMethodCreate, db: Session=Depen
     return db_method
 
 
-@app.get("/people/", response_model=List[schemas.Person])
-def get_people(db: Session = Depends(get_db)):
-    people = db.query(models.DimPerson).all()
+@app.get("/users/", response_model=List[schemas.User])
+def get_users(db: Session = Depends(get_db)):
+    people = db.query(models.DimUser).all()
     return people
 
 @app.get("/categories/", response_model=List[schemas.Category])
@@ -87,7 +100,7 @@ def get_expenditures(db: Session = Depends(get_db)):
     expenditures = (
         db.query(models.FactExpenditure)
         .options(
-            joinedload(models.FactExpenditure.person),
+            joinedload(models.FactExpenditure.user),
             joinedload(models.FactExpenditure.category),
             joinedload(models.FactExpenditure.payment_method)
         )
@@ -97,21 +110,21 @@ def get_expenditures(db: Session = Depends(get_db)):
 
 # New: DELETE Endpoints
 
-@app.delete("/people/{person_id}")
-def delete_person(person_id: int, db: Session = Depends(get_db)):
-    person = db.query(models.DimPerson).filter(models.DimPerson.person_id == person_id).first()
-    if not person:
-        raise HTTPException(status_code=404, detail="Person not found")
+@app.delete("/users/{user_id}")
+def delete_user(user_id: int, db: Session = Depends(get_db)):
+    user = db.query(models.DimUser).filter(models.DimUser.user_id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
     
     try:
-        db.delete(person)
+        db.delete(user)
         db.commit()
     except Exception:
-        # This happens if you try to delete a person who already has expenditures registered.
+        # This happens if you try to delete a user who already has expenditures registered.
         db.rollback()
         raise HTTPException(status_code=400, detail="Cannot delete: This item is used in existing records.")
     
-    return {"message": "Person deleted successfully"}
+    return {"message": "user deleted successfully"}
 
 @app.delete("/categories/{category_id}")
 def delete_category(category_id: int, db: Session = Depends(get_db)):
