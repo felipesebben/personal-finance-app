@@ -41,4 +41,4 @@ EXPOSE 8501
 #   - --server.port=8501: forces the port
 #   - --server.address=0.0.0.0 : very important for Docker as we are telling it
 # to accept connections from outside the container.
-CMD ["streamlit", "run", "1_Tracker_&_Dashboard.py", "--server.port=8501", "--server.address=0.0.0.0"]
+CMD ["streamlit", "run", "Home.py", "--server.port=8501", "--server.address=0.0.0.0"]

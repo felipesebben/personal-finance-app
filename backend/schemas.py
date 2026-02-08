@@ -50,7 +50,7 @@ class PaymentMethod(BaseModel):
 class ExpenditureCreate(BaseModel):
     transaction_timestamp: datetime
     price: float
-    person_id: int
+    user_id: int | None = None
     category_id: int
     payment_method_id: int
     nature: str = "Normal"
@@ -67,9 +67,22 @@ class ExpenditureRead(BaseModel):
     is_shared: bool
 
     # Nest the other schemas to show full objects
-    person: User
+    user: User
     category: Category
     payment_method: PaymentMethod
 
     class Config:
         from_attributes = True
+
+class Token(BaseModel):
+    """
+    Schema for the JWT Token response.
+    """
+    access_token: str
+    token_type: str
+
+class TokenData(BaseModel):
+    """
+    Schema for the data embedded inside the Token.
+    """
+    email: str | None = None
