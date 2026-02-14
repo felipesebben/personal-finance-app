@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 import datetime
+from zoneinfo import ZoneInfo
 import pandas as pd
 import os
 
@@ -90,7 +91,11 @@ if categories_df.empty or payment_methods_df.empty:
 else:
     # --- UI LOGIC STARTS HERE ---
     if "selected_time" not in st.session_state:
-        st.session_state.selected_time = datetime.datetime.now().time()
+        user_tz = ZoneInfo("America/Sao_Paulo")
+
+        curr_time_brl = datetime.datetime.now(user_tz)
+
+        st.session_state.selected_time = curr_time_brl.time()
 
     col1, col2 = st.columns(2)
 
@@ -150,9 +155,13 @@ else:
                         ]["category_id"].iloc[0]
 
                         # 3. Payload
-                        transaction_timestamp = datetime.datetime.combine(date_input, time_input)
+                        dt_naive = datetime.datetime.combine(date_input, time_input)
+
+                        user_tz = ZoneInfo("America/Sao_Paulo")
+                        dt_aware = dt_naive.replace(tzinfo=user_tz)
+
                         payload = {
-                            "transaction_timestamp": transaction_timestamp.isoformat(),
+                            "transaction_timestamp": dt_aware.isoformat(),
                             "price": price,
                             "category_id": int(category_id),
                             "payment_method_id": int(payment_method_id),
@@ -187,6 +196,11 @@ else:
     
     if "transaction_timestamp" in all_expenditures_df.columns:
         all_expenditures_df["transaction_timestamp"] = pd.to_datetime(all_expenditures_df["transaction_timestamp"])
+        
+        if all_expenditures_df["transaction_timestamp"].dt.tz is None:
+            all_expenditures_df["transaction_timestamp"] = all_expenditures_df["transaction_timestamp"].dt.tz_localize("UTC")
+
+        all_expenditures_df["transaction_timestamp"] = all_expenditures_df["transaction_timestamp"].dt.tz_convert("America/Sao_Paulo")    
         all_expenditures_df = all_expenditures_df.sort_values(by="transaction_timestamp", ascending=False)
 
     cols_to_display = {
