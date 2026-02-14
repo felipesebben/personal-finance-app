@@ -108,7 +108,7 @@ users = get_data("users", st.session_state["access_token"])
 categories = get_data("categories", st.session_state["access_token"])
 payment_methods = get_data("payment_methods", st.session_state["access_token"])
 
-col1, col2, col3 = st.columns(3)
+col1, col2 = st.columns(2)
 
 # Column 1: Users
 with col1:
@@ -171,29 +171,6 @@ with col2:
             
             if c2.button("🗑️", key=f"del_c_{c['category_id']}"):
                 delete_item("categories", c["category_id"])
-
-# Column 3: Payment Methods
-with col3:
-    st.subheader("Payment Method")
-    with st.form("add_method", clear_on_submit=True):
-        new_method = st.text_input("Method Name")
-        new_inst = st.text_input("Institution")
-        submit_method = st.form_submit_button("Add Method")
-
-        if submit_method and new_method:
-            payload = {
-                "method_name": new_method,
-                "institution": new_inst,
-            }
-            send_post_request("payment_methods", payload, f"Added {new_method}!")   
-    
-    st.divider()
-    st.caption("Existing Methods")
-    for pm in payment_methods:
-        c1, c2 = st.columns([4, 1])
-        c1.text(f"{pm['method_name']} {pm['institution']}")
-        if c2.button("🗑️", key=f"del_pm_{pm['payment_method_id']}"):
-            delete_item("payment_methods", pm["payment_method_id"])
 
 # --- ETL Trigger ---
 st.divider()
