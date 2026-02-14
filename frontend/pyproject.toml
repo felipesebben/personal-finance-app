@@ -7,6 +7,10 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.12"
+streamlit = "^1.50.0"
+requests = "^2.32.5"
+pandas = "^2.3.3"
+tzdata = "^2025.3"
 
 
 [build-system]

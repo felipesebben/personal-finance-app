@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
+*pyc
 
 # C extensions
 *.so
@@ -70,3 +71,12 @@ venv.bak/
 
 # Streamlit
 .streamlit/
+
+# Ignore generated data files
+artifacts/
+*.hyper
+postgres_data/
+
+# System garbage
+.DS_Store
+Thumbs.db

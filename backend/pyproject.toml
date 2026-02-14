@@ -7,7 +7,20 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.12"
+fastapi = "^0.116.2"
+uvicorn = {extras = ["standard"], version = "^0.36.0"}
+sqlalchemy = "^2.0.43"
+psycopg2-binary = "^2.9.10"
+pydantic = {extras = ["email"], version = "^2.12.5"}
+python-dotenv = "^1.1.1"
 
+pandas = "^2.2.0"
+pantab = "^5.2.2"
+tableauhyperapi = ">=0.0.24081"
+tableauserverclient = "^0.30"
+python-jose = {extras = ["cryptography"], version = "^3.5.0"}
+python-multipart = "^0.0.22"
+bcrypt = "^5.0.0"
 
 [build-system]
 requires = ["poetry-core"]
