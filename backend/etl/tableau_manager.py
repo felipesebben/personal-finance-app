@@ -61,7 +61,7 @@ class TableauManager:
             print(f"Successfully created project {project_name}")
             return new_project.id
         
-    def publish_hyper(self, hyper_file_path :str, targer_project_name:str="default"):
+    def publish_hyper(self, hyper_file_path :str, target_project_name:str="default"):
         """
         Docstring for publish_hyper
         
@@ -76,7 +76,7 @@ class TableauManager:
                 self.connect()
             
             # 2. Get the Project ID (Creating it if necessary)
-            project_id = self.get_or_create_project(targer_project_name)
+            project_id = self.get_or_create_project(target_project_name)
 
             # 3. Publish
             print(f"Uploading {hyper_file_path}...")
@@ -91,3 +91,4 @@ class TableauManager:
             print(f"ID: {published_item.id}")
         except Exception as e:
             print(f"Publishing failed: {e}")
+            raise e

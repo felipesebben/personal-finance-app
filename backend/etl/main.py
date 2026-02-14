@@ -1,7 +1,6 @@
 import pandas as pd
 from sqlalchemy import create_engine
 import os
-from dotenv import load_dotenv
 import pandas as pd
 import pantab
 from tableauhyperapi import TableName
@@ -43,20 +42,20 @@ def extract_data():
     query = """
     SELECT
         f.expenditure_id,
-        f.transaction_timestamp,
+        f.transaction_timestamp AT TIME ZONE 'America/Sao_Paulo' AS transaction_timestamp,
         f.price,
         f.nature,
         f.is_shared,
-        p.person_name,
+        p.full_name,
         c.primary_category,
         c.sub_category,
         c.cost_type,
         pm.method_name,
         pm.institution
     FROM fact_expenditures f
-    JOIN dim_person p ON f.person_id = p.person_id
+    JOIN dim_user p ON f.user_id = p.user_id
     JOIN dim_category c ON f.category_id = c.category_id
-    JOIN dim_paymentmethod pm ON f.payment_method_id = pm.payment_method_id;    
+    JOIN dim_payment_method pm ON f.payment_method_id = pm.payment_method_id;    
     """
 
     try:
@@ -111,10 +110,6 @@ def run_pipeline():
     """
     Runs the entire ETL pipeline sequence.
     """
-
-    # Load credentias from .env
-    # load_dotenv()
-
     # 1. Extract
     df = extract_data()
     if df is None:
@@ -131,7 +126,7 @@ def run_pipeline():
     try:
         print("Publishing to Tableau...")
         manager = TableauManager()
-        manager.publish_hyper(hyper_file, targer_project_name="Finance App 2026")
+        manager.publish_hyper(hyper_file, target_project_name="Finance App 2026")
         print("ETL Finished Successfully!")
 
     except Exception as e:

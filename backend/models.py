@@ -4,7 +4,7 @@ from database import Base
 
 
 class DimUser(Base):
-    __tablename__ = "dim_users"
+    __tablename__ = "dim_user"
 
     user_id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, index=True, nullable=False)
@@ -16,7 +16,7 @@ class DimUser(Base):
     expenditures = relationship("FactExpenditure", back_populates="user")
 
 class DimPaymentMethod(Base):
-    __tablename__ = "dim_paymentmethod"
+    __tablename__ = "dim_payment_method"
     payment_method_id = Column(Integer, primary_key=True)
     method_name = Column(String(255), nullable=False)
     institution = Column(String(255), nullable=True)
@@ -46,10 +46,10 @@ class FactExpenditure(Base):
     is_shared = Column(Boolean, default=True)
 
     # Foreign keys
-    user_id = Column(Integer, ForeignKey("dim_users.user_id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("dim_user.user_id"), nullable=False)
     
     category_id = Column(Integer, ForeignKey("dim_category.category_id"))
-    payment_method_id = Column(Integer, ForeignKey("dim_paymentmethod.payment_method_id"))
+    payment_method_id = Column(Integer, ForeignKey("dim_payment_method.payment_method_id"))
 
     # Define the relationships
     user = relationship("DimUser", back_populates="expenditures")
