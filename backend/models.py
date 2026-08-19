@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Boolean, Integer, Float, DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy import Column, Boolean, Integer, Numeric, DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -42,7 +42,7 @@ class FactExpenditure(Base):
 
     expenditure_id = Column(Integer, primary_key=True, index=True)
     transaction_timestamp = Column(DateTime(timezone=True), nullable=False)
-    price = Column(Float, nullable=False)
+    price = Column(Numeric(10, 2), nullable=False)
     nature = Column(String, default="Normal")
     is_shared = Column(Boolean, default=True)
 

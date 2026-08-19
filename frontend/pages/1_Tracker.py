@@ -215,7 +215,10 @@ if not expenditure_data:
     st.info("No expenditures found.")
 else:
     all_expenditures_df = pd.json_normalize(expenditure_data)
-    
+    # Prices arrive as JSON strings as the API currently uses Decimal.
+    # Convert it once so every consumer gets a real number.
+    if "price" in all_expenditures_df.columns:
+        all_expenditures_df["price"] = pd.to_numeric(all_expenditures_df["price"])
     if "transaction_timestamp" in all_expenditures_df.columns:
         all_expenditures_df["transaction_timestamp"] = pd.to_datetime(all_expenditures_df["transaction_timestamp"])
         
