@@ -48,7 +48,7 @@ cd backend  && poetry install && poetry run uvicorn main:app --reload
 cd frontend && poetry install && poetry run streamlit run Home.py
 ```
 
-The backend uses flat imports (`import models`), so it must be started from within `backend/`. Note that outside Docker it reads `DB_HOST`/`DB_PORT` from `.env` directly, while Compose overrides them to `db:5432`.
+The backend uses flat imports (`import models`), so it must be started from within `backend/`. It also reads `DB_HOST` from `.env` directly, which is set to `db` for the Compose workflow — that name only resolves inside the Compose network, so running the API on the host requires setting `DB_HOST=localhost` first.
 
 ## Configuration
 
@@ -58,8 +58,8 @@ All configuration comes from a single `.env` at the repo root. It is gitignored 
 # Database
 DB_USER=
 DB_PASSWORD=
-DB_HOST=localhost
-DB_PORT=5433          # host-side port; Compose maps this to 5432 in the container
+DB_HOST=db            # the Compose service name; use "localhost" to run the API outside Docker
+DB_PORT=5432
 DB_NAME=
 
 # Auth

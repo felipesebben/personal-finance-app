@@ -1,6 +1,6 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from datetime import datetime
-
+from decimal import Decimal
 
 # -- Dimension Schemas --
 # Create schemas for dimensions
@@ -51,7 +51,7 @@ class PaymentMethod(BaseModel):
 # -- Expenditure Schema --     
 class ExpenditureCreate(BaseModel):
     transaction_timestamp: datetime
-    price: float
+    price: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
     user_id: int | None = None
     category_id: int
     payment_method_id: int
@@ -68,7 +68,7 @@ class ExpenditureCreate(BaseModel):
 class ExpenditureRead(BaseModel):
     expenditure_id: int
     transaction_timestamp: datetime
-    price: float
+    price: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
     nature: str
     is_shared: bool
 
