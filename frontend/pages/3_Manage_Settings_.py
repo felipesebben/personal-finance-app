@@ -172,6 +172,39 @@ with col2:
             if c2.button("🗑️", key=f"del_c_{c['category_id']}"):
                 delete_item("categories", c["category_id"])
 
+# --- Payment Methods Section ---
+st.divider()
+st.subheader("💳 Manage Payment Methods")
+pm_col1, pm_col2 = st.columns(2)
+
+with pm_col1:
+    with st.form("add_payment_method", clear_on_submit=True):
+        new_method_name = st.text_input("Method Name (e.g., Credit Card, Cash, Debit)")
+        new_institution = st.text_input("Institution (e.g., Nubank, Itaú)", help="Leave blank for Cash.")
+        new_is_credit = st.checkbox("Credit Card?", help="Enable to track installments for this payment method.")
+        submit_pm = st.form_submit_button("Add Payment Method")
+
+        if submit_pm and new_method_name:
+            payload = {
+                "method_name": new_method_name,
+                "institution": new_institution if new_institution else None,
+                "is_credit": new_is_credit,
+            }
+            send_post_request("payment_methods", payload, f"Added {new_method_name}!")
+        elif submit_pm:
+            st.warning("Method Name is required.")
+
+with pm_col2:
+    st.caption("Existing Payment Methods")
+    if payment_methods:
+        for pm in sorted(payment_methods, key=lambda x: x["method_name"]):
+            c1, c2 = st.columns([4, 1])
+            credit_tag = " 💳" if pm.get("is_credit") else ""
+            institution_label = f" ({pm['institution']})" if pm.get("institution") else ""
+            c1.text(f"{pm['method_name']}{institution_label}{credit_tag}")
+            if c2.button("🗑️", key=f"del_pm_{pm['payment_method_id']}"):
+                delete_item("payment_methods", pm["payment_method_id"])
+
 # --- ETL Trigger ---
 st.divider()
 st.header("Data Synchronization")

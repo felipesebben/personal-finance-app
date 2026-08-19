@@ -28,6 +28,7 @@ class CategoryCreate(BaseModel):
 class PaymentMethodCreate(BaseModel):
     method_name: str
     institution: str | None = None
+    is_credit: bool = False
 
 class Category(BaseModel):
     category_id: int
@@ -42,6 +43,7 @@ class PaymentMethod(BaseModel):
     payment_method_id: int
     method_name: str
     institution: str | None = None # Optional field
+    is_credit: bool = False
 
     class Config:
         from_attributes = True
@@ -55,6 +57,10 @@ class ExpenditureCreate(BaseModel):
     payment_method_id: int
     nature: str = "Normal"
     is_shared: bool = True
+
+    # Tell API to accept these (with defaults)
+    current_installment: int = 1
+    total_installments: int = 1
 
     class Config:
         from_attributes = True # Changed from orm_mode

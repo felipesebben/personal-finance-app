@@ -20,6 +20,7 @@ class DimPaymentMethod(Base):
     payment_method_id = Column(Integer, primary_key=True)
     method_name = Column(String(255), nullable=False)
     institution = Column(String(255), nullable=True)
+    is_credit = Column(Boolean, default=False)
 
     __table_args__ = (
         UniqueConstraint("method_name", "institution", name="uq_payment_method"),
@@ -45,9 +46,12 @@ class FactExpenditure(Base):
     nature = Column(String, default="Normal")
     is_shared = Column(Boolean, default=True)
 
+    # Installment tracking
+    current_installment = Column(Integer, default=1)
+    total_installments = Column(Integer, default=1)
+
     # Foreign keys
     user_id = Column(Integer, ForeignKey("dim_user.user_id"), nullable=False)
-    
     category_id = Column(Integer, ForeignKey("dim_category.category_id"))
     payment_method_id = Column(Integer, ForeignKey("dim_payment_method.payment_method_id"))
 
