@@ -107,6 +107,20 @@ else:
             label_primary="Payment Method", label_secondary="Institution",
             df=payment_methods_df, col_primary="method_name", col_secondary="institution", force_na_if="Cash"
         )
+
+        # Dynamic installment logic
+        current_inst = 1
+        total_inst = 1
+
+        if selected_method_name:
+            matched_pm = payment_methods_df[payment_methods_df["method_name"] == selected_method_name]
+            is_credit = bool(matched_pm["is_credit"].iloc[0]) if not matched_pm.empty and "is_credit" in payment_methods_df.columns else False
+            if is_credit:
+                st.caption("💳 Credit Card — Installments")
+                col_inst1, col_inst2 = st.columns(2)
+                current_inst = col_inst1.number_input("Current Installment", min_value=1, value=1, help="Which installment are you paying now?")
+                total_inst = col_inst2.number_input("Total Installments", min_value=1, value=1, help="1/1 = one-time or recurring. N/M = installment N of M.")
+
   
         st.write("---")
         is_shared = st.toggle("Shared Household Expense?", value=True, help="Leave ON if split between couple.")
@@ -122,7 +136,13 @@ else:
         )
         
         st.write("---")
-        is_extraordinary = st.checkbox("Extraordinary Event?", help="Outlier/Emergency expense.")
+        nature_option = st.radio(
+            "Nature",
+            options=["Normal", "Extraordinary", "Recurring", "Annual"],
+            index=0,
+            horizontal=True,
+            help="Normal: everyday | Extraordinary: unplanned/emergency | Recurring: monthly subscription | Annual: once-a-year (IPVA, IPTU)"
+        )
     
         # --- Submit button ---
         if categories_df.empty or payment_methods_df.empty:
@@ -165,9 +185,11 @@ else:
                             "price": price,
                             "category_id": int(category_id),
                             "payment_method_id": int(payment_method_id),
-                            "nature": "Extraordinary" if is_extraordinary else "Normal",
+                            "nature": nature_option,
                             "is_shared": is_shared,
-                            "user_id": 0 # Backend handles this via token
+                            "user_id": 0, # Backend handles this via token
+                            "current_installment": current_inst,
+                            "total_installments": total_inst
                         }
 
                         # 4. Request
