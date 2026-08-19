@@ -77,6 +77,9 @@ artifacts/
 *.hyper
 postgres_data/
 
+# Personal working notes, reviews and teaching material (not part of the product)
+notes/
+
 # System garbage
 .DS_Store
 Thumbs.db
