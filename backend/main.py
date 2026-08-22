@@ -4,6 +4,7 @@ from datetime import timedelta
 from jose import JWTError , jwt
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_
+from sqlalchemy.exc import IntegrityError
 from typing import List
 
 from auth import verify_password, create_access_token, get_password_hash, SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
@@ -104,7 +105,11 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
     )
 
     db.add(new_user)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Email already registered")
     db.refresh(new_user)
     return new_user
 
@@ -138,7 +143,7 @@ def login_for_access_token(db: Session = Depends(get_db), form_data: OAuth2Passw
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@app.post("/categories/", response_model=schemas.Category)
+@app.post("/categories/", response_model=schemas.Category, dependencies=[Depends(get_current_user)])
 def create_category(category: schemas.CategoryCreate, db: Session=Depends(get_db)):
     db_category = models.DimCategory(**category.model_dump())
     db.add(db_category)
@@ -146,7 +151,7 @@ def create_category(category: schemas.CategoryCreate, db: Session=Depends(get_db
     db.refresh(db_category)
     return db_category
 
-@app.post("/payment_methods/", response_model=schemas.PaymentMethod)
+@app.post("/payment_methods/", response_model=schemas.PaymentMethod, dependencies=[Depends(get_current_user)])
 def create_payment_method(method: schemas.PaymentMethodCreate, db: Session=Depends(get_db)):
     db_method = models.DimPaymentMethod(**method.model_dump())
     db.add(db_method)
@@ -155,17 +160,17 @@ def create_payment_method(method: schemas.PaymentMethodCreate, db: Session=Depen
     return db_method
 
 
-@app.get("/users/", response_model=List[schemas.User])
+@app.get("/users/", response_model=List[schemas.User], dependencies=[Depends(get_current_user)])
 def get_users(db: Session = Depends(get_db)):
     people = db.query(models.DimUser).all()
     return people
 
-@app.get("/categories/", response_model=List[schemas.Category])
+@app.get("/categories/", response_model=List[schemas.Category], dependencies=[Depends(get_current_user)])
 def get_categories(db: Session = Depends(get_db)):
     categories = db.query(models.DimCategory).all()
     return categories
 
-@app.get("/payment_methods/", response_model=List[schemas.PaymentMethod])
+@app.get("/payment_methods/", response_model=List[schemas.PaymentMethod], dependencies=[Depends(get_current_user)])
 def get_payment_methods(db: Session = Depends(get_db)):
     payment_methods = db.query(models.DimPaymentMethod).all()
     return payment_methods
@@ -198,7 +203,7 @@ def get_expenditures(db: Session = Depends(get_db),
 
 # --- Delete Endpoints ---
 
-@app.delete("/users/{user_id}")
+@app.delete("/users/{user_id}", dependencies=[Depends(get_current_user)])
 def delete_user(user_id: int, db: Session = Depends(get_db)):
     user = db.query(models.DimUser).filter(models.DimUser.user_id == user_id).first()
     if not user:
@@ -214,7 +219,7 @@ def delete_user(user_id: int, db: Session = Depends(get_db)):
     
     return {"message": "user deleted successfully"}
 
-@app.delete("/categories/{category_id}")
+@app.delete("/categories/{category_id}", dependencies=[Depends(get_current_user)])
 def delete_category(category_id: int, db: Session = Depends(get_db)):
     category = db.query(models.DimCategory).filter(models.DimCategory.category_id == category_id).first()
     if not category:
@@ -229,7 +234,7 @@ def delete_category(category_id: int, db: Session = Depends(get_db)):
     
     return {"message": "Category deleted successfully"}
 
-@app.delete("/payment_methods/{payment_method_id}")
+@app.delete("/payment_methods/{payment_method_id}", dependencies=[Depends(get_current_user)])
 def delete_payment_method(payment_method_id: int, db: Session = Depends(get_db)):
     method = db.query(models.DimPaymentMethod).filter(models.DimPaymentMethod.payment_method_id == payment_method_id).first()
     if not method:
@@ -273,7 +278,7 @@ def delete_expenditure(
     db.commit()
     return {"message": "Deleted successfully"}
 
-@app.post("/refresh")
+@app.post("/refresh", dependencies=[Depends(get_current_user)])
 def refresh_data():
     """
     Triggers the ETL to update the database and Tableau.
