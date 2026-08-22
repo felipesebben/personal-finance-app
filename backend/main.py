@@ -12,12 +12,8 @@ from auth import verify_password, create_access_token, get_password_hash, SECRET
 from pydantic import BaseModel
 import models
 import schemas
-from database import SessionLocal, engine
+from database import SessionLocal
 from etl.main import run_pipeline
-
-# This line creates the database tables if they don't exist
-# based on our models.py definitions.
-models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
