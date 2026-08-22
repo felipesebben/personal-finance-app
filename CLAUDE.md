@@ -24,7 +24,7 @@ Docker is the primary workflow — both app containers bind-mount their source, 
 docker compose up --build          # full stack: API :8000, UI :8501, pgAdmin :5050, Postgres on $DB_PORT
 docker compose up -d db            # database only (e.g. to run backend locally)
 docker compose logs -f backend     # tail one service
-docker compose down -v             # DESTROY the postgres_data volume (see "Schema changes")
+docker compose down -v             # DESTROY the postgres_data volume (Alembic rebuilds it on next start)
 docker compose build --no-cache backend   # needed after editing pyproject.toml/poetry.lock
 ```
 
@@ -36,14 +36,24 @@ poetry run uvicorn main:app --reload      # backend/ — imports are flat ("impo
 poetry run streamlit run Home.py          # frontend/
 ```
 
-Note that outside Docker the backend reads `DB_HOST`/`DB_PORT` straight from `.env` (host-side values, port 5433), while inside Docker `docker-compose.yml` overrides them to `db:5432`.
+Note that outside Docker the backend reads `DB_HOST`/`DB_PORT` straight from `.env`, which currently holds the Compose values (`db` / `5432`) — running the API on the host therefore requires setting `DB_HOST=localhost` first. Inside Docker, `docker-compose.yml` overrides them to `db:5432` regardless.
 
 Utility scripts:
 
 ```powershell
-poetry run python init_db.py              # backend/ — CREATE DATABASE if absent; tables come from create_all
+poetry run python init_db.py              # backend/ — CREATE DATABASE if absent; tables come from Alembic
 poetry run python -m etl.main             # backend/ — run the Tableau ETL directly (same code path as POST /refresh)
 poetry run python etl/generate_data.py    # backend/ — seed 50 fake expenditures (STALE: see below)
+```
+
+Migrations run inside the backend container, where `DB_HOST=db` resolves:
+
+```powershell
+docker compose exec backend alembic current                      # which revision the DB is on
+docker compose exec backend alembic history                      # the revision chain
+docker compose exec backend alembic revision --autogenerate -m "what changed"
+docker compose exec backend alembic upgrade head                 # apply
+docker compose exec backend alembic downgrade -1                 # step back one
 ```
 
 There is no test suite, linter, or formatter configured in this repo. Do not invent commands for them.
@@ -64,7 +74,22 @@ There is no test suite, linter, or formatter configured in this repo. Do not inv
 
 ## Schema changes
 
-There is no Alembic or any migration tool. Tables are created by `models.Base.metadata.create_all(bind=engine)` at backend import time, which **creates missing tables but never alters existing ones**. Adding a column to `models.py` therefore has no effect on a database that already has the table — the app will fail at query time with an undefined-column error. Either apply the `ALTER TABLE` by hand (pgAdmin at :5050) or `docker compose down -v` to drop the volume and rebuild from scratch.
+**Alembic owns the schema.** Migrations live in `backend/alembic/versions/`, and the backend container runs `alembic upgrade head` before starting uvicorn (the `command:` override on the `backend` service in `docker-compose.yml`), so a fresh volume migrates itself on `docker compose up`. There is no `create_all` call any more — do not add one back, or two systems create the same tables and `alembic_version` stops describing reality.
+
+`alembic/env.py` sets `sqlalchemy.url` from `database.DATABASE_URL` rather than from `alembic.ini`, which keeps credentials out of a committed file; it imports `models` purely so `Base.metadata` is populated; and it sets `compare_type=True` so column type changes are detected at all.
+
+To change the schema: edit `models.py`, autogenerate a revision, **read the generated file before running it**, then upgrade. Autogenerate is a diffing tool, not an oracle — it reads a rename as drop-then-add, and `default=` in `models.py` is a Python-side default that never reaches Postgres, so new columns arrive as NULL on existing rows unless the migration backfills them explicitly.
+
+The first revision (`b24c43f3c0f3`, "baseline: existing schema") was **stamped, not executed**, on the existing database. It describes the pre-Alembic schema — including `price` as `Float`, which the next revision converts to `Numeric(10, 2)`. Because it never ran locally, bugs in it are invisible here. Validate any change to it by building a throwaway database from scratch:
+
+```powershell
+docker compose exec db sh -c 'psql -U "$POSTGRES_USER" -d postgres -c "CREATE DATABASE fresh_check;"'
+docker compose exec -e DB_NAME=fresh_check backend alembic upgrade head
+docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" --schema-only --no-owner fresh_check'
+docker compose exec db sh -c 'psql -U "$POSTGRES_USER" -d postgres -c "DROP DATABASE fresh_check;"'
+```
+
+The dumped schema must match the live database. `-e DB_NAME=...` works because `database.py` reads that variable from the environment and `load_dotenv()` never overrides what is already set.
 
 `database/init.sql` is legacy and misleading: it is not mounted into the db container by `docker-compose.yml`, it still models the pre-auth `Dim_Person`/`PersonID` design that `models.py` replaced with `DimUser`/`user_id`, and it contains SQL that would not parse (`TIMESTAMPZ`, a missing comma after `CostType`). `backend/etl/generate_data.py` is stale for the same reason — it queries `dim_person` and `dim_paymentmethod`, neither of which exists. Treat `models.py` as the single source of truth for the schema.
 
