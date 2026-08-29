@@ -1,6 +1,7 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from datetime import datetime
 from decimal import Decimal
+from typing import List
 
 # -- Dimension Schemas --
 # Create schemas for dimensions
@@ -48,7 +49,37 @@ class PaymentMethod(BaseModel):
     class Config:
         from_attributes = True
 
-# -- Expenditure Schema --     
+# -- Household Setting Schema --
+# The household split ratio: one row per user, snapshotted onto each
+# expenditure's allocation rows at write time (see notes/02).
+class HouseholdSettingRead(BaseModel):
+    user_id: int
+    share_pct: Decimal = Field(gt=0, le=1, max_digits=5, decimal_places=4)
+    user: User
+
+    class Config:
+        from_attributes = True
+
+class HouseholdSettingItem(BaseModel):
+    user_id: int
+    share_pct: Decimal = Field(gt=0, le=1, max_digits=5, decimal_places=4)
+
+class HouseholdSettingsUpdate(BaseModel):
+    """
+    Replaces the whole set of household shares in one call, so the table
+    can never be left mid-update with shares that don't sum to 1.
+    """
+    settings: List[HouseholdSettingItem]
+
+    @field_validator("settings")
+    @classmethod
+    def shares_must_sum_to_one(cls, settings: List[HouseholdSettingItem]):
+        total = sum(s.share_pct for s in settings)
+        if abs(total - 1) > Decimal("0.0001"):
+            raise ValueError(f"share_pct values must sum to 1, got {total}")
+        return settings
+
+# -- Expenditure Schema --
 class ExpenditureCreate(BaseModel):
     transaction_timestamp: datetime
     price: Decimal = Field(gt=0, max_digits=10, decimal_places=2)

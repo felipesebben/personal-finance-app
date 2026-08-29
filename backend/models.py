@@ -26,6 +26,13 @@ class DimPaymentMethod(Base):
         UniqueConstraint("method_name", "institution", name="uq_payment_method"),
     )
 
+class HouseholdSetting(Base):
+    __tablename__ = "household_setting"
+    user_id = Column(Integer, ForeignKey("dim_user.user_id"), primary_key=True)
+    share_pct = Column(Numeric(5, 4), nullable=False)
+
+    user = relationship("DimUser")
+
 class DimCategory(Base):
     __tablename__ = "dim_category"
     category_id = Column(Integer, primary_key=True, index=True)

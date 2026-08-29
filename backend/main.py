@@ -175,6 +175,41 @@ def get_payment_methods(db: Session = Depends(get_db)):
     payment_methods = db.query(models.DimPaymentMethod).all()
     return payment_methods
 
+@app.get("/household_settings/", response_model=List[schemas.HouseholdSettingRead], dependencies=[Depends(get_current_user)])
+def get_household_settings(db: Session = Depends(get_db)):
+    settings = (
+        db.query(models.HouseholdSetting)
+        .options(joinedload(models.HouseholdSetting.user))
+        .all()
+    )
+    return settings
+
+@app.put("/household_settings/", response_model=List[schemas.HouseholdSettingRead], dependencies=[Depends(get_current_user)])
+def update_household_settings(payload: schemas.HouseholdSettingsUpdate, db: Session = Depends(get_db)):
+    """
+    Replaces the whole set of household shares in one transaction, so the
+    table is never left mid-update with shares that don't sum to 1 (the
+    Pydantic schema already checked that; this checks the user_ids are real).
+    """
+    user_ids = [item.user_id for item in payload.settings]
+    if len(set(user_ids)) != len(user_ids):
+        raise HTTPException(status_code=400, detail="Duplicate user_id in request")
+
+    existing_count = db.query(models.DimUser).filter(models.DimUser.user_id.in_(user_ids)).count()
+    if existing_count != len(user_ids):
+        raise HTTPException(status_code=400, detail="One or more user_id values do not exist")
+
+    db.query(models.HouseholdSetting).delete()
+    for item in payload.settings:
+        db.add(models.HouseholdSetting(user_id=item.user_id, share_pct=item.share_pct))
+    db.commit()
+
+    return (
+        db.query(models.HouseholdSetting)
+        .options(joinedload(models.HouseholdSetting.user))
+        .all()
+    )
+
 @app.get("/expenditures/", response_model=List[schemas.ExpenditureRead])
 def get_expenditures(db: Session = Depends(get_db),
                      current_user: models.DimUser = Depends(get_current_user)):
