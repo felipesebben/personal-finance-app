@@ -70,7 +70,7 @@ class FactExpenditure(Base):
 class FactExpenditureSplit(Base):
     __tablename__ = "fact_expenditure_split"
 
-    expenditure_id = Column(Integer, ForeignKey("fact_expenditures.expenditure_id"), primary_key=True)
+    expenditure_id = Column(Integer, ForeignKey("fact_expenditures.expenditure_id", ondelete="CASCADE"), primary_key=True)
     user_id = Column(Integer, ForeignKey("dim_user.user_id"), primary_key=True)
     share_pct = Column(Numeric(5, 4), nullable=False)
     share_amount = Column(Numeric(10, 2), nullable=False)
