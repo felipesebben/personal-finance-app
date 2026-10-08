@@ -13,12 +13,15 @@ jobs:
     # A real Postgres, same major version as docker-compose.yml. The test
     # suite creates its own <DB_NAME>_test database inside it and migrates
     # it with Alembic, so nothing needs seeding here.
+    # Trust auth instead of a password: the container is throwaway and only
+    # reachable from this job, and it keeps secret scanners from flagging a
+    # dummy password in a committed file.
     services:
       postgres:
         image: postgres:15-alpine
         env:
           POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
           POSTGRES_DB: finance
         ports:
           - 5432:5432
@@ -30,7 +33,7 @@ jobs:
 
     env:
       DB_USER: postgres
-      DB_PASSWORD: postgres
+      DB_PASSWORD: ""
       DB_HOST: localhost
       DB_PORT: "5432"
       DB_NAME: finance
