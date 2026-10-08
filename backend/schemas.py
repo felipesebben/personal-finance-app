@@ -133,6 +133,32 @@ class BalanceReport(BaseModel):
     members: List[MemberBalance]
     transfers: List[Transfer]
 
+# -- Monthly Summary Schemas --
+# From the logged-in user's point of view: what they bear (their share of
+# shared expenses plus their personal ones), never the other person's
+# personal spending.
+class AmountBy(BaseModel):
+    label: str
+    amount: Decimal
+
+class MySpending(BaseModel):
+    total: Decimal           # shared_share + personal
+    previous_total: Decimal  # same, for the previous month
+    shared_share: Decimal    # my share of shared expenses
+    personal: Decimal        # my personal expenses
+
+class HouseholdShared(BaseModel):
+    total: Decimal           # full price of shared expenses, whoever paid
+    previous_total: Decimal
+
+class MonthlySummary(BaseModel):
+    month: str               # "YYYY-MM", São Paulo calendar month
+    previous_month: str
+    me: MySpending
+    household_shared: HouseholdShared
+    by_category: List[AmountBy]   # my spending per primary category, largest first
+    by_cost_type: List[AmountBy]  # my spending per cost type, largest first
+
 class Token(BaseModel):
     """
     Schema for the JWT Token response.
