@@ -111,6 +111,28 @@ class ExpenditureRead(BaseModel):
     class Config:
         from_attributes = True
 
+# -- Balance Schemas --
+# Net position over shared expenses: who paid, who bears the cost, and
+# the transfer(s) that would settle the difference.
+class MemberBalance(BaseModel):
+    user_id: int
+    full_name: str | None = None
+    paid: Decimal   # sum of shared expenses this person paid for
+    borne: Decimal  # sum of this person's shares of those expenses
+    net: Decimal    # paid - borne; positive means they are owed money
+
+class Transfer(BaseModel):
+    from_user_id: int
+    from_name: str | None = None
+    to_user_id: int
+    to_name: str | None = None
+    amount: Decimal
+
+class BalanceReport(BaseModel):
+    month: str | None = None  # "YYYY-MM" in São Paulo time, or None for all time
+    members: List[MemberBalance]
+    transfers: List[Transfer]
+
 class Token(BaseModel):
     """
     Schema for the JWT Token response.

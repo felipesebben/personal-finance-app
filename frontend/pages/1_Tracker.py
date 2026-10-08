@@ -204,6 +204,45 @@ else:
                         st.error(f"Error processing request: {e}")
 
 
+# --- Who owes whom ---
+st.divider()
+st.header("⚖️ Who Owes Whom")
+
+today_brl = datetime.datetime.now(ZoneInfo("America/Sao_Paulo")).date()
+month_options = []
+y, m = today_brl.year, today_brl.month
+for _ in range(12):
+    month_options.append(f"{y:04d}-{m:02d}")
+    y, m = (y - 1, 12) if m == 1 else (y, m - 1)
+month_options.append("All time")
+
+selected_period = st.selectbox(
+    "Period", options=month_options, index=0,
+    format_func=lambda p: p if p == "All time" else datetime.date(int(p[:4]), int(p[5:]), 1).strftime("%B %Y"),
+    help="Shared expenses only, split by the household ratio that applied when each one was logged.",
+)
+balance_endpoint = "balances/" if selected_period == "All time" else f"balances/?month={selected_period}"
+balance_report = get_data(balance_endpoint, token)
+
+if balance_report:
+    if balance_report["transfers"]:
+        for t in balance_report["transfers"]:
+            st.success(f"**{t['from_name']}** owes **{t['to_name']}** R$ {float(t['amount']):,.2f}")
+    else:
+        st.info("All square — nobody owes anything for this period.")
+
+    balance_df = pd.DataFrame(balance_report["members"])
+    if not balance_df.empty:
+        for col in ("paid", "borne", "net"):
+            balance_df[col] = pd.to_numeric(balance_df[col])
+        st.dataframe(
+            balance_df[["full_name", "paid", "borne", "net"]].rename(columns={
+                "full_name": "Person", "paid": "Paid", "borne": "Their Share", "net": "Net (+ is owed)",
+            }),
+            width="stretch", hide_index=True,
+            column_config={c: st.column_config.NumberColumn(format="R$ %.2f") for c in ("Paid", "Their Share", "Net (+ is owed)")},
+        )
+
 # --- Dashboard (This can stay outside the else because it handles its own data fetch) ---
 st.divider()
 st.header("📈 Recent Activity")

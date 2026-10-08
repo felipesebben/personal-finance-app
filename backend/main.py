@@ -1,13 +1,13 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from datetime import timedelta
 from jose import JWTError , jwt
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import or_
+from sqlalchemy import or_, func, select
 from sqlalchemy.exc import IntegrityError
 from typing import List
 from decimal import Decimal
-from split_logic import split_amount
+from split_logic import split_amount, settle
 
 from auth import verify_password, create_access_token, get_password_hash, SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 
@@ -277,6 +277,71 @@ def get_expenditures(db: Session = Depends(get_db),
         .all()
     )
     return expenditures
+
+@app.get("/balances/", response_model=schemas.BalanceReport, dependencies=[Depends(get_current_user)])
+def get_balances(
+    month: str | None = Query(None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$", description="YYYY-MM; omit for all time"),
+    db: Session = Depends(get_db),
+):
+    """
+    Net position per household member over shared expenses, and the
+    transfer(s) that would settle it.
+
+    "Shared" here means the expense has an allocation row for someone other
+    than the payer. Personal expenses would net to zero anyway, and leaving
+    them out keeps one person's private spending totals out of the other's view.
+    Months are calendar months in America/Sao_Paulo, matching the ETL.
+    """
+    fact = models.FactExpenditure
+    split = models.FactExpenditureSplit
+
+    shared_ids = (
+        db.query(split.expenditure_id)
+        .join(fact, fact.expenditure_id == split.expenditure_id)
+        .filter(split.user_id != fact.user_id)
+    )
+    if month:
+        local_month = func.to_char(func.timezone("America/Sao_Paulo", fact.transaction_timestamp), "YYYY-MM")
+        shared_ids = shared_ids.filter(local_month == month)
+    shared_ids = shared_ids.distinct().subquery()
+
+    paid = dict(
+        db.query(fact.user_id, func.sum(fact.price))
+        .filter(fact.expenditure_id.in_(select(shared_ids)))
+        .group_by(fact.user_id)
+        .all()
+    )
+    borne = dict(
+        db.query(split.user_id, func.sum(split.share_amount))
+        .filter(split.expenditure_id.in_(select(shared_ids)))
+        .group_by(split.user_id)
+        .all()
+    )
+
+    # Everyone in the household ratio, plus anyone who appears in the period.
+    member_ids = {row.user_id for row in db.query(models.HouseholdSetting.user_id)} | paid.keys() | borne.keys()
+    names = dict(
+        db.query(models.DimUser.user_id, models.DimUser.full_name)
+        .filter(models.DimUser.user_id.in_(member_ids))
+        .all()
+    )
+
+    zero = Decimal("0.00")
+    members = []
+    for uid in sorted(member_ids):
+        p, b = paid.get(uid, zero), borne.get(uid, zero)
+        members.append(schemas.MemberBalance(user_id=uid, full_name=names.get(uid), paid=p, borne=b, net=p - b))
+
+    transfers = [
+        schemas.Transfer(
+            from_user_id=src, from_name=names.get(src),
+            to_user_id=dst, to_name=names.get(dst),
+            amount=amount,
+        )
+        for src, dst, amount in settle({m.user_id: m.net for m in members})
+    ]
+
+    return schemas.BalanceReport(month=month, members=members, transfers=transfers)
 
 # --- Delete Endpoints ---
 

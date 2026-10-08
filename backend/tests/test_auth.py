@@ -14,6 +14,7 @@ PROTECTED_ROUTES = [
     ("delete", "/users/1"),
     ("get", "/household_settings/"),
     ("put", "/household_settings/"),
+    ("get", "/balances/"),
     ("get", "/expenditures/"),
     ("post", "/expenditures/"),
     ("delete", "/expenditures/1"),
