@@ -50,6 +50,33 @@ def send_post_request(endpoint: str, payload: dict, success_message: str):
     except requests.exceptions.ConnectionError:
         st.error("Connection Error: Could not connect to the API.")
 
+def send_put_request(endpoint: str, payload: dict, success_message: str):
+    """
+    Sends a PUT request to the specified API endpoint with authentication headers.
+
+    :param endpoint: The API route endpoint (e.g., "household_settings").
+    :type endpoint: str
+    :param payload: The dictionary containing data to be sent.
+    :type payload: dict
+    :param success_message: The message to display upon success.
+    :type success_message: str
+    :return: None
+    """
+    try:
+        response = requests.put(f"{API_BASE_URL}/{endpoint}/", json=payload, headers=auth_headers)
+        if response.status_code == 200:
+            st.success(success_message)
+            st.cache_data.clear()
+            st.rerun()
+        elif response.status_code == 401:
+            st.error("Session Expired. Please log in again.")
+        elif response.status_code == 400:
+            st.error(f"Error: {response.json().get('detail', response.text)}")
+        else:
+            st.error(f"Error: {response.status_code} – {response.text}")
+    except requests.exceptions.ConnectionError:
+        st.error("Connection Error: Could not connect to the API.")
+
 def delete_item(endpoint: str, item_id: int):
     """
     Sends a DELETE request to remove an item by ID.
@@ -204,6 +231,50 @@ with pm_col2:
             c1.text(f"{pm['method_name']}{institution_label}{credit_tag}")
             if c2.button("🗑️", key=f"del_pm_{pm['payment_method_id']}"):
                 delete_item("payment_methods", pm["payment_method_id"])
+
+# --- Household Split Section ---
+st.divider()
+st.subheader("🏠 Household Split")
+st.caption(
+    "The income-derived share of shared expenses each of you is responsible for. "
+    "Must add up to 100%."
+)
+
+household_settings = get_data("household_settings", st.session_state["access_token"])
+
+if household_settings:
+    sorted_settings = sorted(household_settings, key=lambda s: s["user"]["full_name"])
+    share_inputs = {}
+    hs_cols = st.columns(len(sorted_settings))
+    for col, setting in zip(hs_cols, sorted_settings):
+        with col:
+            share_inputs[setting["user_id"]] = st.number_input(
+                f"{setting['user']['full_name']}'s share (%)",
+                min_value=0.0,
+                max_value=100.0,
+                value=float(setting["share_pct"]) * 100,
+                step=1.0,
+                key=f"share_{setting['user_id']}",
+            )
+
+    total_pct = sum(share_inputs.values())
+    shares_valid = abs(total_pct - 100) < 0.01
+
+    if shares_valid:
+        st.success(f"Shares sum to {total_pct:.2f}%.")
+    else:
+        st.warning(f"Shares must sum to 100% (currently {total_pct:.2f}%).")
+
+    if st.button("Save Household Split", disabled=not shares_valid):
+        payload = {
+            "settings": [
+                {"user_id": user_id, "share_pct": round(pct / 100, 4)}
+                for user_id, pct in share_inputs.items()
+            ]
+        }
+        send_put_request("household_settings", payload, "Household split updated!")
+else:
+    st.info("No household settings found yet.")
 
 # --- ETL Trigger ---
 st.divider()

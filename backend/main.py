@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from typing import List
+from decimal import Decimal
+from split_logic import split_amount
 
 from auth import verify_password, create_access_token, get_password_hash, SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 
@@ -71,7 +73,8 @@ def create_expenditure(
     db: Session = Depends(get_db),
     current_user: models.DimUser = Depends(get_current_user)):
     """
-    Creates an expenditure linked to the logged-in user.
+    Creates an expenditure linked to the logged-in user, along with its
+    allocation row(s) in the same transaction.
     """
     # Remove user_id from the request JSON for fraud prevention.
     expenditure_data = expenditure.model_dump(exclude={"user_id"})
@@ -81,8 +84,47 @@ def create_expenditure(
         user_id=current_user.user_id # Force correct user id
     )
 
-    # Add the new expenditure to the session and commit it to the database
     db.add(db_expenditure)
+    # Flush (not commit) so expenditure_id is assigned without ending
+    # the transaction – the split row(s) below still need to land in
+    # the same commit.
+    db.flush()
+
+    if db_expenditure.is_shared:
+        household = (
+            db.query(models.HouseholdSetting)
+            .order_by(models.HouseholdSetting.user_id)
+            .all()
+        )
+        if not household:
+            # Nothing committed yet, so the flushed expenditure is rolled back too.
+            db.rollback()
+            raise HTTPException(
+                status_code=400,
+                detail="Household split ratio is not configured. Set it on the Manage Settings page first.",
+            )
+        user_ids = [row.user_id for row in household]
+        shares = [row.share_pct for row in household]
+        amounts = split_amount(db_expenditure.price, shares)
+
+        for user_id, share_pct, share_amount in zip(user_ids, shares, amounts):
+            db.add(models.FactExpenditureSplit(
+                expenditure_id=db_expenditure.expenditure_id,
+                user_id=user_id,
+                share_pct=share_pct,
+                share_amount=share_amount,
+                split_source="household_default",
+            ))
+    else:
+        db.add(models.FactExpenditureSplit(
+            expenditure_id=db_expenditure.expenditure_id,
+            user_id=current_user.user_id,
+            share_pct=Decimal("1.0"),
+            share_amount=db_expenditure.price,
+            split_source="not_shared"
+        ))
+
+    # One commit, covering the expenditure and its allocation row(s) together.
     db.commit()
     db.refresh(db_expenditure)
 
@@ -174,6 +216,41 @@ def get_categories(db: Session = Depends(get_db)):
 def get_payment_methods(db: Session = Depends(get_db)):
     payment_methods = db.query(models.DimPaymentMethod).all()
     return payment_methods
+
+@app.get("/household_settings/", response_model=List[schemas.HouseholdSettingRead], dependencies=[Depends(get_current_user)])
+def get_household_settings(db: Session = Depends(get_db)):
+    settings = (
+        db.query(models.HouseholdSetting)
+        .options(joinedload(models.HouseholdSetting.user))
+        .all()
+    )
+    return settings
+
+@app.put("/household_settings/", response_model=List[schemas.HouseholdSettingRead], dependencies=[Depends(get_current_user)])
+def update_household_settings(payload: schemas.HouseholdSettingsUpdate, db: Session = Depends(get_db)):
+    """
+    Replaces the whole set of household shares in one transaction, so the
+    table is never left mid-update with shares that don't sum to 1 (the
+    Pydantic schema already checked that; this checks the user_ids are real).
+    """
+    user_ids = [item.user_id for item in payload.settings]
+    if len(set(user_ids)) != len(user_ids):
+        raise HTTPException(status_code=400, detail="Duplicate user_id in request")
+
+    existing_count = db.query(models.DimUser).filter(models.DimUser.user_id.in_(user_ids)).count()
+    if existing_count != len(user_ids):
+        raise HTTPException(status_code=400, detail="One or more user_id values do not exist")
+
+    db.query(models.HouseholdSetting).delete()
+    for item in payload.settings:
+        db.add(models.HouseholdSetting(user_id=item.user_id, share_pct=item.share_pct))
+    db.commit()
+
+    return (
+        db.query(models.HouseholdSetting)
+        .options(joinedload(models.HouseholdSetting.user))
+        .all()
+    )
 
 @app.get("/expenditures/", response_model=List[schemas.ExpenditureRead])
 def get_expenditures(db: Session = Depends(get_db),

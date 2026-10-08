@@ -56,7 +56,16 @@ docker compose exec backend alembic upgrade head                 # apply
 docker compose exec backend alembic downgrade -1                 # step back one
 ```
 
-There is no test suite, linter, or formatter configured in this repo. Do not invent commands for them.
+Tests (pytest, in `backend/tests/`) run inside the backend container:
+
+```powershell
+docker compose exec backend pytest                                   # whole suite
+docker compose exec backend pytest tests/test_split_logic.py -v      # one file
+```
+
+API tests hit a real Postgres, never SQLite. `tests/conftest.py` points `DB_NAME` at `<DB_NAME>_test` (or `$TEST_DB_NAME`) before anything imports `database`, drops and recreates that database, migrates it with `alembic upgrade head`, truncates every table after each API test, and drops the database at the end. It refuses to run against a name not ending in `_test`. GitHub Actions (`.github/workflows/ci.yml`) runs the same suite against a Postgres service container on every push and PR to `develop`/`main`. Every PR should add tests for what it changes.
+
+There is no linter or formatter configured. Do not invent commands for them.
 
 ## Architecture
 

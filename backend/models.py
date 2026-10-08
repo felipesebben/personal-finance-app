@@ -26,6 +26,13 @@ class DimPaymentMethod(Base):
         UniqueConstraint("method_name", "institution", name="uq_payment_method"),
     )
 
+class HouseholdSetting(Base):
+    __tablename__ = "household_setting"
+    user_id = Column(Integer, ForeignKey("dim_user.user_id"), primary_key=True)
+    share_pct = Column(Numeric(5, 4), nullable=False)
+
+    user = relationship("DimUser")
+
 class DimCategory(Base):
     __tablename__ = "dim_category"
     category_id = Column(Integer, primary_key=True, index=True)
@@ -59,3 +66,18 @@ class FactExpenditure(Base):
     user = relationship("DimUser", back_populates="expenditures")
     category = relationship("DimCategory")
     payment_method = relationship("DimPaymentMethod")
+
+class FactExpenditureSplit(Base):
+    __tablename__ = "fact_expenditure_split"
+
+    expenditure_id = Column(Integer, ForeignKey("fact_expenditures.expenditure_id", ondelete="CASCADE"), primary_key=True)
+    user_id = Column(Integer, ForeignKey("dim_user.user_id"), primary_key=True)
+    share_pct = Column(Numeric(5, 4), nullable=False)
+    share_amount = Column(Numeric(10, 2), nullable=False)
+
+    # split_source = "household_default" (used the current household ratio)
+    # "manual" (this expense's split was deliberately overridden)
+    # "not_shared" (personal expense, not split – one row at 100%)
+    split_source = Column(String, nullable=False)
+    expenditure = relationship("FactExpenditure")
+    user = relationship("DimUser")
