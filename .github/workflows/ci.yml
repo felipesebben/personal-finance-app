@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+
+    # A real Postgres, same major version as docker-compose.yml. The test
+    # suite creates its own <DB_NAME>_test database inside it and migrates
+    # it with Alembic, so nothing needs seeding here.
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: finance
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_HOST: localhost
+      DB_PORT: "5432"
+      DB_NAME: finance
+      SECRET_KEY: ci-only-not-a-real-secret
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Poetry
+        run: pip install poetry
+
+      - name: Install dependencies
+        run: |
+          poetry config virtualenvs.in-project true
+          poetry install --no-root --with dev --no-interaction --no-ansi
+
+      - name: Run tests
+        run: poetry run pytest -v

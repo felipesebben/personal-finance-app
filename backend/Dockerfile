@@ -26,9 +26,9 @@ COPY pyproject.toml poetry.lock ./
 
 # Install project dependencies
 #   - --no-root: don't install the project as a package
-#   - --only-main: skip dev dependencies
+#   - --with dev: include pytest/httpx so tests run inside the container
 RUN poetry config virtualenvs.create false \
-     && poetry install --no-root --only main --no-interaction --no-ansi
+     && poetry install --no-root --with dev --no-interaction --no-ansi
 
 # Copy the rest of the application code into the container
 COPY . .

@@ -96,6 +96,13 @@ def create_expenditure(
             .order_by(models.HouseholdSetting.user_id)
             .all()
         )
+        if not household:
+            # Nothing committed yet, so the flushed expenditure is rolled back too.
+            db.rollback()
+            raise HTTPException(
+                status_code=400,
+                detail="Household split ratio is not configured. Set it on the Manage Settings page first.",
+            )
         user_ids = [row.user_id for row in household]
         shares = [row.share_pct for row in household]
         amounts = split_amount(db_expenditure.price, shares)
