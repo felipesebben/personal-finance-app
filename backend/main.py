@@ -1,9 +1,10 @@
 from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from datetime import timedelta
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from jose import JWTError , jwt
-from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import or_, func, select
+from sqlalchemy.orm import Session, aliased, joinedload
+from sqlalchemy import exists, or_, func, select
 from sqlalchemy.exc import IntegrityError
 from typing import List
 from decimal import Decimal
@@ -19,6 +20,10 @@ from database import SessionLocal
 from etl.main import run_pipeline
 
 app = FastAPI()
+
+# Reporting months are calendar months in the household's timezone.
+SAO_PAULO = ZoneInfo("America/Sao_Paulo")
+MONTH_PATTERN = r"^\d{4}-(0[1-9]|1[0-2])$"
 
 # Send user to login area if they want to login
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
@@ -280,7 +285,7 @@ def get_expenditures(db: Session = Depends(get_db),
 
 @app.get("/balances/", response_model=schemas.BalanceReport, dependencies=[Depends(get_current_user)])
 def get_balances(
-    month: str | None = Query(None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$", description="YYYY-MM; omit for all time"),
+    month: str | None = Query(None, pattern=MONTH_PATTERN, description="YYYY-MM; omit for all time"),
     db: Session = Depends(get_db),
 ):
     """
@@ -342,6 +347,92 @@ def get_balances(
     ]
 
     return schemas.BalanceReport(month=month, members=members, transfers=transfers)
+
+@app.get("/summary/", response_model=schemas.MonthlySummary)
+def get_summary(
+    month: str | None = Query(None, pattern=MONTH_PATTERN, description="YYYY-MM; defaults to the current month"),
+    db: Session = Depends(get_db),
+    current_user: models.DimUser = Depends(get_current_user),
+):
+    """
+    The logged-in user's spending for a month and the one before it: what
+    they bear (their share of shared expenses plus their personal ones),
+    broken down by category and cost type, plus the household's shared total.
+
+    Uses the same definition of "shared" as /balances/ (a split row for
+    someone other than the payer) and São Paulo calendar months.
+    """
+    if month is None:
+        month = datetime.now(SAO_PAULO).strftime("%Y-%m")
+    year, mon = int(month[:4]), int(month[5:])
+    previous = f"{year - 1}-12" if mon == 1 else f"{year}-{mon - 1:02d}"
+
+    fact = models.FactExpenditure
+    split = models.FactExpenditureSplit
+    category = models.DimCategory
+
+    local_month = func.to_char(func.timezone("America/Sao_Paulo", fact.transaction_timestamp), "YYYY-MM")
+    other = aliased(models.FactExpenditureSplit)
+    is_shared = exists().where(other.expenditure_id == fact.expenditure_id, other.user_id != fact.user_id)
+
+    # My allocation rows in both months, pre-aggregated.
+    mine = (
+        db.query(
+            local_month.label("month"),
+            is_shared.label("shared"),
+            func.coalesce(category.primary_category, "Uncategorised").label("category"),
+            func.coalesce(category.cost_type, "Unknown").label("cost_type"),
+            func.sum(split.share_amount).label("amount"),
+        )
+        .join(fact, fact.expenditure_id == split.expenditure_id)
+        .outerjoin(category, category.category_id == fact.category_id)
+        .filter(split.user_id == current_user.user_id, local_month.in_([month, previous]))
+        .group_by("month", "shared", "category", "cost_type")
+        .all()
+    )
+
+    # Full price of shared expenses in both months, whoever paid.
+    household = dict(
+        db.query(local_month, func.sum(fact.price))
+        .filter(is_shared, local_month.in_([month, previous]))
+        .group_by(local_month)
+        .all()
+    )
+
+    zero = Decimal("0.00")
+    shared_share = personal = previous_total = zero
+    by_category: dict[str, Decimal] = {}
+    by_cost_type: dict[str, Decimal] = {}
+    for row in mine:
+        if row.month == previous:
+            previous_total += row.amount
+            continue
+        if row.shared:
+            shared_share += row.amount
+        else:
+            personal += row.amount
+        by_category[row.category] = by_category.get(row.category, zero) + row.amount
+        by_cost_type[row.cost_type] = by_cost_type.get(row.cost_type, zero) + row.amount
+
+    def ranked(totals):
+        return [schemas.AmountBy(label=k, amount=v) for k, v in sorted(totals.items(), key=lambda kv: (-kv[1], kv[0]))]
+
+    return schemas.MonthlySummary(
+        month=month,
+        previous_month=previous,
+        me=schemas.MySpending(
+            total=shared_share + personal,
+            previous_total=previous_total,
+            shared_share=shared_share,
+            personal=personal,
+        ),
+        household_shared=schemas.HouseholdShared(
+            total=household.get(month, zero),
+            previous_total=household.get(previous, zero),
+        ),
+        by_category=ranked(by_category),
+        by_cost_type=ranked(by_cost_type),
+    )
 
 # --- Delete Endpoints ---
 

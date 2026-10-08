@@ -204,9 +204,9 @@ else:
                         st.error(f"Error processing request: {e}")
 
 
-# --- Who owes whom ---
+# --- Monthly overview: my summary + who owes whom, driven by one period picker ---
 st.divider()
-st.header("⚖️ Who Owes Whom")
+st.header("📊 Monthly Overview")
 
 today_brl = datetime.datetime.now(ZoneInfo("America/Sao_Paulo")).date()
 month_options = []
@@ -219,8 +219,60 @@ month_options.append("All time")
 selected_period = st.selectbox(
     "Period", options=month_options, index=0,
     format_func=lambda p: p if p == "All time" else datetime.date(int(p[:4]), int(p[5:]), 1).strftime("%B %Y"),
-    help="Shared expenses only, split by the household ratio that applied when each one was logged.",
+    help="Amounts use the household ratio that applied when each expense was logged.",
 )
+
+
+def brl(value) -> str:
+    return f"R$ {float(value):,.2f}"
+
+
+if selected_period == "All time":
+    st.caption("Pick a month to see your spending summary.")
+else:
+    summary = get_data(f"summary/?month={selected_period}", token)
+    if summary:
+        me, household = summary["me"], summary["household_shared"]
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric(
+            "My spending", brl(me["total"]),
+            delta=f"{float(me['total']) - float(me['previous_total']):+,.2f} vs {summary['previous_month']}",
+            delta_color="inverse",
+            help="Your share of shared expenses plus your personal ones.",
+        )
+        m2.metric("My share of shared", brl(me["shared_share"]))
+        m3.metric("My personal", brl(me["personal"]))
+        m4.metric(
+            "Household shared total", brl(household["total"]),
+            delta=f"{float(household['total']) - float(household['previous_total']):+,.2f} vs {summary['previous_month']}",
+            delta_color="inverse",
+            help="Full price of shared expenses this month, whoever paid.",
+        )
+
+        if summary["by_category"]:
+            c1, c2 = st.columns([2, 1])
+            with c1:
+                st.caption("My spending by category")
+                cat_df = pd.DataFrame(summary["by_category"]).rename(columns={"label": "Category", "amount": "Amount"})
+                cat_df["Amount"] = pd.to_numeric(cat_df["Amount"])
+                st.bar_chart(cat_df, x="Category", y="Amount", horizontal=True, sort="-Amount")
+            with c2:
+                st.caption("Fixed vs variable")
+                ct_df = pd.DataFrame(summary["by_cost_type"]).rename(columns={"label": "Cost Type", "amount": "Amount"})
+                ct_df["Amount"] = pd.to_numeric(ct_df["Amount"])
+                total = ct_df["Amount"].sum()
+                ct_df["Share"] = ct_df["Amount"] / total * 100 if total else 0
+                st.dataframe(
+                    ct_df, width="stretch", hide_index=True,
+                    column_config={
+                        "Amount": st.column_config.NumberColumn(format="R$ %.2f"),
+                        "Share": st.column_config.ProgressColumn(format="%.0f%%", min_value=0, max_value=100),
+                    },
+                )
+        else:
+            st.info("You have no spending logged for this month yet.")
+
+st.subheader("⚖️ Who Owes Whom")
 balance_endpoint = "balances/" if selected_period == "All time" else f"balances/?month={selected_period}"
 balance_report = get_data(balance_endpoint, token)
 
