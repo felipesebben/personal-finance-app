@@ -3,7 +3,7 @@ from decimal import Decimal
 
 import pytest
 
-from split_logic import split_amount
+from split_logic import settle, split_amount
 
 D = Decimal
 
@@ -58,3 +58,32 @@ def test_tolerates_representation_error_in_shares():
     # three thirds stored at 4dp sum to 0.9999 — within tolerance
     amounts = split_amount(D("10.00"), [D("0.3333")] * 3)
     assert sum(amounts) == D("10.00")
+
+
+# --- settle ----------------------------------------------------------------
+
+def test_settle_two_people():
+    assert settle({1: D("40.00"), 2: D("-40.00")}) == [(2, 1, D("40.00"))]
+
+
+def test_settle_already_even():
+    assert settle({1: D("0.00"), 2: D("0.00")}) == []
+
+
+def test_settle_no_members():
+    assert settle({}) == []
+
+
+def test_settle_three_people_clears_every_net():
+    nets = {1: D("50.00"), 2: D("-30.00"), 3: D("-20.00")}
+    transfers = settle(nets)
+    assert transfers == [(2, 1, D("30.00")), (3, 1, D("20.00"))]
+    for src, dst, amount in transfers:
+        nets[src] += amount
+        nets[dst] -= amount
+    assert all(n == 0 for n in nets.values())
+
+
+def test_settle_rejects_nets_that_dont_sum_to_zero():
+    with pytest.raises(ValueError):
+        settle({1: D("40.00"), 2: D("-39.99")})

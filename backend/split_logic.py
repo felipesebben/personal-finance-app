@@ -1,5 +1,5 @@
 from decimal import Decimal, ROUND_HALF_UP
-from typing import List
+from typing import Dict, List, Tuple
 
 def split_amount(total: Decimal, shares: List[Decimal]) -> List[Decimal]:
     """
@@ -40,3 +40,44 @@ def split_amount(total: Decimal, shares: List[Decimal]) -> List[Decimal]:
     amounts.append(remainder)
 
     return amounts
+
+def settle(nets: Dict[int, Decimal]) -> List[Tuple[int, int, Decimal]]:
+    """
+    Turns each person's net position into the transfers that clear it.
+
+    A positive net means the household owes that person money; a negative
+    one means they owe the household. Returns `(from_id, to_id, amount)`
+    transfers, largest debts first, so that after paying them every net is
+    zero. With two people that's at most one transfer.
+
+    Like `split_amount`, this is pure arithmetic with no database access.
+
+    :param nets: net position per user id (paid minus borne).
+    :type nets: Dict[int, Decimal]
+    :raises ValueError: if the nets don't sum to zero - every share of a
+        shared expense is borne by someone, so a non-zero sum means an
+        allocation didn't reconcile with its expense.
+    :return: transfers as (from_user_id, to_user_id, amount).
+    :rtype: List[Tuple[int, int, Decimal]]
+    """
+    total = sum(nets.values(), Decimal("0"))
+    if total != 0:
+        raise ValueError(f"Net positions must sum to zero, got {total}")
+
+    # Sort by size (ties by id, so the output is deterministic).
+    creditors = sorted(([uid, n] for uid, n in nets.items() if n > 0), key=lambda c: (-c[1], c[0]))
+    debtors = sorted(([uid, -n] for uid, n in nets.items() if n < 0), key=lambda d: (-d[1], d[0]))
+
+    transfers = []
+    ci = di = 0
+    while ci < len(creditors) and di < len(debtors):
+        amount = min(creditors[ci][1], debtors[di][1])
+        transfers.append((debtors[di][0], creditors[ci][0], amount))
+        creditors[ci][1] -= amount
+        debtors[di][1] -= amount
+        if creditors[ci][1] == 0:
+            ci += 1
+        if debtors[di][1] == 0:
+            di += 1
+
+    return transfers
