@@ -30,12 +30,12 @@ def get_db_connection():
         print(f"Configuration error: {e}")
         return None
     
-def extract_data():
+def extract_data(engine=None):
     """
-    Step 1: Extract data from Postgres.
+    Step 1: Extract data from Postgres, one row per expenditure.
     """
     print("Connecting to Database...")
-    engine = get_db_connection()
+    engine = engine or get_db_connection()
     if not engine: return None
 
     # Simple query to test the join logic
@@ -69,8 +69,63 @@ def extract_data():
         print(f"Database Extraction Failed: {e}")
         return None
 
+# One row per person per expenditure: who bears what share of each cost.
+# This is the grain per-person analysis should use - summing `share_amount`
+# gives each person's real burden, while summing `price` from the
+# expenditures datasource attributes 100% of a shared cost to the payer.
+# `expense_total` repeats the full price on every row of the same
+# expenditure, so never SUM it here; use share_amount.
+ALLOCATIONS_QUERY = """
+SELECT
+    s.expenditure_id,
+    f.transaction_timestamp AT TIME ZONE 'America/Sao_Paulo' AS transaction_timestamp,
+    date_trunc('month', f.transaction_timestamp AT TIME ZONE 'America/Sao_Paulo')::date AS month_start,
+    bearer.full_name AS borne_by,
+    payer.full_name AS paid_by,
+    s.share_pct,
+    s.share_amount,
+    s.split_source,
+    f.price AS expense_total,
+    f.is_shared,
+    f.nature,
+    f.current_installment,
+    f.total_installments,
+    c.primary_category,
+    c.sub_category,
+    c.cost_type,
+    pm.method_name,
+    pm.institution,
+    pm.is_credit
+FROM fact_expenditure_split s
+JOIN fact_expenditures f ON f.expenditure_id = s.expenditure_id
+JOIN dim_user bearer ON bearer.user_id = s.user_id
+JOIN dim_user payer ON payer.user_id = f.user_id
+LEFT JOIN dim_category c ON c.category_id = f.category_id
+LEFT JOIN dim_payment_method pm ON pm.payment_method_id = f.payment_method_id
+ORDER BY s.expenditure_id, s.user_id;
+"""
+
+
+def extract_allocations(engine=None):
+    """
+    Extracts the allocation grain (one row per person per expenditure).
+    """
+    engine = engine or get_db_connection()
+    if not engine: return None
+
+    try:
+        df = pd.read_sql(ALLOCATIONS_QUERY, engine)
+        if df.empty:
+            print("No allocation rows found.")
+            return None
+        print(f"Extracted {len(df)} allocation rows.")
+        return df
+    except Exception as e:
+        print(f"Allocation Extraction Failed: {e}")
+        return None
+
     # 2. Hyper Logic
-def generate_hyper_file(df, filename="expenditures.hyper"):
+def generate_hyper_file(df, filename="expenditures.hyper", output_dir="artifacts"):
     """
     Step 2: Testing Hyper File Generation
     
@@ -79,15 +134,20 @@ def generate_hyper_file(df, filename="expenditures.hyper"):
     """
     print("Generating Hyper file...")
 
-    # Define a clean subfolder for output
-    output_dir = "artifacts"
-
     # Create the folder if it does not exist
     os.makedirs(output_dir, exist_ok=True)
 
     # Combine folder + filename
     file_path = os.path.join(output_dir, filename)
     
+    # A column that is entirely NULL (e.g. no payment method has an
+    # institution yet) has no inferable type, and Hyper rejects it. Treat
+    # those as text, which is what every nullable dimension column is.
+    df = df.copy()
+    for col in df.columns:
+        if df[col].isna().all():
+            df[col] = df[col].astype("string")
+
     try:
         pantab.frame_to_hyper(df, file_path, table="Expenditures")
 
@@ -116,17 +176,29 @@ def run_pipeline():
         print("Pipeline stopped: Extraction failed.")
         return
     
-    # 2. Transform / Generate File
+    # 2. Transform / Generate Files
+    # The datasource name on Tableau comes from the file name, so these
+    # publish as two datasources: "expenditures" (unchanged, one row per
+    # expense) and "allocations" (one row per person per expense).
+    hyper_files = []
     hyper_file = generate_hyper_file(df)
     if not hyper_file:
         print("Pipeline stopped: Hyper file generation failed.")
         return
-    
+    hyper_files.append(hyper_file)
+
+    allocations_df = extract_allocations()
+    if allocations_df is not None:
+        allocations_file = generate_hyper_file(allocations_df, filename="allocations.hyper")
+        if allocations_file:
+            hyper_files.append(allocations_file)
+
     # 3. Publish
     try:
         print("Publishing to Tableau...")
         manager = TableauManager()
-        manager.publish_hyper(hyper_file, target_project_name="Finance App 2026")
+        for path in hyper_files:
+            manager.publish_hyper(path, target_project_name="Finance App 2026")
         print("ETL Finished Successfully!")
 
     except Exception as e:

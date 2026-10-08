@@ -81,7 +81,12 @@ There is no linter or formatter configured. Do not invent commands for them.
 
 **Splits and balances.** `POST /expenditures/` writes the expenditure and its split rows in one transaction, using the pure `split_logic.split_amount` (last share absorbs the rounding remainder, so parts always sum to the price). `GET /balances/?month=YYYY-MM` reports paid / borne / net per person and the settling transfers (pure `split_logic.settle`). It counts only expenses with a split row for someone other than the payer, so one person's personal spending never appears in the other's view; months are São Paulo calendar months. Keep arithmetic in `split_logic.py`, free of DB access, so it stays unit-testable.
 
-**ETL.** `POST /refresh` calls `etl.main.run_pipeline()` synchronously inside the request: SQL join → pandas → `pantab` writes `artifacts/expenditures.hyper` (relative to cwd, i.e. `backend/artifacts/` in the container) → `etl/tableau_manager.py` signs in with a Personal Access Token and publishes with `Overwrite` into the project named in `run_pipeline` (currently hardcoded `"Finance App 2026"`, *not* the `TABLEAU_PROJECT_NAME` env var). The Analytics page just iframes a hardcoded Tableau Cloud URL. A publish failure re-raises so the endpoint returns 500.
+**ETL.** `POST /refresh` calls `etl.main.run_pipeline()` synchronously inside the request: SQL joins → pandas → `pantab` writes two Hyper files under `artifacts/` (relative to cwd, i.e. `backend/artifacts/` in the container) → `etl/tableau_manager.py` signs in with a Personal Access Token and publishes each with `Overwrite` into the project named in `run_pipeline` (currently hardcoded `"Finance App 2026"`, *not* the `TABLEAU_PROJECT_NAME` env var, whose `.env` value is `Default` — switching to it would publish to the wrong project). The Tableau datasource name comes from the file name:
+
+- `expenditures` — one row per expense, `price` attributed to the payer. Kept unchanged so existing workbooks keep working.
+- `allocations` — one row per person per expense from `fact_expenditure_split`: `borne_by`, `paid_by`, `share_pct`, `share_amount`, `split_source`, `month_start` (São Paulo), plus category/payment/installment columns. Per-person analysis should `SUM(share_amount)` here. `expense_total` repeats the full price on every row of an expense, so never sum it.
+
+`generate_hyper_file` casts all-NULL columns to text, because Hyper rejects a column whose type can't be inferred. The Analytics page just iframes a hardcoded Tableau Cloud URL. A publish failure re-raises so the endpoint returns 500.
 
 ## Schema changes
 
