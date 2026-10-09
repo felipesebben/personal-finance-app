@@ -285,15 +285,99 @@ if balance_report:
 
     balance_df = pd.DataFrame(balance_report["members"])
     if not balance_df.empty:
-        for col in ("paid", "borne", "net"):
+        money_cols = {
+            "paid": "Paid", "borne": "Their Share",
+            "settled_out": "Paid Back", "settled_in": "Received", "net": "Net (+ is owed)",
+        }
+        for col in money_cols:
             balance_df[col] = pd.to_numeric(balance_df[col])
         st.dataframe(
-            balance_df[["full_name", "paid", "borne", "net"]].rename(columns={
-                "full_name": "Person", "paid": "Paid", "borne": "Their Share", "net": "Net (+ is owed)",
-            }),
+            balance_df[["full_name", *money_cols]].rename(columns={"full_name": "Person", **money_cols}),
             width="stretch", hide_index=True,
-            column_config={c: st.column_config.NumberColumn(format="R$ %.2f") for c in ("Paid", "Their Share", "Net (+ is owed)")},
+            column_config={c: st.column_config.NumberColumn(format="R$ %.2f") for c in money_cols.values()},
         )
+
+    # --- Record a payment between the two of you ---
+    members = {m["user_id"]: m["full_name"] for m in balance_report["members"]}
+    suggestion = balance_report["transfers"][0] if balance_report["transfers"] else None
+    period_label = "the running all-time balance" if selected_period == "All time" else selected_period
+
+    if len(members) >= 2:
+        with st.expander("💸 Record a payment", expanded=False):
+            st.caption(f"Squares up **{period_label}**. Pre-filled with what's currently owed.")
+            member_ids = list(members)
+            with st.form("settlement_form", clear_on_submit=True):
+                f1, f2 = st.columns(2)
+                from_id = f1.selectbox(
+                    "From", member_ids, format_func=members.get,
+                    index=member_ids.index(suggestion["from_user_id"]) if suggestion else 0,
+                )
+                to_id = f2.selectbox(
+                    "To", member_ids, format_func=members.get,
+                    index=member_ids.index(suggestion["to_user_id"]) if suggestion else 1,
+                )
+                f3, f4 = st.columns(2)
+                amount = f3.number_input(
+                    "Amount", min_value=0.0, format="%.2f",
+                    value=float(suggestion["amount"]) if suggestion else 0.0,
+                )
+                paid_on = f4.date_input("Paid on", today_brl, format="DD/MM/YYYY")
+                note = st.text_input("Note (optional)", placeholder="e.g. Pix transfer")
+
+                if st.form_submit_button("Record Payment", type="primary"):
+                    if from_id == to_id:
+                        st.error("⚠️ From and To must be different people.")
+                    elif amount <= 0:
+                        st.error("⚠️ Amount must be greater than zero.")
+                    else:
+                        now_brl = datetime.datetime.now(ZoneInfo("America/Sao_Paulo"))
+                        payload = {
+                            "settled_at": datetime.datetime.combine(paid_on, now_brl.time(), tzinfo=ZoneInfo("America/Sao_Paulo")).isoformat(),
+                            "from_user_id": from_id,
+                            "to_user_id": to_id,
+                            "amount": f"{amount:.2f}",
+                            "month": None if selected_period == "All time" else selected_period,
+                            "note": note or None,
+                        }
+                        res = requests.post(f"{API_BASE_URL}/settlements/", json=payload, headers=auth_headers)
+                        if res.status_code == 200:
+                            st.success("Payment recorded! ✅")
+                            st.cache_data.clear()
+                            st.rerun()
+                        else:
+                            st.error(f"Error: {res.status_code} – {res.json().get('detail', res.text)}")
+
+    # --- Past payments for this period ---
+    settlements_endpoint = "settlements/" if selected_period == "All time" else f"settlements/?month={selected_period}"
+    settlements = get_data(settlements_endpoint, token)
+    if settlements:
+        with st.expander(f"🧾 Payments recorded ({len(settlements)})"):
+            st_df = pd.DataFrame(settlements)
+            st_df["amount"] = pd.to_numeric(st_df["amount"])
+            st_df["settled_at"] = pd.to_datetime(st_df["settled_at"], utc=True).dt.tz_convert("America/Sao_Paulo")
+            st.dataframe(
+                st_df.assign(settled_at=st_df["settled_at"].dt.strftime("%d/%m/%Y"))[
+                    ["settled_at", "from_name", "to_name", "amount", "month", "note"]
+                ].rename(columns={
+                    "settled_at": "Paid On", "from_name": "From", "to_name": "To",
+                    "amount": "Amount", "month": "For Month", "note": "Note",
+                }),
+                width="stretch", hide_index=True,
+                column_config={"Amount": st.column_config.NumberColumn(format="R$ %.2f")},
+            )
+            labels = {
+                row["settlement_id"]: f"{row['settled_at'].strftime('%d/%m')} – {row['from_name']} → {row['to_name']} R$ {row['amount']:,.2f}"
+                for _, row in st_df.iterrows()
+            }
+            target = st.selectbox("Remove a payment entered by mistake:", options=list(labels), format_func=labels.get, index=None)
+            if st.button("Delete Payment") and target:
+                res = requests.delete(f"{API_BASE_URL}/settlements/{target}", headers=auth_headers)
+                if res.status_code == 200:
+                    st.success("Payment removed.")
+                    st.cache_data.clear()
+                    st.rerun()
+                else:
+                    st.error(f"Error: {res.status_code} – {res.json().get('detail', res.text)}")
 
 # --- Dashboard (This can stay outside the else because it handles its own data fetch) ---
 st.divider()

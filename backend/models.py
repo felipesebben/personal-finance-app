@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Boolean, Integer, Numeric, DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy import Column, Boolean, CheckConstraint, Date, Integer, Numeric, DateTime, ForeignKey, String, UniqueConstraint, func
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -81,3 +81,34 @@ class FactExpenditureSplit(Base):
     split_source = Column(String, nullable=False)
     expenditure = relationship("FactExpenditure")
     user = relationship("DimUser")
+
+
+class FactSettlement(Base):
+    """
+    Money moved between household members to square up shared expenses.
+    Subtracts out of the /balances/ net position: when Bob pays Alice 40,
+    Bob's net rises by 40 and Alice's falls by 40.
+    """
+    __tablename__ = "fact_settlement"
+
+    settlement_id = Column(Integer, primary_key=True, index=True)
+    # When the money actually moved.
+    settled_at = Column(DateTime(timezone=True), nullable=False)
+    # Which month's balance this squares up (first day of that month), or
+    # NULL for a payment against the running all-time balance. Kept apart
+    # from settled_at because October is usually settled in early November.
+    period_month = Column(Date, nullable=True)
+    from_user_id = Column(Integer, ForeignKey("dim_user.user_id"), nullable=False)
+    to_user_id = Column(Integer, ForeignKey("dim_user.user_id"), nullable=False)
+    amount = Column(Numeric(10, 2), nullable=False)
+    note = Column(String, nullable=True)
+    recorded_by_user_id = Column(Integer, ForeignKey("dim_user.user_id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="ck_settlement_amount_positive"),
+        CheckConstraint("from_user_id <> to_user_id", name="ck_settlement_distinct_users"),
+    )
+
+    from_user = relationship("DimUser", foreign_keys=[from_user_id])
+    to_user = relationship("DimUser", foreign_keys=[to_user_id])
