@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 from datetime import datetime
 from decimal import Decimal
 from typing import List
@@ -119,7 +119,9 @@ class MemberBalance(BaseModel):
     full_name: str | None = None
     paid: Decimal   # sum of shared expenses this person paid for
     borne: Decimal  # sum of this person's shares of those expenses
-    net: Decimal    # paid - borne; positive means they are owed money
+    settled_out: Decimal = Decimal("0.00")  # settlements this person paid to others
+    settled_in: Decimal = Decimal("0.00")   # settlements this person received
+    net: Decimal    # paid - borne + settled_out - settled_in; positive means they are owed money
 
 class Transfer(BaseModel):
     from_user_id: int
@@ -132,6 +134,34 @@ class BalanceReport(BaseModel):
     month: str | None = None  # "YYYY-MM" in São Paulo time, or None for all time
     members: List[MemberBalance]
     transfers: List[Transfer]
+
+# -- Settlement Schemas --
+class SettlementCreate(BaseModel):
+    settled_at: datetime
+    from_user_id: int
+    to_user_id: int
+    amount: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
+    # "YYYY-MM": the month whose balance this squares up. Omit for a payment
+    # against the running all-time balance.
+    month: str | None = Field(None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
+    note: str | None = None
+
+    @model_validator(mode="after")
+    def distinct_users(self):
+        if self.from_user_id == self.to_user_id:
+            raise ValueError("from_user_id and to_user_id must be different people")
+        return self
+
+class SettlementRead(BaseModel):
+    settlement_id: int
+    settled_at: datetime
+    month: str | None = None
+    from_user_id: int
+    from_name: str | None = None
+    to_user_id: int
+    to_name: str | None = None
+    amount: Decimal
+    note: str | None = None
 
 # -- Monthly Summary Schemas --
 # From the logged-in user's point of view: what they bear (their share of

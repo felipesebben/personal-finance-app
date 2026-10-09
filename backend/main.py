@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from jose import JWTError , jwt
 from sqlalchemy.orm import Session, aliased, joinedload
@@ -24,6 +24,11 @@ app = FastAPI()
 # Reporting months are calendar months in the household's timezone.
 SAO_PAULO = ZoneInfo("America/Sao_Paulo")
 MONTH_PATTERN = r"^\d{4}-(0[1-9]|1[0-2])$"
+
+
+def month_start(month: str) -> date:
+    """'2026-10' -> date(2026, 10, 1)."""
+    return date(int(month[:4]), int(month[5:]), 1)
 
 # Send user to login area if they want to login
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
@@ -289,8 +294,8 @@ def get_balances(
     db: Session = Depends(get_db),
 ):
     """
-    Net position per household member over shared expenses, and the
-    transfer(s) that would settle it.
+    Net position per household member over shared expenses, minus what has
+    already been settled, and the transfer(s) that would settle the rest.
 
     "Shared" here means the expense has an allocation row for someone other
     than the payer. Personal expenses would net to zero anyway, and leaving
@@ -323,8 +328,22 @@ def get_balances(
         .all()
     )
 
+    # Settlements for the same period subtract out of the position:
+    # paying someone back raises your net, receiving it lowers theirs.
+    settlements = db.query(models.FactSettlement)
+    if month:
+        settlements = settlements.filter(models.FactSettlement.period_month == month_start(month))
+    settled_out: dict[int, Decimal] = {}
+    settled_in: dict[int, Decimal] = {}
+    for s in settlements:
+        settled_out[s.from_user_id] = settled_out.get(s.from_user_id, Decimal("0")) + s.amount
+        settled_in[s.to_user_id] = settled_in.get(s.to_user_id, Decimal("0")) + s.amount
+
     # Everyone in the household ratio, plus anyone who appears in the period.
-    member_ids = {row.user_id for row in db.query(models.HouseholdSetting.user_id)} | paid.keys() | borne.keys()
+    member_ids = (
+        {row.user_id for row in db.query(models.HouseholdSetting.user_id)}
+        | paid.keys() | borne.keys() | settled_out.keys() | settled_in.keys()
+    )
     names = dict(
         db.query(models.DimUser.user_id, models.DimUser.full_name)
         .filter(models.DimUser.user_id.in_(member_ids))
@@ -335,7 +354,12 @@ def get_balances(
     members = []
     for uid in sorted(member_ids):
         p, b = paid.get(uid, zero), borne.get(uid, zero)
-        members.append(schemas.MemberBalance(user_id=uid, full_name=names.get(uid), paid=p, borne=b, net=p - b))
+        out, inc = settled_out.get(uid, zero), settled_in.get(uid, zero)
+        members.append(schemas.MemberBalance(
+            user_id=uid, full_name=names.get(uid),
+            paid=p, borne=b, settled_out=out, settled_in=inc,
+            net=p - b + out - inc,
+        ))
 
     transfers = [
         schemas.Transfer(
@@ -433,6 +457,91 @@ def get_summary(
         by_category=ranked(by_category),
         by_cost_type=ranked(by_cost_type),
     )
+
+# --- Settlements ---
+
+def settlement_read(s: models.FactSettlement) -> schemas.SettlementRead:
+    return schemas.SettlementRead(
+        settlement_id=s.settlement_id,
+        settled_at=s.settled_at,
+        month=s.period_month.strftime("%Y-%m") if s.period_month else None,
+        from_user_id=s.from_user_id, from_name=s.from_user.full_name,
+        to_user_id=s.to_user_id, to_name=s.to_user.full_name,
+        amount=s.amount,
+        note=s.note,
+    )
+
+
+@app.post("/settlements/", response_model=schemas.SettlementRead)
+def create_settlement(
+    payload: schemas.SettlementCreate,
+    db: Session = Depends(get_db),
+    current_user: models.DimUser = Depends(get_current_user),
+):
+    """
+    Records money moved between two household members. You can only record
+    a payment you made or received.
+    """
+    if current_user.user_id not in (payload.from_user_id, payload.to_user_id):
+        raise HTTPException(status_code=403, detail="You can only record a payment you made or received")
+
+    found = db.query(models.DimUser).filter(
+        models.DimUser.user_id.in_([payload.from_user_id, payload.to_user_id])
+    ).count()
+    if found != 2:
+        raise HTTPException(status_code=400, detail="One or more user_id values do not exist")
+
+    settlement = models.FactSettlement(
+        settled_at=payload.settled_at,
+        period_month=month_start(payload.month) if payload.month else None,
+        from_user_id=payload.from_user_id,
+        to_user_id=payload.to_user_id,
+        amount=payload.amount,
+        note=payload.note,
+        recorded_by_user_id=current_user.user_id,
+    )
+    db.add(settlement)
+    db.commit()
+    db.refresh(settlement)
+    return settlement_read(settlement)
+
+
+@app.get("/settlements/", response_model=List[schemas.SettlementRead], dependencies=[Depends(get_current_user)])
+def get_settlements(
+    month: str | None = Query(None, pattern=MONTH_PATTERN, description="YYYY-MM; omit for all"),
+    db: Session = Depends(get_db),
+):
+    """Settlements, newest first; with `month`, only those squaring up that month."""
+    query = (
+        db.query(models.FactSettlement)
+        .options(joinedload(models.FactSettlement.from_user), joinedload(models.FactSettlement.to_user))
+    )
+    if month:
+        query = query.filter(models.FactSettlement.period_month == month_start(month))
+    return [settlement_read(s) for s in query.order_by(models.FactSettlement.settled_at.desc()).all()]
+
+
+@app.delete("/settlements/{settlement_id}")
+def delete_settlement(
+    settlement_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.DimUser = Depends(get_current_user),
+):
+    """Deletes a settlement entered by mistake; only its payer or payee can."""
+    settlement = (
+        db.query(models.FactSettlement)
+        .filter(models.FactSettlement.settlement_id == settlement_id)
+        .filter(or_(
+            models.FactSettlement.from_user_id == current_user.user_id,
+            models.FactSettlement.to_user_id == current_user.user_id,
+        ))
+        .first()
+    )
+    if not settlement:
+        raise HTTPException(status_code=404, detail="Settlement not found (or you don't have permission)")
+    db.delete(settlement)
+    db.commit()
+    return {"message": "Settlement deleted"}
 
 # --- Delete Endpoints ---
 

@@ -62,7 +62,7 @@ def clean_tables(request):
         return
     with database.engine.begin() as conn:
         conn.execute(text(
-            "TRUNCATE fact_expenditure_split, fact_expenditures, household_setting, "
+            "TRUNCATE fact_settlement, fact_expenditure_split, fact_expenditures, household_setting, "
             "dim_category, dim_payment_method, dim_user RESTART IDENTITY CASCADE"
         ))
 
