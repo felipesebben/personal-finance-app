@@ -21,7 +21,20 @@ tableauserverclient = "^0.30"
 python-jose = {extras = ["cryptography"], version = "^3.5.0"}
 python-multipart = "^0.0.22"
 bcrypt = "^5.0.0"
+alembic = "^1.19.1"
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[dependency-groups]
+dev = [
+    "pytest (>=9.1.1,<10.0.0)",
+    "httpx (>=0.28.1,<0.29.0)"
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Imports in this project are flat ("import models"), so the backend root
+# has to be on sys.path for tests the same way it is for uvicorn.
+pythonpath = ["."]

@@ -1,16 +1,22 @@
 import bcrypt
 from datetime import datetime, timedelta, timezone
+from dotenv import load_dotenv
 from jose import JWTError, jwt
 from typing import Optional
 import os
 
-# 1. Setup password hashing
+load_dotenv()
 
-
-# 2. Configuration (come from .env when in prod)
-SECRET_KEY= os.getenv("SECRET_KEY", "super_secret_key_for_dev_only_change_me")
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+        raise RuntimeError(
+             "SECRET_KEY is not set. Generate one with: \n"
+             '  python -c "import secrets; print(secrets.token_urlsafe(32))"\n'
+             "then add it to the .env at the repo root."
+        )
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
 
 def verify_password(plain_password, hashed_password):
     """

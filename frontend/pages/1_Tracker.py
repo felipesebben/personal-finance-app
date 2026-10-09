@@ -107,6 +107,20 @@ else:
             label_primary="Payment Method", label_secondary="Institution",
             df=payment_methods_df, col_primary="method_name", col_secondary="institution", force_na_if="Cash"
         )
+
+        # Dynamic installment logic
+        current_inst = 1
+        total_inst = 1
+
+        if selected_method_name:
+            matched_pm = payment_methods_df[payment_methods_df["method_name"] == selected_method_name]
+            is_credit = bool(matched_pm["is_credit"].iloc[0]) if not matched_pm.empty and "is_credit" in payment_methods_df.columns else False
+            if is_credit:
+                st.caption("💳 Credit Card — Installments")
+                col_inst1, col_inst2 = st.columns(2)
+                current_inst = col_inst1.number_input("Current Installment", min_value=1, value=1, help="Which installment are you paying now?")
+                total_inst = col_inst2.number_input("Total Installments", min_value=1, value=1, help="1/1 = one-time or recurring. N/M = installment N of M.")
+
   
         st.write("---")
         is_shared = st.toggle("Shared Household Expense?", value=True, help="Leave ON if split between couple.")
@@ -122,7 +136,13 @@ else:
         )
         
         st.write("---")
-        is_extraordinary = st.checkbox("Extraordinary Event?", help="Outlier/Emergency expense.")
+        nature_option = st.radio(
+            "Nature",
+            options=["Normal", "Extraordinary", "Recurring", "Annual"],
+            index=0,
+            horizontal=True,
+            help="Normal: everyday | Extraordinary: unplanned/emergency | Recurring: monthly subscription | Annual: once-a-year (IPVA, IPTU)"
+        )
     
         # --- Submit button ---
         if categories_df.empty or payment_methods_df.empty:
@@ -165,9 +185,11 @@ else:
                             "price": price,
                             "category_id": int(category_id),
                             "payment_method_id": int(payment_method_id),
-                            "nature": "Extraordinary" if is_extraordinary else "Normal",
+                            "nature": nature_option,
                             "is_shared": is_shared,
-                            "user_id": 0 # Backend handles this via token
+                            "user_id": 0, # Backend handles this via token
+                            "current_installment": current_inst,
+                            "total_installments": total_inst
                         }
 
                         # 4. Request
@@ -182,6 +204,97 @@ else:
                         st.error(f"Error processing request: {e}")
 
 
+# --- Monthly overview: my summary + who owes whom, driven by one period picker ---
+st.divider()
+st.header("📊 Monthly Overview")
+
+today_brl = datetime.datetime.now(ZoneInfo("America/Sao_Paulo")).date()
+month_options = []
+y, m = today_brl.year, today_brl.month
+for _ in range(12):
+    month_options.append(f"{y:04d}-{m:02d}")
+    y, m = (y - 1, 12) if m == 1 else (y, m - 1)
+month_options.append("All time")
+
+selected_period = st.selectbox(
+    "Period", options=month_options, index=0,
+    format_func=lambda p: p if p == "All time" else datetime.date(int(p[:4]), int(p[5:]), 1).strftime("%B %Y"),
+    help="Amounts use the household ratio that applied when each expense was logged.",
+)
+
+
+def brl(value) -> str:
+    return f"R$ {float(value):,.2f}"
+
+
+if selected_period == "All time":
+    st.caption("Pick a month to see your spending summary.")
+else:
+    summary = get_data(f"summary/?month={selected_period}", token)
+    if summary:
+        me, household = summary["me"], summary["household_shared"]
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric(
+            "My spending", brl(me["total"]),
+            delta=f"{float(me['total']) - float(me['previous_total']):+,.2f} vs {summary['previous_month']}",
+            delta_color="inverse",
+            help="Your share of shared expenses plus your personal ones.",
+        )
+        m2.metric("My share of shared", brl(me["shared_share"]))
+        m3.metric("My personal", brl(me["personal"]))
+        m4.metric(
+            "Household shared total", brl(household["total"]),
+            delta=f"{float(household['total']) - float(household['previous_total']):+,.2f} vs {summary['previous_month']}",
+            delta_color="inverse",
+            help="Full price of shared expenses this month, whoever paid.",
+        )
+
+        if summary["by_category"]:
+            c1, c2 = st.columns([2, 1])
+            with c1:
+                st.caption("My spending by category")
+                cat_df = pd.DataFrame(summary["by_category"]).rename(columns={"label": "Category", "amount": "Amount"})
+                cat_df["Amount"] = pd.to_numeric(cat_df["Amount"])
+                st.bar_chart(cat_df, x="Category", y="Amount", horizontal=True, sort="-Amount")
+            with c2:
+                st.caption("Fixed vs variable")
+                ct_df = pd.DataFrame(summary["by_cost_type"]).rename(columns={"label": "Cost Type", "amount": "Amount"})
+                ct_df["Amount"] = pd.to_numeric(ct_df["Amount"])
+                total = ct_df["Amount"].sum()
+                ct_df["Share"] = ct_df["Amount"] / total * 100 if total else 0
+                st.dataframe(
+                    ct_df, width="stretch", hide_index=True,
+                    column_config={
+                        "Amount": st.column_config.NumberColumn(format="R$ %.2f"),
+                        "Share": st.column_config.ProgressColumn(format="%.0f%%", min_value=0, max_value=100),
+                    },
+                )
+        else:
+            st.info("You have no spending logged for this month yet.")
+
+st.subheader("⚖️ Who Owes Whom")
+balance_endpoint = "balances/" if selected_period == "All time" else f"balances/?month={selected_period}"
+balance_report = get_data(balance_endpoint, token)
+
+if balance_report:
+    if balance_report["transfers"]:
+        for t in balance_report["transfers"]:
+            st.success(f"**{t['from_name']}** owes **{t['to_name']}** R$ {float(t['amount']):,.2f}")
+    else:
+        st.info("All square — nobody owes anything for this period.")
+
+    balance_df = pd.DataFrame(balance_report["members"])
+    if not balance_df.empty:
+        for col in ("paid", "borne", "net"):
+            balance_df[col] = pd.to_numeric(balance_df[col])
+        st.dataframe(
+            balance_df[["full_name", "paid", "borne", "net"]].rename(columns={
+                "full_name": "Person", "paid": "Paid", "borne": "Their Share", "net": "Net (+ is owed)",
+            }),
+            width="stretch", hide_index=True,
+            column_config={c: st.column_config.NumberColumn(format="R$ %.2f") for c in ("Paid", "Their Share", "Net (+ is owed)")},
+        )
+
 # --- Dashboard (This can stay outside the else because it handles its own data fetch) ---
 st.divider()
 st.header("📈 Recent Activity")
@@ -193,7 +306,10 @@ if not expenditure_data:
     st.info("No expenditures found.")
 else:
     all_expenditures_df = pd.json_normalize(expenditure_data)
-    
+    # Prices arrive as JSON strings as the API currently uses Decimal.
+    # Convert it once so every consumer gets a real number.
+    if "price" in all_expenditures_df.columns:
+        all_expenditures_df["price"] = pd.to_numeric(all_expenditures_df["price"])
     if "transaction_timestamp" in all_expenditures_df.columns:
         all_expenditures_df["transaction_timestamp"] = pd.to_datetime(all_expenditures_df["transaction_timestamp"])
         

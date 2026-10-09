@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Boolean, Integer, Float, DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy import Column, Boolean, Integer, Numeric, DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -20,10 +20,18 @@ class DimPaymentMethod(Base):
     payment_method_id = Column(Integer, primary_key=True)
     method_name = Column(String(255), nullable=False)
     institution = Column(String(255), nullable=True)
+    is_credit = Column(Boolean, default=False)
 
     __table_args__ = (
         UniqueConstraint("method_name", "institution", name="uq_payment_method"),
     )
+
+class HouseholdSetting(Base):
+    __tablename__ = "household_setting"
+    user_id = Column(Integer, ForeignKey("dim_user.user_id"), primary_key=True)
+    share_pct = Column(Numeric(5, 4), nullable=False)
+
+    user = relationship("DimUser")
 
 class DimCategory(Base):
     __tablename__ = "dim_category"
@@ -41,13 +49,16 @@ class FactExpenditure(Base):
 
     expenditure_id = Column(Integer, primary_key=True, index=True)
     transaction_timestamp = Column(DateTime(timezone=True), nullable=False)
-    price = Column(Float, nullable=False)
+    price = Column(Numeric(10, 2), nullable=False)
     nature = Column(String, default="Normal")
     is_shared = Column(Boolean, default=True)
 
+    # Installment tracking
+    current_installment = Column(Integer, default=1)
+    total_installments = Column(Integer, default=1)
+
     # Foreign keys
     user_id = Column(Integer, ForeignKey("dim_user.user_id"), nullable=False)
-    
     category_id = Column(Integer, ForeignKey("dim_category.category_id"))
     payment_method_id = Column(Integer, ForeignKey("dim_payment_method.payment_method_id"))
 
@@ -55,3 +66,18 @@ class FactExpenditure(Base):
     user = relationship("DimUser", back_populates="expenditures")
     category = relationship("DimCategory")
     payment_method = relationship("DimPaymentMethod")
+
+class FactExpenditureSplit(Base):
+    __tablename__ = "fact_expenditure_split"
+
+    expenditure_id = Column(Integer, ForeignKey("fact_expenditures.expenditure_id", ondelete="CASCADE"), primary_key=True)
+    user_id = Column(Integer, ForeignKey("dim_user.user_id"), primary_key=True)
+    share_pct = Column(Numeric(5, 4), nullable=False)
+    share_amount = Column(Numeric(10, 2), nullable=False)
+
+    # split_source = "household_default" (used the current household ratio)
+    # "manual" (this expense's split was deliberately overridden)
+    # "not_shared" (personal expense, not split – one row at 100%)
+    split_source = Column(String, nullable=False)
+    expenditure = relationship("FactExpenditure")
+    user = relationship("DimUser")

@@ -10,7 +10,8 @@ CREATE TABLE Dim_Person (
 CREATE TABLE Dim_PaymentMethod (
     PaymentMethodID SERIAL PRIMARY KEY,
     MethodName VARCHAR(255) NOT NULL,
-    Institution VARCHAR(255)
+    Institution VARCHAR(255),
+    IsCredit BOOLEAN DEFAULT FALSE
 );
 
 -- Dimension: Category
