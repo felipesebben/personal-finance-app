@@ -63,6 +63,8 @@ docker compose exec backend pytest                                   # whole sui
 docker compose exec backend pytest tests/test_split_logic.py -v      # one file
 ```
 
+Frontend tests (pytest, in `frontend/tests/`) need no database or API: pure helpers such as `frontend/money.py` (`parse_brl` / `format_brl`: every amount the UI reads or shows goes through them, as Decimal) and `streamlit.testing.v1.AppTest` page smoke tests. Run them on the host with `cd frontend && poetry install --with dev && poetry run pytest`; CI runs them as the `frontend-tests` job.
+
 API tests hit a real Postgres, never SQLite. `tests/conftest.py` points `DB_NAME` at `<DB_NAME>_test` (or `$TEST_DB_NAME`) before anything imports `database`, drops and recreates that database, migrates it with `alembic upgrade head`, truncates every table after each API test, and drops the database at the end. It refuses to run against a name not ending in `_test`. GitHub Actions (`.github/workflows/ci.yml`) runs the same suite against a Postgres service container on every push and PR to `develop`/`main`. Every PR should add tests for what it changes.
 
 There is no linter or formatter configured. Do not invent commands for them.
