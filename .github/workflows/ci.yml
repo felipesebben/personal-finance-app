@@ -60,3 +60,30 @@ jobs:
 
       - name: Run tests
         run: poetry run pytest -v
+
+  # The Streamlit side has no database: pure helpers (money.py) and page
+  # smoke tests with streamlit.testing.AppTest, which never reach the API.
+  frontend-tests:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Poetry
+        run: pip install poetry
+
+      - name: Install dependencies
+        run: |
+          poetry config virtualenvs.in-project true
+          poetry install --no-root --with dev --no-interaction --no-ansi
+
+      - name: Run tests
+        run: poetry run pytest -v
