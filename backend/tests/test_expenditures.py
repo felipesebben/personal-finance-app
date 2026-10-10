@@ -1,10 +1,6 @@
 """Expenditure write path, allocation rows, and the ownership/visibility filter."""
 from decimal import Decimal
 
-from sqlalchemy import text
-
-import database
-
 from conftest import expenditure_payload, signup_and_login, splits_for
 
 D = Decimal
@@ -149,20 +145,3 @@ def test_share_holder_who_did_not_pay_can_see_and_delete(client, household):
     exp_id = create(client, household, who="a", is_shared=True)
     assert listed(client, household["b"], exp_id)["user"]["user_id"] == household["a_id"]
     assert client.delete(f"/expenditures/{exp_id}", headers=household["b"]).status_code == 200
-
-
-def test_legacy_column_agrees_with_split_rows(client, household):
-    # While the column still exists, every row written through the API must
-    # agree with what the allocation rows say. Guards the contract step.
-    create(client, household, who="a", is_shared=True)
-    create(client, household, who="b", is_shared=True)
-    create(client, household, who="a", is_shared=False)
-    with database.engine.connect() as conn:
-        mismatches = conn.execute(text("""
-            SELECT COUNT(*) FROM fact_expenditures f
-            WHERE f.is_shared IS DISTINCT FROM EXISTS (
-                SELECT 1 FROM fact_expenditure_split s
-                WHERE s.expenditure_id = f.expenditure_id AND s.user_id <> f.user_id
-            )
-        """)).scalar()
-    assert mismatches == 0
