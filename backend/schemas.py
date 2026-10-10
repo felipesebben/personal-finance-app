@@ -80,6 +80,11 @@ class HouseholdSettingsUpdate(BaseModel):
         return settings
 
 # -- Expenditure Schema --
+class ShareItem(BaseModel):
+    """One person's fraction of a single expense, when overriding the household ratio."""
+    user_id: int
+    share_pct: Decimal = Field(gt=0, le=1, max_digits=5, decimal_places=4)
+
 class ExpenditureCreate(BaseModel):
     transaction_timestamp: datetime
     price: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
@@ -88,6 +93,10 @@ class ExpenditureCreate(BaseModel):
     payment_method_id: int
     nature: str = "Normal"
     is_shared: bool = True
+    # Optional per-expense split ("this one's on her", "70/30 this time"),
+    # used instead of the household ratio and stored as split_source "manual".
+    # Only valid on a shared expense; omit to use the household ratio.
+    shares: List[ShareItem] | None = None
 
     # Tell API to accept these (with defaults)
     current_installment: int = 1
@@ -95,6 +104,22 @@ class ExpenditureCreate(BaseModel):
 
     class Config:
         from_attributes = True # Changed from orm_mode
+
+    @model_validator(mode="after")
+    def shares_are_a_valid_split(self):
+        if self.shares is None:
+            return self
+        if not self.is_shared:
+            raise ValueError("shares can only be given for a shared expense (is_shared true)")
+        if not self.shares:
+            raise ValueError("shares must not be empty; omit it to use the household ratio")
+        ids = [s.user_id for s in self.shares]
+        if len(set(ids)) != len(ids):
+            raise ValueError("shares must name each person at most once")
+        total = sum(s.share_pct for s in self.shares)
+        if abs(total - 1) > Decimal("0.0001"):
+            raise ValueError(f"share_pct values must sum to 1, got {total}")
+        return self
 
 class ExpenditureRead(BaseModel):
     expenditure_id: int
