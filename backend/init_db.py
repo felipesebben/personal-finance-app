@@ -1,16 +1,14 @@
-import os
 import psycopg2
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
-from dotenv import load_dotenv
 
-load_dotenv()
+from config import settings
 
-# Load database configuration from .env file
-DB_USER = os.getenv("DB_USER")
-DB_PASSWORD = os.getenv("DB_PASSWORD")
-DB_HOST = os.getenv("DB_HOST")
-DB_PORT = os.getenv("DB_PORT")
-DB_NAME = os.getenv("DB_NAME")
+# Load database configuration from config.settings (environment / .env)
+DB_USER = settings.db_user
+DB_PASSWORD = settings.db_password.get_secret_value()
+DB_HOST = settings.db_host
+DB_PORT = settings.db_port
+DB_NAME = settings.db_name
 
 try:
     # Connect to the default 'postgres' database

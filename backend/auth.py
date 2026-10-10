@@ -1,21 +1,14 @@
 import bcrypt
 from datetime import datetime, timedelta, timezone
-from dotenv import load_dotenv
 from jose import JWTError, jwt
 from typing import Optional
-import os
 
-load_dotenv()
+from config import settings
 
-SECRET_KEY = os.getenv("SECRET_KEY")
-if not SECRET_KEY:
-        raise RuntimeError(
-             "SECRET_KEY is not set. Generate one with: \n"
-             '  python -c "import secrets; print(secrets.token_urlsafe(32))"\n'
-             "then add it to the .env at the repo root."
-        )
+# config.settings refuses to start without a non-empty SECRET_KEY.
+SECRET_KEY = settings.secret_key.get_secret_value()
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+ACCESS_TOKEN_EXPIRE_MINUTES = settings.access_token_expire_minutes
 
 
 def verify_password(plain_password, hashed_password):

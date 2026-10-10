@@ -54,30 +54,25 @@ Note the `alembic upgrade head`: outside Compose nothing runs it for you, and th
 
 ## Configuration
 
-All configuration comes from a single `.env` at the repo root. It is gitignored and must be created by hand:
+All configuration comes from a single `.env` at the repo root. It is gitignored; start from the committed template:
 
-```ini
-# Database
-DB_USER=
-DB_PASSWORD=
-DB_HOST=db            # the Compose service name; use "localhost" to run the API outside Docker
-DB_PORT=5432
-DB_NAME=
-
-# Auth
-SECRET_KEY=           # generate: python -c "import secrets; print(secrets.token_urlsafe(32))"
-
-# pgAdmin
-PGADMIN_DEFAULT_EMAIL=
-PGADMIN_DEFAULT_PASSWORD=
-
-# Tableau Cloud
-TABLEAU_SERVER_URL=
-TABLEAU_SITENAME=
-TABLEAU_TOKEN_NAME=   # Personal Access Token
-TABLEAU_TOKEN_VALUE=
-TABLEAU_PROJECT_NAME=
+```bash
+cp .env.example .env
 ```
+
+`.env.example` lists every variable with a comment on what it does. The backend reads them through one typed settings object (`backend/config.py`) and **refuses to start if a required one is missing**, naming the variable:
+
+| Variable | Required | Notes |
+| --- | --- | --- |
+| `DB_USER`, `DB_HOST`, `DB_NAME` | yes | `DB_HOST=db` inside Docker, `localhost` outside |
+| `DB_PASSWORD` | no | empty means no password |
+| `DB_PORT` | no | default `5432` |
+| `SECRET_KEY` | yes | `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | no | default `30` |
+| `TABLEAU_SERVER_URL`, `TABLEAU_SITENAME`, `TABLEAU_TOKEN_NAME`, `TABLEAU_TOKEN_VALUE` | only for Refresh | checked when publishing; the error names whichever are missing |
+| `TABLEAU_PROJECT_NAME` | no | default `Finance App 2026`; must match the project your workbook uses |
+| `PGADMIN_DEFAULT_EMAIL`, `PGADMIN_DEFAULT_PASSWORD` | for pgAdmin | read by `docker-compose.yml` only |
+| `API_URL` | no | where Streamlit reaches the API; Compose sets it |
 
 ## Data model
 

@@ -69,9 +69,11 @@ There is no linter or formatter configured. Do not invent commands for them.
 
 ## Architecture
 
+**Configuration.** Every backend setting goes through `backend/config.py`: a pydantic-settings `Settings` built once at import (`from config import settings`), reading environment variables first and then the repo-root `.env`. Required values (DB_*, `SECRET_KEY`) fail at startup with the variable named; Tableau credentials are optional until `settings.require_tableau()` runs at publish time, so tests and CI don't need them. Don't add new `os.getenv` calls — add a field to `Settings` and a line to `.env.example`. The ETL reuses `database.engine` rather than building its own connection. The frontend still reads `API_URL` directly, and `etl/generate_data.py` is stale and untouched.
+
 **Request path.** Streamlit pages are pure HTTP clients — they hold no DB connection. `frontend/Home.py` posts to `/token`, stashes the JWT in `st.session_state["access_token"]`, and every page under `frontend/pages/` re-checks that key and calls `st.stop()` if missing. `API_BASE_URL` comes from the `API_URL` env var (`http://backend:8000` in compose, `http://localhost:8000` otherwise).
 
-**Auth.** `backend/auth.py` does bcrypt hashing and HS256 JWT minting; `get_current_user` in `backend/main.py` decodes `sub` (the email) and re-fetches `DimUser`. `SECRET_KEY` falls back to a hardcoded dev string when unset, and tokens expire after 30 minutes — an expired token surfaces in the UI as a 401 that the pages translate to "Session Expired".
+**Auth.** `backend/auth.py` does bcrypt hashing and HS256 JWT minting; `get_current_user` in `backend/main.py` decodes `sub` (the email) and re-fetches `DimUser`. `SECRET_KEY` is required (startup fails without it), and tokens expire after `ACCESS_TOKEN_EXPIRE_MINUTES` (default 30) — an expired token surfaces in the UI as a 401 that the pages translate to "Session Expired".
 
 **Every route except signup and login requires a token.** `POST /users/` and `POST /token` are public; everything else depends on `get_current_user`, either as a parameter (when the handler needs the user) or via `dependencies=[Depends(get_current_user)]`. `tests/test_auth.py` keeps a list of protected routes and checks each rejects a missing or invalid token — add new routes to it.
 
@@ -87,7 +89,7 @@ Keep arithmetic in `split_logic.py`, free of DB access, so it stays unit-testabl
 
 **Monthly summary.** `GET /summary/?month=YYYY-MM` (defaults to the current São Paulo month) is from the logged-in user's point of view: their total borne (share of shared + personal) against the previous month, the household's shared total, and their spending by primary category and cost type. It deliberately never exposes the other person's personal spending; cross-person analysis belongs in Tableau. The Tracker page's "Monthly Overview" section drives both `/summary/` and `/balances/` from one period picker.
 
-**ETL.** `POST /refresh` calls `etl.main.run_pipeline()` synchronously inside the request: SQL joins → pandas → `pantab` writes one Hyper file per datasource under `artifacts/` (relative to cwd, i.e. `backend/artifacts/` in the container) → `etl/tableau_manager.py` signs in with a Personal Access Token and publishes each with `Overwrite` into the project named in `run_pipeline` (currently hardcoded `"Finance App 2026"`, *not* the `TABLEAU_PROJECT_NAME` env var, whose `.env` value is `Default` — switching to it would publish to the wrong project). The Tableau datasource name comes from the file name:
+**ETL.** `POST /refresh` calls `etl.main.run_pipeline()` synchronously inside the request: SQL joins → pandas → `pantab` writes one Hyper file per datasource under `artifacts/` (relative to cwd, i.e. `backend/artifacts/` in the container) → `etl/tableau_manager.py` signs in with a Personal Access Token and publishes each with `Overwrite` into `settings.tableau_project_name` (`TABLEAU_PROJECT_NAME`, default `"Finance App 2026"`) — a wrong value silently publishes into another project, leaving the workbook stale. The Tableau datasource name comes from the file name:
 
 - `expenditures` — one row per expense, `price` attributed to the payer. Kept unchanged so existing workbooks keep working.
 - `allocations` — one row per person per expense from `fact_expenditure_split`: `borne_by`, `paid_by`, `share_pct`, `share_amount`, `split_source`, `month_start` (São Paulo), plus category/payment/installment columns. Per-person analysis should `SUM(share_amount)` here. `expense_total` repeats the full price on every row of an expense, so never sum it.
@@ -114,7 +116,7 @@ docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" --schema-only --no-
 docker compose exec db sh -c 'psql -U "$POSTGRES_USER" -d postgres -c "DROP DATABASE fresh_check;"'
 ```
 
-The dumped schema must match the live database. `-e DB_NAME=...` works because `database.py` reads that variable from the environment and `load_dotenv()` never overrides what is already set.
+The dumped schema must match the live database. The full procedure — including the review checklist for generated revisions and a `diff` that ignores `pg_dump`'s random `\restrict` keys — is the `schema-change` skill in `.claude/skills/`. `-e DB_NAME=...` works because `config.Settings` ranks real environment variables above the `.env` file.
 
 `database/init.sql` is legacy and misleading: it is not mounted into the db container by `docker-compose.yml`, it still models the pre-auth `Dim_Person`/`PersonID` design that `models.py` replaced with `DimUser`/`user_id`, and it contains SQL that would not parse (`TIMESTAMPZ`, a missing comma after `CostType`). `backend/etl/generate_data.py` is stale for the same reason — it queries `dim_person` and `dim_paymentmethod`, neither of which exists. Treat `models.py` as the single source of truth for the schema.
 

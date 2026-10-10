@@ -1,34 +1,20 @@
-import pandas as pd
-from sqlalchemy import create_engine
 import os
+
 import pandas as pd
 import pantab
-from tableauhyperapi import TableName
+import database
+from config import settings
 from etl.tableau_manager import TableauManager
 
 
 # Helper functions
 def get_db_connection():
     """
-    Creates the connection string for SQLAlchemy.
+    Returns the app's SQLAlchemy engine, so the ETL and the API share one
+    connection configuration (config.settings) instead of each building
+    its own from environment variables.
     """
-    try:
-        user = os.getenv("DB_USER")
-        password = os.getenv("DB_PASSWORD")
-        host = os.getenv("DB_HOST")
-        port = os.getenv("DB_PORT")
-        dbname = os.getenv("DB_NAME")
-
-        # Validate inputs to avoid errors later on
-        if not all([user, password, host, port, dbname]):
-            print("Error: Missing DB credentials in .env")
-            return None
-        
-        url = f"postgresql://{user}:{password}@{host}:{port}/{dbname}"
-        return create_engine(url)
-    except Exception as e:
-        print(f"Configuration error: {e}")
-        return None
+    return database.engine
     
 def extract_data(engine=None):
     """
@@ -253,7 +239,7 @@ def run_pipeline():
         print("Publishing to Tableau...")
         manager = TableauManager()
         for path in hyper_files:
-            manager.publish_hyper(path, target_project_name="Finance App 2026")
+            manager.publish_hyper(path, target_project_name=settings.tableau_project_name)
         print("ETL Finished Successfully!")
 
     except Exception as e:
