@@ -27,10 +27,40 @@ PROTECTED_ROUTES = [
     ("post", "/refresh"),
 ]
 
+# Deliberately reachable without a token: you can't log in before you have an
+# account, and you can't log in when you've forgotten your password.
+PUBLIC_ROUTES = [
+    ("post", "/users/"),
+    ("post", "/token"),
+    ("post", "/password-reset/request"),
+    ("post", "/password-reset/confirm"),
+]
+
+
+def test_every_route_is_classified():
+    """A new route must be added to PROTECTED_ROUTES or, deliberately, PUBLIC_ROUTES."""
+    import re
+    from fastapi.routing import APIRoute
+    from main import app
+
+    declared = {(m, p) for m, p in PROTECTED_ROUTES + PUBLIC_ROUTES}
+    actual = {
+        (method.lower(), re.sub(r"\{[^}]+\}", "1", route.path))
+        for route in app.routes if isinstance(route, APIRoute)
+        for method in route.methods
+    }
+    assert actual == declared
+
 
 @pytest.mark.parametrize("method, path", PROTECTED_ROUTES)
 def test_protected_routes_reject_missing_token(client, method, path):
     assert getattr(client, method)(path).status_code == 401
+
+
+@pytest.mark.parametrize("method, path", PUBLIC_ROUTES)
+def test_public_routes_need_no_token(client, method, path):
+    # No body, so validation fails (422) — but never authentication (401).
+    assert getattr(client, method)(path).status_code == 422
 
 
 @pytest.mark.parametrize("method, path", PROTECTED_ROUTES)

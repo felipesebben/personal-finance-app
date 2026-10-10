@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi import BackgroundTasks, FastAPI, Depends, HTTPException, Query
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -12,7 +12,8 @@ from split_logic import settle
 from ledger import HouseholdNotConfigured, InvalidSplit, add_expenditure
 
 from config import settings
-from auth import verify_password, create_access_token, get_password_hash, SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
+from auth import verify_password, create_access_token, get_password_hash, hash_reset_token, new_reset_token, SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
+from email_sender import EmailSender, get_email_sender, send_quietly
 
 
 from pydantic import BaseModel
@@ -190,6 +191,92 @@ def login_for_access_token(db: Session = Depends(get_db), form_data: OAuth2Passw
     )
 
     return {"access_token": access_token, "token_type": "bearer"}
+
+
+# --- Password reset (both routes are public: the user can't log in) ---
+
+RESET_REQUESTED = "If that account exists, we've sent a reset link."
+RESET_INVALID = "This reset link is invalid or has expired."
+# Links one account may be sent per hour; requests beyond this send nothing.
+RESET_MAX_PER_HOUR = 3
+
+
+@app.post("/password-reset/request", status_code=202, response_model=schemas.Message)
+def request_password_reset(
+    payload: schemas.PasswordResetRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    sender: EmailSender = Depends(get_email_sender),
+):
+    """
+    Emails a one-time reset link. Always answers 202 with the same body, so
+    the response never reveals whether an account exists.
+    """
+    user = (
+        db.query(models.DimUser)
+        .filter(func.lower(models.DimUser.email) == payload.email.strip().lower())
+        .first()
+    )
+    if user is None:
+        return {"detail": RESET_REQUESTED}
+
+    Token = models.PasswordResetToken
+    recent = db.query(func.count(Token.id)).filter(
+        Token.user_id == user.user_id,
+        Token.created_at > func.now() - timedelta(hours=1),
+    ).scalar()
+    if recent >= RESET_MAX_PER_HOUR:
+        return {"detail": RESET_REQUESTED}
+
+    # Only the newest link works: retire any earlier unused ones.
+    db.query(Token).filter(Token.user_id == user.user_id, Token.used_at.is_(None)).update(
+        {Token.used_at: func.now()}, synchronize_session=False
+    )
+    raw_token = new_reset_token()
+    expire_minutes = settings.password_reset_expire_minutes
+    db.add(Token(
+        user_id=user.user_id,
+        token_hash=hash_reset_token(raw_token),
+        expires_at=func.now() + timedelta(minutes=expire_minutes),
+    ))
+    db.commit()
+
+    link = f"{settings.frontend_base_url.rstrip('/')}/?reset_token={raw_token}"
+    body = (
+        f"Hi {user.full_name or 'there'},\n\n"
+        "Someone asked to reset the password for your Personal Finance account.\n"
+        f"Open this link to choose a new one (it works once, for {expire_minutes} minutes):\n\n"
+        f"{link}\n\n"
+        "If it wasn't you, ignore this email; your password hasn't changed.\n"
+    )
+    # Sent after the response, so a slow SMTP server doesn't hold the request.
+    background_tasks.add_task(send_quietly, sender, user.email, "Reset your Personal Finance password", body)
+    return {"detail": RESET_REQUESTED}
+
+
+@app.post("/password-reset/confirm", response_model=schemas.Message)
+def confirm_password_reset(payload: schemas.PasswordResetConfirm, db: Session = Depends(get_db)):
+    """Redeems a reset token: sets the new password and burns the token, in one commit."""
+    Token = models.PasswordResetToken
+    reset = (
+        db.query(Token)
+        .filter(
+            Token.token_hash == hash_reset_token(payload.token),
+            Token.used_at.is_(None),
+            Token.expires_at > func.now(),
+        )
+        # Locks the row, so two concurrent confirms can't both redeem it.
+        .with_for_update()
+        .first()
+    )
+    if reset is None:
+        raise HTTPException(status_code=400, detail=RESET_INVALID)
+
+    user = db.get(models.DimUser, reset.user_id)
+    user.hashed_password = get_password_hash(payload.new_password)
+    reset.used_at = func.now()
+    db.commit()
+    return {"detail": "Password updated. You can now log in."}
 
 
 @app.post("/categories/", response_model=schemas.Category, dependencies=[Depends(get_current_user)])

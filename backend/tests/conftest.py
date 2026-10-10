@@ -18,6 +18,8 @@ os.environ.setdefault("SECRET_KEY", "test-only-secret-key")
 # Tests sign up throwaway accounts, so an allowlist in the developer's .env
 # must not apply; the allowlist tests set it explicitly.
 os.environ["ALLOWED_SIGNUP_EMAILS"] = ""
+# Never send real email from tests, whatever the developer's .env says.
+os.environ["EMAIL_BACKEND"] = "console"
 
 from decimal import Decimal
 from pathlib import Path
@@ -66,8 +68,8 @@ def clean_tables(request):
         return
     with database.engine.begin() as conn:
         conn.execute(text(
-            "TRUNCATE fact_settlement, fact_expenditure_split, fact_expenditures, household_setting, "
-            "dim_category, dim_payment_method, dim_user RESTART IDENTITY CASCADE"
+            "TRUNCATE password_reset_token, fact_settlement, fact_expenditure_split, fact_expenditures, "
+            "household_setting, dim_category, dim_payment_method, dim_user RESTART IDENTITY CASCADE"
         ))
 
 

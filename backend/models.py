@@ -126,3 +126,26 @@ class FactSettlement(Base):
 
     from_user = relationship("DimUser", foreign_keys=[from_user_id])
     to_user = relationship("DimUser", foreign_keys=[to_user_id])
+
+
+class PasswordResetToken(Base):
+    """
+    A one-time password-reset link. Only the SHA-256 of the token is stored,
+    so a leaked database (or pgAdmin screen) can't be used to reset anyone's
+    password; the raw token exists only in the email that was sent.
+    """
+    __tablename__ = "password_reset_token"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("dim_user.user_id", ondelete="CASCADE"), nullable=False, index=True)
+    token_hash = Column(String(64), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    # Set when the token is redeemed, or superseded by a newer request.
+    used_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("token_hash", name="uq_password_reset_token_hash"),
+    )
+
+    user = relationship("DimUser")
