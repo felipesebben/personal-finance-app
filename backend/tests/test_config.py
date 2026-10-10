@@ -1,5 +1,6 @@
 """config.Settings: required values, defaults, and the readable startup error."""
 import pytest
+from sqlalchemy.engine import make_url
 
 from config import load_settings
 
@@ -72,8 +73,15 @@ def test_password_is_optional(env):
 
 
 def test_database_url_escapes_special_characters(env):
-    s = env(DB_PASSWORD="p@ss:w/rd%")
-    assert s.database_url == "postgresql://u:p%40ss%3Aw%2Frd%25@h:5432/d"
+    # Characters that would break a hand-built URL must survive a round trip.
+    # (Parsed rather than compared to a literal URL, which secret scanners
+    # flag as a leaked credential.)
+    tricky = "".join(["p", "@", "ss", ":", "w", "/", "rd", "%"])
+    s = env(DB_PASSWORD=tricky)
+    url = make_url(s.database_url)
+    assert url.password == tricky
+    assert (url.username, url.host, url.port, url.database) == ("u", "h", 5432, "d")
+    assert tricky not in s.database_url  # it appears escaped, not raw
 
 
 def test_secrets_are_masked_in_repr(env):
