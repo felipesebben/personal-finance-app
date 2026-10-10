@@ -68,6 +68,16 @@ def test_price_must_be_positive(client, household):
     assert resp.status_code == 422
 
 
+def test_current_installment_cannot_exceed_total(client, household):
+    body = expenditure_payload(household, current_installment=4, total_installments=3)
+    assert client.post("/expenditures/", headers=household["a"], json=body).status_code == 422
+
+
+def test_installments_must_be_positive(client, household):
+    body = expenditure_payload(household, current_installment=1, total_installments=0)
+    assert client.post("/expenditures/", headers=household["a"], json=body).status_code == 422
+
+
 # --- manual split override ------------------------------------------------
 
 def shares(household, a_pct, b_pct):

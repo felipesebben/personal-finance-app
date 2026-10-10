@@ -117,9 +117,13 @@ else:
             is_credit = bool(matched_pm["is_credit"].iloc[0]) if not matched_pm.empty and "is_credit" in payment_methods_df.columns else False
             if is_credit:
                 st.caption("💳 Credit Card — Installments")
+                st.caption("Enter an installment purchase **once**, with its full price; Tableau's cashflow datasource spreads it over the months.")
                 col_inst1, col_inst2 = st.columns(2)
-                current_inst = col_inst1.number_input("Current Installment", min_value=1, value=1, help="Which installment are you paying now?")
-                total_inst = col_inst2.number_input("Total Installments", min_value=1, value=1, help="1/1 = one-time or recurring. N/M = installment N of M.")
+                total_inst = col_inst2.number_input("Total Installments", min_value=1, value=1, help="1 = paid in full. 10 = a 10x purchase.")
+                current_inst = col_inst1.number_input(
+                    "Installment billed this month", min_value=1, max_value=int(total_inst), value=1,
+                    help="1 if you're entering it on the day you bought it; e.g. 4 if you're already paying installment 4 of 10.",
+                )
 
   
         st.write("---")
@@ -145,7 +149,7 @@ else:
     with col2:
         time_input = st.time_input("Time", st.session_state.selected_time)
         st.session_state.selected_time = time_input
-        price = st.number_input("Price", min_value=0.0, format="%.2f")
+        price = st.number_input("Price", min_value=0.0, format="%.2f", help="For an installment purchase, the full price, not one installment.")
 
         selected_primary, selected_sub = cascading_selectbox(
             label_primary="Category", label_secondary="Sub-Category",

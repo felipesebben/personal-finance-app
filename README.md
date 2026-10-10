@@ -95,8 +95,10 @@ A dimensional star schema, defined in `backend/models.py` — that file is the s
                      └──── fact_expenditures ────┐
                                   │              │
                         dim_payment_method  (transaction_timestamp, price,
-                                             nature, is_shared, installments)
+                                             nature, installments)
 ```
+
+Who *bears* each expense lives in `fact_expenditure_split` (one row per person per expense, with the share snapshotted at write time); `fact_settlement` records money moved between the two of you to square up.
 
 Dimensions carry unique constraints on their natural keys, so a category is identified by `(primary_category, sub_category)` and a payment method by `(method_name, institution)`.
 
@@ -107,8 +109,15 @@ Timestamps are stored timezone-aware and converted to `America/Sao_Paulo` at the
 `POST /refresh` (exposed as **Run ETL Pipeline** on the Manage Settings page) runs `backend/etl/main.py`:
 
 1. **Extract** — join the fact to its dimensions, converting timestamps to local time.
-2. **Transform** — `pantab` writes a `.hyper` extract to `artifacts/`.
-3. **Publish** — `tableauserverclient` signs in with a Personal Access Token and overwrites the datasource on Tableau Cloud.
+2. **Transform** — `pantab` writes one `.hyper` extract per datasource to `artifacts/`.
+3. **Publish** — `tableauserverclient` signs in with a Personal Access Token and overwrites each datasource on Tableau Cloud.
+
+| Datasource | One row per | Use it for |
+| --- | --- | --- |
+| `expenditures` | expense (full price on the payer) | legacy workbooks |
+| `allocations` | person × expense | who bears what, by purchase month |
+| `cashflow` | person × expense × installment | what each month actually cost, installments spread over billing months |
+| `settlements` | payment between members | squaring up |
 
 The Analytics page then embeds the published dashboard in an iframe.
 
