@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from typing import List
 from decimal import Decimal
 from split_logic import settle
-from ledger import HouseholdNotConfigured, add_expenditure
+from ledger import HouseholdNotConfigured, InvalidSplit, add_expenditure
 
 from auth import verify_password, create_access_token, get_password_hash, SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 
@@ -104,16 +104,17 @@ def create_expenditure(
     allocation row(s) in the same transaction.
     """
     # Remove user_id from the request JSON for fraud prevention, and
-    # is_shared, which is an instruction for the split below rather than a
-    # stored column.
-    expenditure_data = expenditure.model_dump(exclude={"user_id", "is_shared"})
+    # is_shared and shares, which are instructions for the split below
+    # rather than stored columns.
+    expenditure_data = expenditure.model_dump(exclude={"user_id", "is_shared", "shares"})
+    shares = [(s.user_id, s.share_pct) for s in expenditure.shares] if expenditure.shares else None
 
     # The request's is_shared means "split this by the household ratio";
     # the allocation rows written by add_expenditure are what make it shared.
     try:
         db_expenditure = add_expenditure(
             db, current_user.user_id,  # force the logged-in user as payer
-            expenditure_data, shared=expenditure.is_shared,
+            expenditure_data, shared=expenditure.is_shared, shares=shares,
         )
     except HouseholdNotConfigured:
         # Nothing committed yet, so the flushed expenditure is rolled back too.
@@ -122,6 +123,9 @@ def create_expenditure(
             status_code=400,
             detail="Household split ratio is not configured. Set it on the Manage Settings page first.",
         )
+    except InvalidSplit as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Invalid split: {e}")
 
     # One commit, covering the expenditure and its allocation row(s) together.
     db.commit()
