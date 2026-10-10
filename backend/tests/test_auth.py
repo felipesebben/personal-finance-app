@@ -16,6 +16,8 @@ PROTECTED_ROUTES = [
     ("put", "/household_settings/"),
     ("get", "/balances/"),
     ("get", "/summary/"),
+    ("get", "/analytics/shared"),
+    ("get", "/analytics/shared/expenses"),
     ("get", "/settlements/"),
     ("post", "/settlements/"),
     ("delete", "/settlements/1"),

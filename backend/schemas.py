@@ -225,6 +225,44 @@ class MonthlySummary(BaseModel):
     by_category: List[AmountBy]   # my spending per primary category, largest first
     by_cost_type: List[AmountBy]  # my spending per cost type, largest first
 
+# -- Shared-expense Analytics Schemas --
+# Only expenses that are shared (someone other than the payer holds a split
+# row) AND that the logged-in user holds a share of. Two lenses on the same
+# expenses: "household" is the full price, "mine" is the user's share_amount.
+class SharedAnalyticsRow(BaseModel):
+    month: str               # "YYYY-MM", São Paulo calendar month
+    primary_category: str
+    sub_category: str
+    cost_type: str
+    household: Decimal       # sum of full prices
+    mine: Decimal            # sum of my share_amount
+    count: int               # number of shared expenses
+    household_to_day: Decimal  # same, only days 1..as_of_day of the month
+    mine_to_day: Decimal
+
+class SharedAnalytics(BaseModel):
+    month: str               # the selected (last) month of the window
+    months: List[str]        # the whole window, oldest first, including empty months
+    is_partial: bool         # true when `month` is the current São Paulo month
+    as_of_day: int           # today's São Paulo day if partial, else the month's length
+    rows: List[SharedAnalyticsRow]  # only non-empty month/category combinations
+
+class SharedExpense(BaseModel):
+    expenditure_id: int
+    transaction_timestamp: datetime
+    primary_category: str
+    sub_category: str
+    cost_type: str
+    payment_method: str | None = None
+    institution: str | None = None
+    paid_by: str | None = None
+    price: Decimal           # household lens: the full price
+    mine: Decimal            # my share_amount
+    share_pct: Decimal       # my share_pct
+    current_installment: int | None = None
+    total_installments: int | None = None
+    nature: str | None = None
+
 class Token(BaseModel):
     """
     Schema for the JWT Token response.
