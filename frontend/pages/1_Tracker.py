@@ -78,6 +78,7 @@ token = st.session_state["access_token"]
 
 categories_data = get_data("categories", token)
 payment_methods_data = get_data("payment_methods", token)
+household_data = get_data("household_settings", token)
 
 categories_df = pd.DataFrame(categories_data)
 payment_methods_df = pd.DataFrame(payment_methods_data)
@@ -123,6 +124,23 @@ else:
   
         st.write("---")
         is_shared = st.toggle("Shared Household Expense?", value=True, help="Leave ON if split between couple.")
+
+        # Optional per-expense override of the household ratio, sent as "shares".
+        custom_shares = None
+        if is_shared and household_data:
+            if st.checkbox("Custom split for this expense", help="Override the household ratio just for this one, e.g. 70/30, or 100% on one person."):
+                share_cols = st.columns(len(household_data))
+                custom_shares = []
+                for share_col, member in zip(share_cols, household_data):
+                    name = member["user"].get("full_name") or member["user"]["email"]
+                    pct = share_col.number_input(
+                        f"{name} %", min_value=0, max_value=100, step=5,
+                        value=int(round(float(member["share_pct"]) * 100)), key=f"share_{member['user_id']}",
+                    )
+                    custom_shares.append((member["user_id"], pct))
+                split_total = sum(pct for _, pct in custom_shares)
+                if split_total != 100:
+                    st.warning(f"Shares add up to {split_total}%, not 100%.")
         
     with col2:
         time_input = st.time_input("Time", st.session_state.selected_time)
@@ -156,6 +174,8 @@ else:
                 if not selected_primary: missing_fields.append("Category")
                 if not selected_sub: missing_fields.append("Sub-Category")
                 if price <= 0: missing_fields.append("Price (must be > $ 0)")
+                if custom_shares is not None and sum(pct for _, pct in custom_shares) != 100:
+                    missing_fields.append("Custom split (must add up to 100%)")
 
                 if missing_fields:
                     st.error(f"⚠️ Please fill out: **{', '.join(missing_fields)}**")
@@ -190,6 +210,11 @@ else:
                             "current_installment": current_inst,
                             "total_installments": total_inst
                         }
+                        if custom_shares is not None:
+                            # People at 0% simply bear none of it, so they get no row.
+                            payload["shares"] = [
+                                {"user_id": uid, "share_pct": f"{pct / 100:.2f}"} for uid, pct in custom_shares if pct > 0
+                            ]
 
                         # 4. Request
                         response = requests.post(f"{API_BASE_URL}/expenditures/", json=payload, headers=auth_headers)
