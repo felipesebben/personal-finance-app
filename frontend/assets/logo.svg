@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 40" role="img" aria-label="Home Finances">
+  <rect x="0" y="2" width="36" height="36" rx="8" fill="#1f6f5c"/>
+  <path d="M9 21 L18 13 L27 21 M12 19 V29 H24 V19" fill="none" stroke="#ffffff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="46" y="27" font-family="Roboto, 'Segoe UI', sans-serif" font-size="19" font-weight="700" fill="#17201c">Home Finances</text>
+</svg>

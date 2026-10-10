@@ -2,8 +2,9 @@ import streamlit as st
 import requests
 
 from config import API_BASE_URL
+import ui
 
-st.set_page_config(page_title="Manage Settings", page_icon="⚙️", layout="wide")
+ui.setup("Settings")
 
 # --- Authentication Check ---
 # If the user lands here without logging in, stop them.
@@ -128,8 +129,7 @@ def get_data(endpoint: str, token:str):
     
 # --- Main UI ---
 
-st.title("⚙️ Manage Settings")
-st.info("Use this page to add new Users, Categories, or Payment Methods.")
+ui.page_header("Settings", "The lists the Tracker offers, and how shared expenses are split between you.")
 
 # Fetch data
 users = get_data("users", st.session_state["access_token"])
@@ -140,7 +140,8 @@ col1, col2 = st.columns(2)
 
 # Column 1: Users
 with col1:
-    st.subheader("Add User")
+    st.subheader("People")
+    st.caption("Everyone with an account. You can only delete your own.")
     with st.form("add_user", clear_on_submit=True):
         new_name = st.text_input("Name")
         new_email = st.text_input("Email")
@@ -171,7 +172,8 @@ with col1:
 
 # Column 2: Categories
 with col2:
-    st.subheader("Add Category")
+    st.subheader("Categories")
+    st.caption("What you spend on, as category and sub-category. Fixed costs repeat every month; variable ones don't.")
     with st.form("add_category", clear_on_submit=True):
         new_primary = st.text_input("Primary Category (e.g., Food)")
         new_sub = st.text_input("Sub Category (e.g., Groceries)")
@@ -204,7 +206,8 @@ with col2:
 
 # --- Payment Methods Section ---
 st.divider()
-st.subheader("💳 Manage Payment Methods")
+st.subheader("Payment methods")
+st.caption("What you pay with. Mark credit cards so the Tracker offers installments.")
 pm_col1, pm_col2 = st.columns(2)
 
 with pm_col1:
@@ -237,11 +240,8 @@ with pm_col2:
 
 # --- Household Split Section ---
 st.divider()
-st.subheader("🏠 Household Split")
-st.caption(
-    "The income-derived share of shared expenses each of you is responsible for. "
-    "Must add up to 100%."
-)
+st.subheader("Household split")
+ui.lede("How shared expenses are divided.", " Set each person's share from your incomes, e.g. 60/40. It applies to expenses saved from now on; earlier ones keep the split they were saved with. Must add up to 100%.")
 
 household_settings = get_data("household_settings", st.session_state["access_token"])
 
@@ -281,8 +281,8 @@ else:
 
 # --- ETL Trigger ---
 st.divider()
-st.header("Data Synchronization")
-st.info("Click the button below to manually trigger the ETL pipeline. This will extract data from the database, generate the Hyper file, and publish it to Tableau.")
+st.subheader("Publish to Tableau")
+st.caption("Sends the latest data to the Tableau dashboard. Only needed when you want Tableau up to date; the app's own pages are always live.")
 
 if st.button("Run ETL Pipeline", type="primary"):
     with st.spinner("Pipeline running... (This may take a moment)"):

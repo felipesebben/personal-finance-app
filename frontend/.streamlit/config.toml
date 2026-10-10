@@ -1,0 +1,44 @@
+# Home Finances look. Every colour has one job:
+#   brand green  = the household and actions (buttons, active tab, explanations)
+#   orange       = spent more   (Streamlit's "red" slot, used by st.metric deltas and st.error)
+#   blue         = spent less   (Streamlit's "green" slot, used by st.metric deltas and st.success)
+# Orange/blue (Okabe-Ito) stay distinct under red-green colour blindness, and
+# every change also carries an arrow and a sign, so colour is never the only cue.
+# Keep these values in sync with frontend/ui.py.
+
+[browser]
+# Do not send usage statistics to Streamlit.
+gatherUsageStats = false
+
+[client]
+# Hides the developer toolbar (deploy button etc.) for viewers.
+toolbarMode = "viewer"
+
+[theme]
+base = "light"
+primaryColor = "#1f6f5c"
+backgroundColor = "#f5f6f3"
+secondaryBackgroundColor = "#eceee9"
+textColor = "#17201c"
+borderColor = "#d9ddd6"
+showWidgetBorder = true
+linkColor = "#1f6f5c"
+baseRadius = "0.5rem"
+font = "Roboto:https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap"
+headingFontWeights = [700, 700, 600, 600]
+
+# Semantic slots, remapped for colour-blind safety (see the top of this file).
+redColor = "#b5470f"
+redTextColor = "#9a3c0c"
+redBackgroundColor = "#f8e4d7"
+greenColor = "#1f5fa8"
+greenTextColor = "#1a5190"
+greenBackgroundColor = "#dde8f5"
+blueColor = "#1f6f5c"
+blueTextColor = "#1a5e4e"
+blueBackgroundColor = "#dcece6"
+
+chartCategoricalColors = ["#1f6f5c", "#e69f00", "#56b4e9", "#cc79a7", "#0072b2", "#d55e00", "#7f8a84"]
+
+[theme.sidebar]
+backgroundColor = "#eceee9"

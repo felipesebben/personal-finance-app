@@ -13,9 +13,13 @@ import pandas as pd
 from analytics_shaping import BRL_AXIS_EXPR, month_label, pct_text, short_brl, signed_brl
 from money import format_brl
 
-ACCENT = "#2f6fde"
-GREY = "#b9b9b3"
-MUTED = "#8a8a84"  # readable on both light and dark backgrounds
+# Home Finances palette (see frontend/.streamlit/config.toml): brand green marks
+# what is selected; blue and orange are reserved for "less" / "more", so they
+# never encode plain magnitude here.
+ACCENT = "#1f6f5c"
+GREY = "#c3c9c3"
+MUTED = "#6f7a74"  # readable on the light theme background
+HEAT_RANGE = ["#eef5f2", "#1f6f5c"]  # light to brand green, for magnitude
 
 
 def trend_chart(totals: pd.Series, selected: str, is_partial: bool, average: float | None) -> alt.LayerChart:
@@ -111,7 +115,7 @@ def heatmap_chart(long: pd.DataFrame, months: list[str]) -> alt.LayerChart:
     base = alt.Chart(data)
     cells = base.mark_rect(cornerRadius=2, stroke="white", strokeWidth=1).encode(
         x=x, y=y,
-        color=alt.Color("amount:Q", scale=alt.Scale(scheme="blues", domainMin=0), legend=None),
+        color=alt.Color("amount:Q", scale=alt.Scale(range=HEAT_RANGE, domainMin=0), legend=None),
         tooltip=[
             alt.Tooltip("primary_category:N", title="Category"),
             alt.Tooltip("month_label:N", title="Month"),
@@ -120,7 +124,7 @@ def heatmap_chart(long: pd.DataFrame, months: list[str]) -> alt.LayerChart:
     )
     text = base.mark_text(fontSize=10).encode(
         x=x, y=y, text="text:N",
-        color=alt.condition(alt.datum.dark, alt.value("white"), alt.value("#1d1d1b")),
+        color=alt.condition(alt.datum.dark, alt.value("white"), alt.value("#17201c")),
     )
     return alt.layer(cells, text).properties(height=max(30 * len(categories), 80))
 
@@ -134,7 +138,7 @@ def cost_type_chart(split: pd.DataFrame, current_title: str, previous_title: str
     data = pd.DataFrame(rows, columns=["period", "cost_type", "amount", "share"])
     data["amount_brl"] = data["amount"].map(format_brl)
     types = sorted(data["cost_type"].unique(), key=lambda t: (t != "Fixed", t != "Variable", t))
-    palette = [ACCENT if t == "Fixed" else GREY if t == "Variable" else "#dcdcd7" for t in types]
+    palette = [ACCENT if t == "Fixed" else GREY if t == "Variable" else "#e3e7e2" for t in types]
     return alt.Chart(data).mark_bar().encode(
         y=alt.Y("period:N", sort=[current_title, previous_title], title=None),
         x=alt.X("amount:Q", stack="normalize", title=None, axis=alt.Axis(format="%", tickCount=4)),
