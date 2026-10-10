@@ -3,12 +3,11 @@ import requests
 import datetime
 from zoneinfo import ZoneInfo
 import pandas as pd
-import os
+
+from config import API_BASE_URL
 
 # Page Configuration
 st.set_page_config(page_title="Tracker & Dashboard", page_icon="🤑", layout="wide")
-
-API_BASE_URL = os.getenv("API_URL", "http://localhost:8000")
 
 # --- Authentication check ---
 if "access_token" not in st.session_state or st.session_state["access_token"] is None:
