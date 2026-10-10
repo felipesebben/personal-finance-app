@@ -1,9 +1,7 @@
 import streamlit as st
 import requests
-import os
 
-# Define the API URL
-API_URL = os.getenv("API_URL", "http://localhost:8000")
+from config import API_BASE_URL
 
 st.set_page_config(page_title="Personal Finance", page_icon="🫰", layout="wide")
 
@@ -24,7 +22,7 @@ def login_user(email, password):
     :return: A dictionary containing `access_token` if successful, or `None` if failed.
     :rtype: dict | None
     """
-    url = f"{API_URL}/token"
+    url = f"{API_BASE_URL}/token"
     # OAuth2 expects form-data (username/password)
     payload = {"username": email, "password": password}
 
@@ -52,7 +50,7 @@ def register_user(fullname, email, password):
     :return: `True` if registration was successful, `False` otherwise.
     :rtype: bool
     """
-    url = f"{API_URL}/users/"
+    url = f"{API_BASE_URL}/users/"
     payload = {
         "full_name": fullname,
         "email": email,

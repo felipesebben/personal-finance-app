@@ -43,7 +43,7 @@ Utility scripts:
 ```powershell
 poetry run python init_db.py              # backend/ — CREATE DATABASE if absent; tables come from Alembic
 poetry run python -m etl.main             # backend/ — run the Tableau ETL directly (same code path as POST /refresh)
-poetry run python etl/generate_data.py    # backend/ — seed 50 fake expenditures (STALE: see below)
+poetry run python seed.py                 # backend/ — seed months of demo history (--months, --random-seed, --append)
 ```
 
 Migrations run inside the backend container, where `DB_HOST=db` resolves:
@@ -69,9 +69,9 @@ There is no linter or formatter configured. Do not invent commands for them.
 
 ## Architecture
 
-**Configuration.** Every backend setting goes through `backend/config.py`: a pydantic-settings `Settings` built once at import (`from config import settings`), reading environment variables first and then the repo-root `.env`. Required values (DB_*, `SECRET_KEY`) fail at startup with the variable named; Tableau credentials are optional until `settings.require_tableau()` runs at publish time, so tests and CI don't need them. Don't add new `os.getenv` calls — add a field to `Settings` and a line to `.env.example`. The ETL reuses `database.engine` rather than building its own connection. The frontend still reads `API_URL` directly, and `etl/generate_data.py` is stale and untouched.
+**Configuration.** Every backend setting goes through `backend/config.py`: a pydantic-settings `Settings` built once at import (`from config import settings`), reading environment variables first and then the repo-root `.env`. Required values (DB_*, `SECRET_KEY`) fail at startup with the variable named; Tableau credentials are optional until `settings.require_tableau()` runs at publish time, so tests and CI don't need them. Don't add new `os.getenv` calls — add a field to `Settings` and a line to `.env.example`. The ETL reuses `database.engine` rather than building its own connection. The frontend's one setting, `API_URL`, is read in `frontend/config.py` and imported by every page as `API_BASE_URL`.
 
-**Request path.** Streamlit pages are pure HTTP clients — they hold no DB connection. `frontend/Home.py` posts to `/token`, stashes the JWT in `st.session_state["access_token"]`, and every page under `frontend/pages/` re-checks that key and calls `st.stop()` if missing. `API_BASE_URL` comes from the `API_URL` env var (`http://backend:8000` in compose, `http://localhost:8000` otherwise).
+**Request path.** Streamlit pages are pure HTTP clients — they hold no DB connection. `frontend/Home.py` posts to `/token`, stashes the JWT in `st.session_state["access_token"]`, and every page under `frontend/pages/` re-checks that key and calls `st.stop()` if missing. `API_BASE_URL` comes from `frontend/config.py`, which reads the `API_URL` env var (`http://backend:8000` in compose, `http://localhost:8000` otherwise).
 
 **Auth.** `backend/auth.py` does bcrypt hashing and HS256 JWT minting; `get_current_user` in `backend/main.py` decodes `sub` (the email) and re-fetches `DimUser`. `SECRET_KEY` is required (startup fails without it), and tokens expire after `ACCESS_TOKEN_EXPIRE_MINUTES` (default 30) — an expired token surfaces in the UI as a 401 that the pages translate to "Session Expired".
 
@@ -83,7 +83,7 @@ There is no linter or formatter configured. Do not invent commands for them.
 
 **Star schema.** `backend/models.py` defines `DimUser`, `DimCategory` (unique on primary+sub), `DimPaymentMethod` (unique on method+institution), and `FactExpenditure`. `schemas.py` mirrors them for Pydantic; `ExpenditureRead` nests the three dimension objects, which is why the read query uses `joinedload` and why the Tracker page reads dotted columns like `category.primary_category` after `pd.json_normalize`.
 
-**Splits and balances.** `POST /expenditures/` writes the expenditure and its split rows in one transaction, using the pure `split_logic.split_amount` (last share absorbs the rounding remainder, so parts always sum to the price). `GET /balances/?month=YYYY-MM` reports paid / borne / net per person and the settling transfers (pure `split_logic.settle`). It counts only expenses with a split row for someone other than the payer, so one person's personal spending never appears in the other's view; months are São Paulo calendar months.
+**Splits and balances.** `POST /expenditures/` writes the expenditure and its split rows in one transaction through `ledger.add_expenditure` (which flushes but never commits, and is also what `seed.py` uses), splitting with the pure `split_logic.split_amount` (last share absorbs the rounding remainder, so parts always sum to the price). `GET /balances/?month=YYYY-MM` reports paid / borne / net per person and the settling transfers (pure `split_logic.settle`). It counts only expenses with a split row for someone other than the payer, so one person's personal spending never appears in the other's view; months are São Paulo calendar months.
 
 **Settlements.** `fact_settlement` records money moved between members to square up (`/settlements/` POST, GET, DELETE; only the payer or payee may record or delete one). `/balances/` folds them in: net = paid − borne + settled_out − settled_in. A settlement's `period_month` (the month it squares up, set from the Tracker's selected period) is deliberately separate from `settled_at` (when the money moved), because October is usually paid back in November; month views filter on `period_month`, and a settlement with `period_month` NULL counts only towards the all-time balance. The ETL publishes them as the `settlements` datasource.
 
@@ -120,7 +120,7 @@ docker compose exec db sh -c 'psql -U "$POSTGRES_USER" -d postgres -c "DROP DATA
 
 The dumped schema must match the live database. The full procedure — including the review checklist for generated revisions and a `diff` that ignores `pg_dump`'s random `\restrict` keys — is the `schema-change` skill in `.claude/skills/`. `-e DB_NAME=...` works because `config.Settings` ranks real environment variables above the `.env` file.
 
-`database/init.sql` is legacy and misleading: it is not mounted into the db container by `docker-compose.yml`, it still models the pre-auth `Dim_Person`/`PersonID` design that `models.py` replaced with `DimUser`/`user_id`, and it contains SQL that would not parse (`TIMESTAMPZ`, a missing comma after `CostType`). `backend/etl/generate_data.py` is stale for the same reason — it queries `dim_person` and `dim_paymentmethod`, neither of which exists. Treat `models.py` as the single source of truth for the schema.
+Treat `models.py` as the single source of truth for the schema.
 
 ## Conventions
 
