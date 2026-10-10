@@ -78,6 +78,7 @@ token = st.session_state["access_token"]
 
 categories_data = get_data("categories", token)
 payment_methods_data = get_data("payment_methods", token)
+household_data = get_data("household_settings", token)
 
 categories_df = pd.DataFrame(categories_data)
 payment_methods_df = pd.DataFrame(payment_methods_data)
@@ -116,18 +117,39 @@ else:
             is_credit = bool(matched_pm["is_credit"].iloc[0]) if not matched_pm.empty and "is_credit" in payment_methods_df.columns else False
             if is_credit:
                 st.caption("💳 Credit Card — Installments")
+                st.caption("Enter an installment purchase **once**, with its full price; Tableau's cashflow datasource spreads it over the months.")
                 col_inst1, col_inst2 = st.columns(2)
-                current_inst = col_inst1.number_input("Current Installment", min_value=1, value=1, help="Which installment are you paying now?")
-                total_inst = col_inst2.number_input("Total Installments", min_value=1, value=1, help="1/1 = one-time or recurring. N/M = installment N of M.")
+                total_inst = col_inst2.number_input("Total Installments", min_value=1, value=1, help="1 = paid in full. 10 = a 10x purchase.")
+                current_inst = col_inst1.number_input(
+                    "Installment billed this month", min_value=1, max_value=int(total_inst), value=1,
+                    help="1 if you're entering it on the day you bought it; e.g. 4 if you're already paying installment 4 of 10.",
+                )
 
   
         st.write("---")
         is_shared = st.toggle("Shared Household Expense?", value=True, help="Leave ON if split between couple.")
+
+        # Optional per-expense override of the household ratio, sent as "shares".
+        custom_shares = None
+        if is_shared and household_data:
+            if st.checkbox("Custom split for this expense", help="Override the household ratio just for this one, e.g. 70/30, or 100% on one person."):
+                share_cols = st.columns(len(household_data))
+                custom_shares = []
+                for share_col, member in zip(share_cols, household_data):
+                    name = member["user"].get("full_name") or member["user"]["email"]
+                    pct = share_col.number_input(
+                        f"{name} %", min_value=0, max_value=100, step=5,
+                        value=int(round(float(member["share_pct"]) * 100)), key=f"share_{member['user_id']}",
+                    )
+                    custom_shares.append((member["user_id"], pct))
+                split_total = sum(pct for _, pct in custom_shares)
+                if split_total != 100:
+                    st.warning(f"Shares add up to {split_total}%, not 100%.")
         
     with col2:
         time_input = st.time_input("Time", st.session_state.selected_time)
         st.session_state.selected_time = time_input
-        price = st.number_input("Price", min_value=0.0, format="%.2f")
+        price = st.number_input("Price", min_value=0.0, format="%.2f", help="For an installment purchase, the full price, not one installment.")
 
         selected_primary, selected_sub = cascading_selectbox(
             label_primary="Category", label_secondary="Sub-Category",
@@ -156,6 +178,8 @@ else:
                 if not selected_primary: missing_fields.append("Category")
                 if not selected_sub: missing_fields.append("Sub-Category")
                 if price <= 0: missing_fields.append("Price (must be > $ 0)")
+                if custom_shares is not None and sum(pct for _, pct in custom_shares) != 100:
+                    missing_fields.append("Custom split (must add up to 100%)")
 
                 if missing_fields:
                     st.error(f"⚠️ Please fill out: **{', '.join(missing_fields)}**")
@@ -190,6 +214,11 @@ else:
                             "current_installment": current_inst,
                             "total_installments": total_inst
                         }
+                        if custom_shares is not None:
+                            # People at 0% simply bear none of it, so they get no row.
+                            payload["shares"] = [
+                                {"user_id": uid, "share_pct": f"{pct / 100:.2f}"} for uid, pct in custom_shares if pct > 0
+                            ]
 
                         # 4. Request
                         response = requests.post(f"{API_BASE_URL}/expenditures/", json=payload, headers=auth_headers)
