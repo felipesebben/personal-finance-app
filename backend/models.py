@@ -51,10 +51,9 @@ class FactExpenditure(Base):
     transaction_timestamp = Column(DateTime(timezone=True), nullable=False)
     price = Column(Numeric(10, 2), nullable=False)
     nature = Column(String, default="Normal")
-    # Legacy: still written from the request, but nothing reads it any more;
-    # use has_other_share (defined below FactExpenditureSplit). Dropped in a
-    # later migration.
-    is_shared = Column(Boolean, default=True)
+    # Whether it's shared isn't stored: see has_other_share, defined below
+    # FactExpenditureSplit. (The old is_shared column was dropped in
+    # migration "drop is_shared from fact_expenditures".)
 
     # Installment tracking
     current_installment = Column(Integer, default=1)
@@ -87,9 +86,8 @@ class FactExpenditureSplit(Base):
 
 
 
-# Whether an expense is shared is derived from its allocation rows, not from
-# the legacy is_shared flag: it's shared when someone other than the payer
-# bears part of it. Defined here, after FactExpenditureSplit exists, so every
+# Whether an expense is shared is derived from its allocation rows: it's
+# shared when someone other than the payer bears part of it. Defined here, after FactExpenditureSplit exists, so every
 # query and response uses the same definition (FactExpenditure.has_other_share).
 _other_share = aliased(FactExpenditureSplit)
 FactExpenditure.has_other_share = column_property(

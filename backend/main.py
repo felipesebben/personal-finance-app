@@ -79,9 +79,8 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
 def visible_to(user: models.DimUser):
     """
     The expenditures a user may see or delete: ones they paid, plus ones
-    they hold a share of. Derived from allocation rows, not the legacy
-    is_shared flag, so an account outside the household never sees the
-    household's shared expenses.
+    they hold a share of. Derived from allocation rows, so an account
+    outside the household never sees the household's shared expenses.
     """
     mine = aliased(models.FactExpenditureSplit)
     return or_(
@@ -103,8 +102,10 @@ def create_expenditure(
     Creates an expenditure linked to the logged-in user, along with its
     allocation row(s) in the same transaction.
     """
-    # Remove user_id from the request JSON for fraud prevention.
-    expenditure_data = expenditure.model_dump(exclude={"user_id"})
+    # Remove user_id from the request JSON for fraud prevention, and
+    # is_shared, which is an instruction for the split below rather than a
+    # stored column.
+    expenditure_data = expenditure.model_dump(exclude={"user_id", "is_shared"})
 
     db_expenditure = models.FactExpenditure(
         **expenditure_data,
