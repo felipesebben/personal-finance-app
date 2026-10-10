@@ -101,7 +101,10 @@ class ExpenditureRead(BaseModel):
     transaction_timestamp: datetime
     price: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
     nature: str
-    is_shared: bool
+    # Still published as "is_shared" so clients don't change, but read from
+    # FactExpenditure.has_other_share (derived from allocation rows), not
+    # from the legacy column.
+    is_shared: bool = Field(validation_alias="has_other_share")
 
     # Nest the other schemas to show full objects
     user: User
