@@ -108,12 +108,18 @@ def test_outsider_sees_nothing(client, household):
     assert expenses(client, carol, month="2026-10") == []
 
 
-def test_needs_a_share_of_my_own(client, household):
-    # Bob paid, but a manual split puts it all on Alice: shared, yet Bob
-    # holds no split row, so it isn't in his view.
+def test_expense_i_paid_but_put_on_my_partner(client, household):
+    # Bob paid, but a manual split puts it all on Alice. It's still household
+    # spending Bob can see in the Tracker, so it counts in his Household lens,
+    # with nothing in his "mine".
     spend(client, household, "b", "80.00", shares=[{"user_id": household["a_id"], "share_pct": "1"}])
     assert total(analytics(client, household["a"], month="2026-10")["rows"], "mine") == D("80.00")
-    assert analytics(client, household["b"], month="2026-10")["rows"] == []
+    bob = analytics(client, household["b"], month="2026-10")["rows"]
+    assert total(bob, "household") == D("80.00")
+    assert total(bob, "mine") == D("0.00")
+    assert total(bob, "mine_to_day") == D("0.00")
+    [listed] = expenses(client, household["b"], month="2026-10")
+    assert D(listed["price"]) == D("80.00") and D(listed["mine"]) == D("0") and D(listed["share_pct"]) == D("0")
 
 
 def test_month_is_sao_paulo_calendar_month(client, household):

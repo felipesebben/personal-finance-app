@@ -643,10 +643,11 @@ def shift_month(month: str, delta: int) -> str:
 
 # Privacy rule for both routes: an expense qualifies only when it is shared
 # (FactExpenditure.has_other_share: someone other than the payer bears part
-# of it) AND the current user holds a split row for it. The inner join on
-# "my" split row enforces the second half and supplies my share_amount, so
-# personal expenses — mine or my partner's — never appear, and an account
-# outside the household gets nothing.
+# of it) AND the current user either holds a split row for it or paid it —
+# the same people visible_to() lets see it. The outer join on "my" split row
+# supplies my share_amount, which is 0 for an expense I paid but put entirely
+# on my partner ("this one's on her"). Personal expenses — mine or my
+# partner's — never appear, and an account outside the household gets nothing.
 
 
 @app.get("/analytics/shared", response_model=schemas.SharedAnalytics)
@@ -688,15 +689,18 @@ def get_shared_analytics(
             func.coalesce(category.sub_category, "Uncategorised").label("sub_category"),
             func.coalesce(category.cost_type, "Unknown").label("cost_type"),
             func.sum(fact.price).label("household"),
-            func.sum(mine.share_amount).label("mine"),
+            func.sum(func.coalesce(mine.share_amount, 0)).label("mine"),
             func.count(fact.expenditure_id).label("count"),
             func.sum(case((in_first_days, fact.price), else_=0)).label("household_to_day"),
-            func.sum(case((in_first_days, mine.share_amount), else_=0)).label("mine_to_day"),
+            func.sum(case((in_first_days, func.coalesce(mine.share_amount, 0)), else_=0)).label("mine_to_day"),
         )
         # One split row per (expense, user), so this join never duplicates a price.
-        .join(mine, (mine.expenditure_id == fact.expenditure_id) & (mine.user_id == current_user.user_id))
+        .outerjoin(mine, (mine.expenditure_id == fact.expenditure_id) & (mine.user_id == current_user.user_id))
         .outerjoin(category, category.category_id == fact.category_id)
-        .filter(fact.has_other_share, local_month.in_(window))
+        .filter(
+            fact.has_other_share, local_month.in_(window),
+            or_(mine.user_id.isnot(None), fact.user_id == current_user.user_id),
+        )
         .group_by("month", "primary_category", "sub_category", "cost_type")
         .order_by("month", "primary_category", "sub_category")
         .all()
@@ -760,17 +764,20 @@ def get_shared_expenses(
             method.institution,
             payer.full_name.label("paid_by"),
             fact.price,
-            mine.share_amount.label("mine"),
-            mine.share_pct,
+            func.coalesce(mine.share_amount, 0).label("mine"),
+            func.coalesce(mine.share_pct, 0).label("share_pct"),
             fact.current_installment,
             fact.total_installments,
             fact.nature,
         )
-        .join(mine, (mine.expenditure_id == fact.expenditure_id) & (mine.user_id == current_user.user_id))
+        .outerjoin(mine, (mine.expenditure_id == fact.expenditure_id) & (mine.user_id == current_user.user_id))
         .join(payer, payer.user_id == fact.user_id)
         .outerjoin(category, category.category_id == fact.category_id)
         .outerjoin(method, method.payment_method_id == fact.payment_method_id)
-        .filter(fact.has_other_share, local_month == month)
+        .filter(
+            fact.has_other_share, local_month == month,
+            or_(mine.user_id.isnot(None), fact.user_id == current_user.user_id),
+        )
     )
     if primary_category is not None:
         query = query.filter(primary == primary_category)
