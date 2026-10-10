@@ -124,6 +124,53 @@ def extract_allocations(engine=None):
         print(f"Allocation Extraction Failed: {e}")
         return None
 
+# One row per payment between household members. Settlements move money
+# between people rather than spending it, so they live in their own
+# datasource instead of being mixed into the spending grain. `period_month`
+# is the month the payment squares up (NULL = against the all-time
+# balance), which is usually not the month the money moved.
+SETTLEMENTS_QUERY = """
+SELECT
+    s.settlement_id,
+    s.settled_at AT TIME ZONE 'America/Sao_Paulo' AS settled_at,
+    date_trunc('month', s.settled_at AT TIME ZONE 'America/Sao_Paulo')::date AS settled_month_start,
+    s.period_month,
+    payer.full_name AS from_name,
+    payee.full_name AS to_name,
+    s.amount,
+    s.note,
+    recorder.full_name AS recorded_by
+FROM fact_settlement s
+JOIN dim_user payer ON payer.user_id = s.from_user_id
+JOIN dim_user payee ON payee.user_id = s.to_user_id
+JOIN dim_user recorder ON recorder.user_id = s.recorded_by_user_id
+ORDER BY s.settled_at, s.settlement_id;
+"""
+
+
+def extract_settlements(engine=None):
+    """
+    Extracts settlements, one row per payment.
+    """
+    engine = engine or get_db_connection()
+    if not engine: return None
+
+    try:
+        df = pd.read_sql(SETTLEMENTS_QUERY, engine)
+        if df.empty:
+            print("No settlements found.")
+            return None
+        # Pin the date columns' type: if every period_month is NULL, pandas
+        # can't infer one, and a column that is text on one refresh and a
+        # date on the next breaks Tableau workbooks built on it.
+        for col in ("period_month", "settled_month_start"):
+            df[col] = pd.to_datetime(df[col])
+        print(f"Extracted {len(df)} settlements.")
+        return df
+    except Exception as e:
+        print(f"Settlement Extraction Failed: {e}")
+        return None
+
     # 2. Hyper Logic
 def generate_hyper_file(df, filename="expenditures.hyper", output_dir="artifacts"):
     """
@@ -143,9 +190,10 @@ def generate_hyper_file(df, filename="expenditures.hyper", output_dir="artifacts
     # A column that is entirely NULL (e.g. no payment method has an
     # institution yet) has no inferable type, and Hyper rejects it. Treat
     # those as text, which is what every nullable dimension column is.
+    # Columns that already carry a type (e.g. pinned dates) keep it.
     df = df.copy()
     for col in df.columns:
-        if df[col].isna().all():
+        if df[col].dtype == object and df[col].isna().all():
             df[col] = df[col].astype("string")
 
     try:
@@ -178,8 +226,9 @@ def run_pipeline():
     
     # 2. Transform / Generate Files
     # The datasource name on Tableau comes from the file name, so these
-    # publish as two datasources: "expenditures" (unchanged, one row per
-    # expense) and "allocations" (one row per person per expense).
+    # publish as separate datasources: "expenditures" (unchanged, one row
+    # per expense), "allocations" (one row per person per expense) and
+    # "settlements" (one row per payment between members).
     hyper_files = []
     hyper_file = generate_hyper_file(df)
     if not hyper_file:
@@ -192,6 +241,12 @@ def run_pipeline():
         allocations_file = generate_hyper_file(allocations_df, filename="allocations.hyper")
         if allocations_file:
             hyper_files.append(allocations_file)
+
+    settlements_df = extract_settlements()
+    if settlements_df is not None:
+        settlements_file = generate_hyper_file(settlements_df, filename="settlements.hyper")
+        if settlements_file:
+            hyper_files.append(settlements_file)
 
     # 3. Publish
     try:

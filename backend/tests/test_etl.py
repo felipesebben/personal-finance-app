@@ -4,10 +4,11 @@ from decimal import Decimal
 import pandas as pd
 import pantab
 import pytest
+from tableauhyperapi import Connection, HyperProcess, TableName, Telemetry
 
 import database
 from conftest import expenditure_payload
-from etl.main import extract_allocations, extract_data, generate_hyper_file
+from etl.main import extract_allocations, extract_data, extract_settlements, generate_hyper_file
 
 
 def spend(client, household, who, price, is_shared=True, when="2026-10-08T12:00:00-03:00"):
@@ -80,3 +81,55 @@ def test_expenditures_hyper_handles_all_null_column(seeded, tmp_path):
     assert exps["institution"].isna().all()
     path = generate_hyper_file(exps, output_dir=str(tmp_path))
     assert path is not None
+
+
+# --- settlements ----------------------------------------------------------
+
+def record(client, household, amount, month, when="2026-11-03T09:00:00-03:00", note=None):
+    body = {
+        "settled_at": when, "from_user_id": household["b_id"], "to_user_id": household["a_id"],
+        "amount": amount, "month": month, "note": note,
+    }
+    resp = client.post("/settlements/", headers=household["b"], json=body)
+    assert resp.status_code == 200, resp.text
+
+
+def test_settlements_extract_matches_the_table(client, household):
+    record(client, household, "40.00", "2026-10", note="Pix")
+    record(client, household, "15.50", None, when="2026-11-30T23:30:00-03:00")
+    df = extract_settlements(database.engine)
+
+    assert len(df) == 2
+    assert round(df["amount"].sum(), 2) == 55.50
+    first, second = df.iloc[0], df.iloc[1]
+    assert (first["from_name"], first["to_name"], first["recorded_by"]) == ("bob", "alice", "bob")
+    assert first["period_month"].strftime("%Y-%m") == "2026-10"
+    assert first["settled_month_start"].strftime("%Y-%m") == "2026-11"
+    assert pd.isna(second["period_month"])
+    # 23:30 on 30 Nov in São Paulo is 1 Dec in UTC; still November locally
+    assert second["settled_month_start"].strftime("%Y-%m") == "2026-11"
+
+
+def test_no_settlements_extracts_nothing(client):
+    assert extract_settlements(database.engine) is None
+
+
+def test_settlements_hyper_keeps_dates_when_no_month_is_set(client, household, tmp_path):
+    # Every period_month NULL must still publish as a date, not text, so the
+    # column's type in Tableau doesn't flip once a month is recorded.
+    record(client, household, "40.00", None)
+    df = extract_settlements(database.engine)
+    path = generate_hyper_file(df, filename="settlements.hyper", output_dir=str(tmp_path))
+    assert path is not None
+
+    # Check the column type stored in the Hyper file itself — what Tableau sees.
+    # log_dir keeps hyperd.log out of the working directory.
+    hyper_params = {"log_dir": str(tmp_path)}
+    with HyperProcess(Telemetry.DO_NOT_SEND_USAGE_DATA_TO_TABLEAU, parameters=hyper_params) as hyper:
+        with Connection(hyper.endpoint, path) as conn:
+            table = conn.catalog.get_table_definition(TableName("Expenditures"))
+            types = {col.name.unescaped: str(col.type) for col in table.columns}
+            assert conn.execute_scalar_query('SELECT COUNT(*) FROM "Expenditures"') == 1
+    assert types["period_month"] == "TIMESTAMP"
+    assert types["settled_month_start"] == "TIMESTAMP"
+    assert types["note"] == "TEXT"
