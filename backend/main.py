@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi import BackgroundTasks, FastAPI, Depends, HTTPException, Query
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -11,7 +11,9 @@ from decimal import Decimal
 from split_logic import settle
 from ledger import HouseholdNotConfigured, InvalidSplit, add_expenditure
 
-from auth import verify_password, create_access_token, get_password_hash, SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
+from config import settings
+from auth import verify_password, create_access_token, get_password_hash, hash_reset_token, new_reset_token, SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
+from email_sender import EmailSender, get_email_sender, send_quietly
 
 
 from pydantic import BaseModel
@@ -136,6 +138,11 @@ def create_expenditure(
 
 @app.post("/users/", response_model=schemas.User)
 def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
+    # Public route: on a LAN install anyone who can reach the app could sign
+    # up, so ALLOWED_SIGNUP_EMAILS can restrict it to the household.
+    if not settings.signup_allowed(user.email):
+        raise HTTPException(status_code=403, detail="Sign-up is restricted on this installation")
+
     # Check if email already exists
     db_user = db.query(models.DimUser).filter(models.DimUser.email == user.email).first()
     if db_user:
@@ -166,8 +173,6 @@ def login_for_access_token(db: Session = Depends(get_db), form_data: OAuth2Passw
     3. Returns a JWT Token.
     """
     # OAuth2 form stores the email in a field called 'username'.
-    print(f"Attempting login for: {form_data.username}")
-    
     user = db.query(models.DimUser).filter(models.DimUser.email == form_data.username).first()
 
     # Check 1: Does the user exist? | Check 2: Is password correct?
@@ -186,6 +191,92 @@ def login_for_access_token(db: Session = Depends(get_db), form_data: OAuth2Passw
     )
 
     return {"access_token": access_token, "token_type": "bearer"}
+
+
+# --- Password reset (both routes are public: the user can't log in) ---
+
+RESET_REQUESTED = "If that account exists, we've sent a reset link."
+RESET_INVALID = "This reset link is invalid or has expired."
+# Links one account may be sent per hour; requests beyond this send nothing.
+RESET_MAX_PER_HOUR = 3
+
+
+@app.post("/password-reset/request", status_code=202, response_model=schemas.Message)
+def request_password_reset(
+    payload: schemas.PasswordResetRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    sender: EmailSender = Depends(get_email_sender),
+):
+    """
+    Emails a one-time reset link. Always answers 202 with the same body, so
+    the response never reveals whether an account exists.
+    """
+    user = (
+        db.query(models.DimUser)
+        .filter(func.lower(models.DimUser.email) == payload.email.strip().lower())
+        .first()
+    )
+    if user is None:
+        return {"detail": RESET_REQUESTED}
+
+    Token = models.PasswordResetToken
+    recent = db.query(func.count(Token.id)).filter(
+        Token.user_id == user.user_id,
+        Token.created_at > func.now() - timedelta(hours=1),
+    ).scalar()
+    if recent >= RESET_MAX_PER_HOUR:
+        return {"detail": RESET_REQUESTED}
+
+    # Only the newest link works: retire any earlier unused ones.
+    db.query(Token).filter(Token.user_id == user.user_id, Token.used_at.is_(None)).update(
+        {Token.used_at: func.now()}, synchronize_session=False
+    )
+    raw_token = new_reset_token()
+    expire_minutes = settings.password_reset_expire_minutes
+    db.add(Token(
+        user_id=user.user_id,
+        token_hash=hash_reset_token(raw_token),
+        expires_at=func.now() + timedelta(minutes=expire_minutes),
+    ))
+    db.commit()
+
+    link = f"{settings.frontend_base_url.rstrip('/')}/?reset_token={raw_token}"
+    body = (
+        f"Hi {user.full_name or 'there'},\n\n"
+        "Someone asked to reset the password for your Personal Finance account.\n"
+        f"Open this link to choose a new one (it works once, for {expire_minutes} minutes):\n\n"
+        f"{link}\n\n"
+        "If it wasn't you, ignore this email; your password hasn't changed.\n"
+    )
+    # Sent after the response, so a slow SMTP server doesn't hold the request.
+    background_tasks.add_task(send_quietly, sender, user.email, "Reset your Personal Finance password", body)
+    return {"detail": RESET_REQUESTED}
+
+
+@app.post("/password-reset/confirm", response_model=schemas.Message)
+def confirm_password_reset(payload: schemas.PasswordResetConfirm, db: Session = Depends(get_db)):
+    """Redeems a reset token: sets the new password and burns the token, in one commit."""
+    Token = models.PasswordResetToken
+    reset = (
+        db.query(Token)
+        .filter(
+            Token.token_hash == hash_reset_token(payload.token),
+            Token.used_at.is_(None),
+            Token.expires_at > func.now(),
+        )
+        # Locks the row, so two concurrent confirms can't both redeem it.
+        .with_for_update()
+        .first()
+    )
+    if reset is None:
+        raise HTTPException(status_code=400, detail=RESET_INVALID)
+
+    user = db.get(models.DimUser, reset.user_id)
+    user.hashed_password = get_password_hash(payload.new_password)
+    reset.used_at = func.now()
+    db.commit()
+    return {"detail": "Password updated. You can now log in."}
 
 
 @app.post("/categories/", response_model=schemas.Category, dependencies=[Depends(get_current_user)])
@@ -529,8 +620,16 @@ def delete_settlement(
 
 # --- Delete Endpoints ---
 
-@app.delete("/users/{user_id}", dependencies=[Depends(get_current_user)])
-def delete_user(user_id: int, db: Session = Depends(get_db)):
+@app.delete("/users/{user_id}")
+def delete_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.DimUser = Depends(get_current_user),
+):
+    # An account can only delete itself, never another household member.
+    if user_id != current_user.user_id:
+        raise HTTPException(status_code=403, detail="You can only delete your own account.")
+
     user = db.query(models.DimUser).filter(models.DimUser.user_id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -613,3 +712,162 @@ def refresh_data():
     except Exception as e:
         print(f"ETL Failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# --- Shared-expense analytics ---
+# The in-app Analytics "Overview": shared expenses only, seen through two
+# lenses (the household's full price and the logged-in user's share).
+
+# Imported here rather than at the top so this section stays self-contained.
+import calendar
+from sqlalchemy import case, extract
+
+
+def shift_month(month: str, delta: int) -> str:
+    """'2026-10', -1 -> '2026-09'; crosses year boundaries."""
+    index = int(month[:4]) * 12 + int(month[5:]) - 1 + delta
+    return f"{index // 12}-{index % 12 + 1:02d}"
+
+
+# Privacy rule for both routes: an expense qualifies only when it is shared
+# (FactExpenditure.has_other_share: someone other than the payer bears part
+# of it) AND the current user either holds a split row for it or paid it —
+# the same people visible_to() lets see it. The outer join on "my" split row
+# supplies my share_amount, which is 0 for an expense I paid but put entirely
+# on my partner ("this one's on her"). Personal expenses — mine or my
+# partner's — never appear, and an account outside the household gets nothing.
+
+
+@app.get("/analytics/shared", response_model=schemas.SharedAnalytics)
+def get_shared_analytics(
+    month: str | None = Query(None, pattern=MONTH_PATTERN, description="YYYY-MM, the last month of the window; defaults to the current month"),
+    months: int = Query(12, ge=1, le=24, description="How many months the window covers, ending at `month`"),
+    db: Session = Depends(get_db),
+    current_user: models.DimUser = Depends(get_current_user),
+):
+    """
+    Shared expenses per São Paulo month × category over a window of months,
+    as the household's full price and as the current user's share.
+
+    Each row also carries *_to_day totals, counting only days 1..as_of_day,
+    so a month still in progress can be compared with the same days of the
+    other months. Months with no shared expenses have no rows; `months`
+    lists the whole window so the client can zero-fill.
+    """
+    today = datetime.now(SAO_PAULO)
+    current = today.strftime("%Y-%m")
+    if month is None:
+        month = current
+    window = [shift_month(month, -k) for k in range(months - 1, -1, -1)]
+    is_partial = month == current
+    as_of_day = today.day if is_partial else calendar.monthrange(int(month[:4]), int(month[5:]))[1]
+
+    fact = models.FactExpenditure
+    mine = models.FactExpenditureSplit
+    category = models.DimCategory
+
+    local_ts = func.timezone("America/Sao_Paulo", fact.transaction_timestamp)
+    local_month = func.to_char(local_ts, "YYYY-MM")
+    in_first_days = extract("day", local_ts) <= as_of_day
+
+    rows = (
+        db.query(
+            local_month.label("month"),
+            func.coalesce(category.primary_category, "Uncategorised").label("primary_category"),
+            func.coalesce(category.sub_category, "Uncategorised").label("sub_category"),
+            func.coalesce(category.cost_type, "Unknown").label("cost_type"),
+            func.sum(fact.price).label("household"),
+            func.sum(func.coalesce(mine.share_amount, 0)).label("mine"),
+            func.count(fact.expenditure_id).label("count"),
+            func.sum(case((in_first_days, fact.price), else_=0)).label("household_to_day"),
+            func.sum(case((in_first_days, func.coalesce(mine.share_amount, 0)), else_=0)).label("mine_to_day"),
+        )
+        # One split row per (expense, user), so this join never duplicates a price.
+        .outerjoin(mine, (mine.expenditure_id == fact.expenditure_id) & (mine.user_id == current_user.user_id))
+        .outerjoin(category, category.category_id == fact.category_id)
+        .filter(
+            fact.has_other_share, local_month.in_(window),
+            or_(mine.user_id.isnot(None), fact.user_id == current_user.user_id),
+        )
+        .group_by("month", "primary_category", "sub_category", "cost_type")
+        .order_by("month", "primary_category", "sub_category")
+        .all()
+    )
+
+    cents = Decimal("0.01")
+    return schemas.SharedAnalytics(
+        month=month,
+        months=window,
+        is_partial=is_partial,
+        as_of_day=as_of_day,
+        rows=[
+            schemas.SharedAnalyticsRow(
+                month=r.month,
+                primary_category=r.primary_category,
+                sub_category=r.sub_category,
+                cost_type=r.cost_type,
+                household=Decimal(r.household).quantize(cents),
+                mine=Decimal(r.mine).quantize(cents),
+                count=r.count,
+                household_to_day=Decimal(r.household_to_day).quantize(cents),
+                mine_to_day=Decimal(r.mine_to_day).quantize(cents),
+            )
+            for r in rows
+        ],
+    )
+
+
+@app.get("/analytics/shared/expenses", response_model=List[schemas.SharedExpense])
+def get_shared_expenses(
+    month: str | None = Query(None, pattern=MONTH_PATTERN, description="YYYY-MM; defaults to the current month"),
+    primary_category: str | None = Query(None, description="Only this primary category ('Uncategorised' for none)"),
+    db: Session = Depends(get_db),
+    current_user: models.DimUser = Depends(get_current_user),
+):
+    """
+    The individual shared expenses behind /analytics/shared for one São Paulo
+    month, newest first, optionally for one primary category. Same privacy
+    rule: shared, and the current user holds a share of it.
+    """
+    if month is None:
+        month = datetime.now(SAO_PAULO).strftime("%Y-%m")
+
+    fact = models.FactExpenditure
+    mine = models.FactExpenditureSplit
+    category = models.DimCategory
+    method = models.DimPaymentMethod
+    payer = models.DimUser
+
+    local_month = func.to_char(func.timezone("America/Sao_Paulo", fact.transaction_timestamp), "YYYY-MM")
+    primary = func.coalesce(category.primary_category, "Uncategorised")
+
+    query = (
+        db.query(
+            fact.expenditure_id,
+            fact.transaction_timestamp,
+            primary.label("primary_category"),
+            func.coalesce(category.sub_category, "Uncategorised").label("sub_category"),
+            func.coalesce(category.cost_type, "Unknown").label("cost_type"),
+            method.method_name.label("payment_method"),
+            method.institution,
+            payer.full_name.label("paid_by"),
+            fact.price,
+            func.coalesce(mine.share_amount, 0).label("mine"),
+            func.coalesce(mine.share_pct, 0).label("share_pct"),
+            fact.current_installment,
+            fact.total_installments,
+            fact.nature,
+        )
+        .outerjoin(mine, (mine.expenditure_id == fact.expenditure_id) & (mine.user_id == current_user.user_id))
+        .join(payer, payer.user_id == fact.user_id)
+        .outerjoin(category, category.category_id == fact.category_id)
+        .outerjoin(method, method.payment_method_id == fact.payment_method_id)
+        .filter(
+            fact.has_other_share, local_month == month,
+            or_(mine.user_id.isnot(None), fact.user_id == current_user.user_id),
+        )
+    )
+    if primary_category is not None:
+        query = query.filter(primary == primary_category)
+
+    rows = query.order_by(fact.transaction_timestamp.desc(), fact.expenditure_id.desc()).all()
+    return [schemas.SharedExpense(**r._mapping) for r in rows]

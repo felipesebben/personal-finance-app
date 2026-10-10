@@ -39,6 +39,46 @@ Both application containers bind-mount their source, so code edits reload withou
 docker compose build --no-cache backend
 ```
 
+### Use it from another device on your home network
+
+The stack already listens on all interfaces, so a phone or laptop on the same Wi-Fi can open the app directly.
+
+1. On the machine running Docker, find its IPv4 address:
+
+   ```powershell
+   ipconfig
+   ```
+
+   Use the `IPv4 Address` of the active Wi-Fi or Ethernet adapter (something like `192.168.0.23`), not the `vEthernet (WSL)` one.
+
+2. On the other device, open `http://<that-ip>:8501`.
+
+3. If it doesn't load, Windows Defender Firewall is probably blocking it. In an **administrator** PowerShell, allow Streamlit's port on private networks only:
+
+   ```powershell
+   New-NetFirewallRule -DisplayName "Personal Finance (Streamlit 8501)" -Direction Inbound -Protocol TCP -LocalPort 8501 -Action Allow -Profile Private
+   ```
+
+   Make sure your home network is set to *Private* in Windows network settings, or the rule won't apply. Remove it later with `Remove-NetFirewallRule -DisplayName "Personal Finance (Streamlit 8501)"`.
+
+Only port 8501 needs to be reachable. Streamlit calls the API from inside the Compose network (`http://backend:8000`), so the API (8000), pgAdmin (5050) and Postgres don't need firewall rules — leave them closed.
+
+Before you do this, set `ALLOWED_SIGNUP_EMAILS` in `.env` to the household's emails (comma-separated) and restart the backend. Otherwise anyone on your network who opens the page can create an account.
+
+### Forgotten passwords
+
+**Forgot password?** under the login form emails a one-time link (valid for 30 minutes) that opens a "Set a new password" form. Until you configure SMTP (see [Configuration](#configuration)), the email is printed to the backend log instead of sent:
+
+```bash
+docker compose logs backend | grep reset_token
+```
+
+Without email, set a password directly from the terminal (it prompts twice):
+
+```bash
+docker compose exec backend python reset_password.py someone@example.com
+```
+
 ### Running a service outside Docker
 
 Each service is a self-contained Poetry project.
@@ -80,6 +120,12 @@ cp .env.example .env
 | `DB_PORT` | no | default `5432` |
 | `SECRET_KEY` | yes | `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | no | default `30` |
+| `ALLOWED_SIGNUP_EMAILS` | no | comma-separated emails allowed to sign up; empty = open. Set it before using the app over the LAN |
+| `EMAIL_BACKEND` | no | `console` (default: reset emails are printed to the backend log) or `smtp` |
+| `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_FROM` | only for `smtp` | for Gmail, `SMTP_PASSWORD` is an [App Password](https://myaccount.google.com/apppasswords) (needs 2-Step Verification) |
+| `SMTP_HOST`, `SMTP_PORT` | no | default `smtp.gmail.com`, `587` (STARTTLS) |
+| `FRONTEND_BASE_URL` | no | where reset links point; default `http://localhost:8501`. Use the LAN address so links work from a phone |
+| `PASSWORD_RESET_EXPIRE_MINUTES` | no | default `30` |
 | `TABLEAU_SERVER_URL`, `TABLEAU_SITENAME`, `TABLEAU_TOKEN_NAME`, `TABLEAU_TOKEN_VALUE` | only for Refresh | checked when publishing; the error names whichever are missing |
 | `TABLEAU_PROJECT_NAME` | no | default `Finance App 2026`; must match the project your workbook uses |
 | `PGADMIN_DEFAULT_EMAIL`, `PGADMIN_DEFAULT_PASSWORD` | for pgAdmin | read by `docker-compose.yml` only |
@@ -128,7 +174,9 @@ backend/          FastAPI service
   main.py           routes, auth dependency, DB session
   models.py         SQLAlchemy ORM — source of truth for the schema
   schemas.py        Pydantic request/response contracts
-  auth.py           bcrypt hashing, JWT minting
+  auth.py           bcrypt hashing, JWT minting, reset-token hashing
+  email_sender.py   console / SMTP email, for password reset
+  reset_password.py CLI: set a user's password without email
   ledger.py         expense + split-row writes, shared by the API and the seed
   seed.py           on-demand demo history for analytics (see below)
   alembic/          migrations — versions/ holds the revision chain

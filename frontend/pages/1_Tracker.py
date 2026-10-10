@@ -1,10 +1,16 @@
 import streamlit as st
 import requests
 import datetime
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 import pandas as pd
 
 from config import API_BASE_URL
+from money import entry_preview, format_brl, format_brl_delta, parse_brl
+
+SAO_PAULO = ZoneInfo("America/Sao_Paulo")
+INSTALLMENT_PICKS = [1, 2, 3, 6, 10, 12, "Other"]
+NATURES = ["Normal", "Extraordinary", "Recurring", "Annual"]
 
 # Page Configuration
 st.set_page_config(page_title="Tracker & Dashboard", page_icon="🤑", layout="wide")
@@ -17,12 +23,22 @@ if "access_token" not in st.session_state or st.session_state["access_token"] is
 
 auth_headers = {"Authorization": f"Bearer {st.session_state['access_token']}"}
 
+# A save reruns the page straight away, so anything shown before st.rerun()
+# is lost; its confirmation is stashed in session_state and shown here instead.
+def md(text: str) -> str:
+    """Escapes "$" for Markdown elements, where a pair of them starts LaTeX ("R$ 1 · R$ 2")."""
+    return text.replace("$", "\\$")
+
+
+if "tracker_toast" in st.session_state:
+    st.toast(md(st.session_state.pop("tracker_toast")), icon="✅")
+
 # --- Helper functions ---
 @st.cache_data(ttl=60)
 def get_data(endpoint: str, token: str):
     """
     Streamlit re-runs the function if the token changes.
-    
+
     :param endpoint: API endpoint.
     :type endpoint: str
     :param token: Current token for session.
@@ -43,9 +59,18 @@ def get_data(endpoint: str, token: str):
         st.error(f"Connection Error: Could not connect to the API to fetch {endpoint}.")
         return []
 
-def cascading_selectbox(label_primary, label_secondary, df, col_primary, col_secondary, force_na_if=None, help_text_secondary=""):
+def cascading_selectbox(label_primary, label_secondary, df, col_primary, col_secondary, key,
+                        force_na_if=None, help_text_secondary=""):
+    """
+    Two selects side by side, the second filtered by the first. `key` must
+    change when the form resets (it carries the entry form's nonce).
+    """
+    col_a, col_b = st.columns(2)
     primary_options = sorted(df[col_primary].unique()) if not df.empty else []
-    selected_primary = st.selectbox(label_primary, options=primary_options, index=None, placeholder=f"Select {label_primary}...")
+    selected_primary = col_a.selectbox(
+        label_primary, options=primary_options, index=None,
+        placeholder=f"Select {label_primary}...", key=f"{key}_primary",
+    )
 
     secondary_options = []
     disabled_secondary = True
@@ -67,9 +92,12 @@ def cascading_selectbox(label_primary, label_secondary, df, col_primary, col_sec
             else:
                 disabled_secondary = True
 
-    selected_secondary = st.selectbox(
+    # The primary choice is part of the key, so switching it starts the
+    # secondary select afresh instead of keeping a value it no longer offers.
+    selected_secondary = col_b.selectbox(
         label_secondary, options=secondary_options, index=index_secondary,
-        placeholder=f"Select {label_secondary}...", disabled=disabled_secondary, help=dynamic_help
+        placeholder=f"Select {label_secondary}...", disabled=disabled_secondary, help=dynamic_help,
+        key=f"{key}_secondary_{selected_primary}",
     )
     return selected_primary, selected_secondary
 
@@ -83,160 +111,219 @@ household_data = get_data("household_settings", token)
 categories_df = pd.DataFrame(categories_data)
 payment_methods_df = pd.DataFrame(payment_methods_data)
 
+# Who is logged in, for "your share" in the preview: Home.py keeps the login email.
+my_email = (st.session_state.get("user_email") or "").strip().lower()
+my_user_id = next(
+    (m["user_id"] for m in household_data or [] if (m["user"].get("email") or "").lower() == my_email),
+    None,
+)
+
+
+@st.fragment
+def expense_entry_form():
+    """
+    The entry form. A fragment, so typing in it reruns only this function
+    rather than refetching the overview below, while the cascading selects,
+    the credit-only installments and the price preview stay live (st.form
+    would freeze them until submit).
+
+    Every widget key carries `entry_nonce`; bumping it after a save gives
+    fresh, empty widgets.
+    """
+    nonce = st.session_state.setdefault("entry_nonce", 0)
+
+    def k(name):
+        return f"entry_{name}_{nonce}"
+
+    # A fresh form starts at now, in São Paulo (the container clock is UTC).
+    if k("date") not in st.session_state:
+        now = datetime.datetime.now(SAO_PAULO)
+        st.session_state[k("date")] = now.date()
+        st.session_state[k("time")] = now.time().replace(second=0, microsecond=0)
+
+    # 1. Price, read back underneath once the rest of the form is known.
+    price_col, _ = st.columns(2)
+    with price_col:
+        price_text = st.text_input(
+            "Price (R$)", placeholder="0,00", key=k("price"),
+            help="Type it the Brazilian way, e.g. 1.234,56. For an installment purchase, the **full** price, not one installment.",
+        )
+        price_slot = st.empty()
+
+    price, price_error = None, None
+    if price_text.strip():
+        try:
+            price = parse_brl(price_text)
+        except ValueError as e:
+            price_error = str(e)
+
+    # 2. How it was paid.
+    selected_method_name, selected_institution = cascading_selectbox(
+        label_primary="Payment Method", label_secondary="Institution",
+        df=payment_methods_df, col_primary="method_name", col_secondary="institution",
+        key=k("payment"), force_na_if="Cash",
+    )
+
+    # 3. Installments, for credit only.
+    current_inst = 1
+    total_inst = 1
+    if selected_method_name:
+        matched_pm = payment_methods_df[payment_methods_df["method_name"] == selected_method_name]
+        is_credit = bool(matched_pm["is_credit"].iloc[0]) if not matched_pm.empty and "is_credit" in payment_methods_df.columns else False
+        if is_credit:
+            inst_a, inst_b = st.columns(2)
+            with inst_a:
+                pick = st.segmented_control(
+                    "💳 Installments", INSTALLMENT_PICKS, default=1, key=k("inst_pick"),
+                    format_func=lambda p: p if p == "Other" else f"{p}x",
+                    help="1x = paid in full. Enter an installment purchase **once**, with its full price; "
+                         "Tableau's cashflow datasource spreads it over the months.",
+                )
+                if pick == "Other":
+                    total_inst = int(st.number_input("Number of installments", min_value=2, value=2, step=1, key=k("inst_other")))
+                else:
+                    total_inst = pick or 1
+            if total_inst > 1:
+                current_inst = int(inst_b.number_input(
+                    "Installment billed this month", min_value=1, max_value=total_inst, value=1,
+                    key=k(f"inst_current_{total_inst}"),
+                    help="1 if you're entering it on the day you bought it; e.g. 4 if you're already paying installment 4 of 10.",
+                ))
+
+    # 4. What it was.
+    selected_primary, selected_sub = cascading_selectbox(
+        label_primary="Category", label_secondary="Sub-Category",
+        df=categories_df, col_primary="primary_category", col_secondary="sub_category",
+        key=k("category"),
+    )
+
+    # 5. Who bears it.
+    is_shared = st.toggle("Shared Household Expense?", value=True, key=k("shared"),
+                          help="Leave ON if split between couple.")
+
+    # Optional per-expense override of the household ratio, sent as "shares".
+    custom_shares = None
+    if is_shared and household_data:
+        if st.checkbox("Custom split for this expense", key=k("custom"),
+                       help="Override the household ratio just for this one, e.g. 70/30, or 100% on one person."):
+            share_cols = st.columns(len(household_data))
+            custom_shares = []
+            for share_col, member in zip(share_cols, household_data):
+                name = member["user"].get("full_name") or member["user"]["email"]
+                pct = share_col.number_input(
+                    f"{name} %", min_value=0, max_value=100, step=5,
+                    value=int(round(float(member["share_pct"]) * 100)), key=k(f"share_{member['user_id']}"),
+                )
+                custom_shares.append((member["user_id"], pct))
+            split_total = sum(pct for _, pct in custom_shares)
+            if split_total != 100:
+                st.warning(f"Shares add up to {split_total}%, not 100%.")
+
+    # 6. Nature, then when.
+    nature_option = st.segmented_control(
+        "Nature", NATURES, default="Normal", key=k("nature"),
+        help="Normal: everyday | Extraordinary: unplanned/emergency | Recurring: monthly subscription | Annual: once-a-year (IPVA, IPTU)",
+    )
+    date_col, time_col = st.columns(2)
+    date_input = date_col.date_input("Date", format="DD/MM/YYYY", key=k("date"))
+    time_input = time_col.time_input("Time", step=60, key=k("time"))
+
+    # The preview, under the price field.
+    if price_error:
+        price_slot.error(price_error)
+    elif price is not None:
+        if not is_shared:
+            preview_shares = None
+        elif custom_shares is not None:
+            preview_shares = [(uid, Decimal(pct) / 100) for uid, pct in custom_shares]
+        else:
+            preview_shares = [(m["user_id"], Decimal(str(m["share_pct"]))) for m in household_data or []]
+        price_slot.caption(md(entry_preview(price, total_inst, preview_shares, my_user_id)))
+
+    # --- Submit button ---
+    if not st.button("Submit Expenditure", type="primary", key=k("submit")):
+        return
+
+    # 1. Validation
+    missing_fields = []
+    if price is None: missing_fields.append("Price" if not price_error else f"Price ({price_error})")
+    if not selected_method_name: missing_fields.append("Payment Method")
+    if not selected_institution: missing_fields.append("Institution")
+    if not selected_primary: missing_fields.append("Category")
+    if not selected_sub: missing_fields.append("Sub-Category")
+    if not nature_option: missing_fields.append("Nature")
+    if custom_shares is not None and sum(pct for _, pct in custom_shares) != 100:
+        missing_fields.append("Custom split (must add up to 100%)")
+
+    if missing_fields:
+        st.error(f"⚠️ Please fill out: **{', '.join(missing_fields)}**")
+        return
+
+    try:
+        # 2. Lookups
+        matched_method = payment_methods_df[
+            (payment_methods_df["method_name"] == selected_method_name) &
+            (payment_methods_df["institution"].fillna("N/A") == (selected_institution if selected_institution else "N/A"))
+        ]
+        payment_method_id = matched_method["payment_method_id"].iloc[0]
+
+        category_id = categories_df[
+            (categories_df["primary_category"] == selected_primary) &
+            (categories_df["sub_category"] == selected_sub)
+        ]["category_id"].iloc[0]
+
+        # 3. Payload
+        dt_aware = datetime.datetime.combine(date_input, time_input).replace(tzinfo=SAO_PAULO)
+
+        payload = {
+            "transaction_timestamp": dt_aware.isoformat(),
+            # A string, so the exact Decimal reaches the API's Numeric(10, 2).
+            "price": str(price),
+            "category_id": int(category_id),
+            "payment_method_id": int(payment_method_id),
+            "nature": nature_option,
+            "is_shared": is_shared,
+            "user_id": 0, # Backend handles this via token
+            "current_installment": current_inst,
+            "total_installments": total_inst
+        }
+        if custom_shares is not None:
+            # People at 0% simply bear none of it, so they get no row.
+            payload["shares"] = [
+                {"user_id": uid, "share_pct": f"{pct / 100:.2f}"} for uid, pct in custom_shares if pct > 0
+            ]
+
+        # 4. Request
+        response = requests.post(f"{API_BASE_URL}/expenditures/", json=payload, headers=auth_headers)
+    except Exception as e:
+        st.error(f"Error processing request: {e}")
+        return
+
+    if response.status_code != 200:
+        st.error(f"Error: {response.status_code} – {response.text}")
+        return
+
+    # Fresh widgets next time, a toast after the rerun, and the overview
+    # below refetched with the new expense in it.
+    st.session_state["entry_nonce"] = nonce + 1
+    st.session_state["tracker_toast"] = f"Expense saved: {format_brl(price)}"
+    st.cache_data.clear()
+    st.rerun(scope="app")
+
+
 # -- Main Page UI --
 st.title("💰 Expenditure Tracker")
 
 if categories_df.empty or payment_methods_df.empty:
     st.warning("⚠️ Database missing Categories or Payment Methods! Please go to **Manage Settings** in the sidebar.")
 else:
-    # --- UI LOGIC STARTS HERE ---
-    if "selected_time" not in st.session_state:
-        user_tz = ZoneInfo("America/Sao_Paulo")
-
-        curr_time_brl = datetime.datetime.now(user_tz)
-
-        st.session_state.selected_time = curr_time_brl.time()
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        date_input = st.date_input("Date", datetime.date.today(), format="DD/MM/YYYY")
-        st.info("**Payer**: You (Logged-in User)")    
-        
-        selected_method_name, selected_institution = cascading_selectbox(
-            label_primary="Payment Method", label_secondary="Institution",
-            df=payment_methods_df, col_primary="method_name", col_secondary="institution", force_na_if="Cash"
-        )
-
-        # Dynamic installment logic
-        current_inst = 1
-        total_inst = 1
-
-        if selected_method_name:
-            matched_pm = payment_methods_df[payment_methods_df["method_name"] == selected_method_name]
-            is_credit = bool(matched_pm["is_credit"].iloc[0]) if not matched_pm.empty and "is_credit" in payment_methods_df.columns else False
-            if is_credit:
-                st.caption("💳 Credit Card — Installments")
-                st.caption("Enter an installment purchase **once**, with its full price; Tableau's cashflow datasource spreads it over the months.")
-                col_inst1, col_inst2 = st.columns(2)
-                total_inst = col_inst2.number_input("Total Installments", min_value=1, value=1, help="1 = paid in full. 10 = a 10x purchase.")
-                current_inst = col_inst1.number_input(
-                    "Installment billed this month", min_value=1, max_value=int(total_inst), value=1,
-                    help="1 if you're entering it on the day you bought it; e.g. 4 if you're already paying installment 4 of 10.",
-                )
-
-  
-        st.write("---")
-        is_shared = st.toggle("Shared Household Expense?", value=True, help="Leave ON if split between couple.")
-
-        # Optional per-expense override of the household ratio, sent as "shares".
-        custom_shares = None
-        if is_shared and household_data:
-            if st.checkbox("Custom split for this expense", help="Override the household ratio just for this one, e.g. 70/30, or 100% on one person."):
-                share_cols = st.columns(len(household_data))
-                custom_shares = []
-                for share_col, member in zip(share_cols, household_data):
-                    name = member["user"].get("full_name") or member["user"]["email"]
-                    pct = share_col.number_input(
-                        f"{name} %", min_value=0, max_value=100, step=5,
-                        value=int(round(float(member["share_pct"]) * 100)), key=f"share_{member['user_id']}",
-                    )
-                    custom_shares.append((member["user_id"], pct))
-                split_total = sum(pct for _, pct in custom_shares)
-                if split_total != 100:
-                    st.warning(f"Shares add up to {split_total}%, not 100%.")
-        
-    with col2:
-        time_input = st.time_input("Time", st.session_state.selected_time)
-        st.session_state.selected_time = time_input
-        price = st.number_input("Price", min_value=0.0, format="%.2f", help="For an installment purchase, the full price, not one installment.")
-
-        selected_primary, selected_sub = cascading_selectbox(
-            label_primary="Category", label_secondary="Sub-Category",
-            df=categories_df, col_primary="primary_category", col_secondary="sub_category"
-        )
-        
-        st.write("---")
-        nature_option = st.radio(
-            "Nature",
-            options=["Normal", "Extraordinary", "Recurring", "Annual"],
-            index=0,
-            horizontal=True,
-            help="Normal: everyday | Extraordinary: unplanned/emergency | Recurring: monthly subscription | Annual: once-a-year (IPVA, IPTU)"
-        )
-    
-        # --- Submit button ---
-        if categories_df.empty or payment_methods_df.empty:
-            st.warning("Cannot sumbit: Missing **Categories** or **Payment Method**.")
-        else:
-            if st.button("Submit Expenditure", type="primary"):
-
-                # 1. Validation
-                missing_fields = []
-                if not selected_method_name: missing_fields.append("Payment Method")
-                if not selected_institution: missing_fields.append("Institution")
-                if not selected_primary: missing_fields.append("Category")
-                if not selected_sub: missing_fields.append("Sub-Category")
-                if price <= 0: missing_fields.append("Price (must be > $ 0)")
-                if custom_shares is not None and sum(pct for _, pct in custom_shares) != 100:
-                    missing_fields.append("Custom split (must add up to 100%)")
-
-                if missing_fields:
-                    st.error(f"⚠️ Please fill out: **{', '.join(missing_fields)}**")
-                else:
-                    try:
-                        # 2. Lookups
-                        matched_method = payment_methods_df[
-                            (payment_methods_df["method_name"] == selected_method_name) &
-                            (payment_methods_df["institution"].fillna("N/A") == (selected_institution if selected_institution else "N/A"))
-                        ]
-                        payment_method_id = matched_method["payment_method_id"].iloc[0]
-
-                        category_id = categories_df[
-                            (categories_df["primary_category"] == selected_primary) &
-                            (categories_df["sub_category"] == selected_sub)
-                        ]["category_id"].iloc[0]
-
-                        # 3. Payload
-                        dt_naive = datetime.datetime.combine(date_input, time_input)
-
-                        user_tz = ZoneInfo("America/Sao_Paulo")
-                        dt_aware = dt_naive.replace(tzinfo=user_tz)
-
-                        payload = {
-                            "transaction_timestamp": dt_aware.isoformat(),
-                            "price": price,
-                            "category_id": int(category_id),
-                            "payment_method_id": int(payment_method_id),
-                            "nature": nature_option,
-                            "is_shared": is_shared,
-                            "user_id": 0, # Backend handles this via token
-                            "current_installment": current_inst,
-                            "total_installments": total_inst
-                        }
-                        if custom_shares is not None:
-                            # People at 0% simply bear none of it, so they get no row.
-                            payload["shares"] = [
-                                {"user_id": uid, "share_pct": f"{pct / 100:.2f}"} for uid, pct in custom_shares if pct > 0
-                            ]
-
-                        # 4. Request
-                        response = requests.post(f"{API_BASE_URL}/expenditures/", json=payload, headers=auth_headers)
-                        if response.status_code == 200:
-                            st.success("Expenditure added successfully! ✅")
-                            st.cache_data.clear()
-                            st.rerun()
-                        else:
-                            st.error(f"Error: {response.status_code} – {response.text}")
-                    except Exception as e:
-                        st.error(f"Error processing request: {e}")
-
+    expense_entry_form()
 
 # --- Monthly overview: my summary + who owes whom, driven by one period picker ---
 st.divider()
 st.header("📊 Monthly Overview")
 
-today_brl = datetime.datetime.now(ZoneInfo("America/Sao_Paulo")).date()
+today_brl = datetime.datetime.now(SAO_PAULO).date()
 month_options = []
 y, m = today_brl.year, today_brl.month
 for _ in range(12):
@@ -250,11 +337,6 @@ selected_period = st.selectbox(
     help="Amounts use the household ratio that applied when each expense was logged.",
 )
 
-
-def brl(value) -> str:
-    return f"R$ {float(value):,.2f}"
-
-
 if selected_period == "All time":
     st.caption("Pick a month to see your spending summary.")
 else:
@@ -263,16 +345,16 @@ else:
         me, household = summary["me"], summary["household_shared"]
         m1, m2, m3, m4 = st.columns(4)
         m1.metric(
-            "My spending", brl(me["total"]),
-            delta=f"{float(me['total']) - float(me['previous_total']):+,.2f} vs {summary['previous_month']}",
+            "My spending", format_brl(me["total"]),
+            delta=f"{format_brl_delta(Decimal(me['total']) - Decimal(me['previous_total']))} vs {summary['previous_month']}",
             delta_color="inverse",
             help="Your share of shared expenses plus your personal ones.",
         )
-        m2.metric("My share of shared", brl(me["shared_share"]))
-        m3.metric("My personal", brl(me["personal"]))
+        m2.metric("My share of shared", format_brl(me["shared_share"]))
+        m3.metric("My personal", format_brl(me["personal"]))
         m4.metric(
-            "Household shared total", brl(household["total"]),
-            delta=f"{float(household['total']) - float(household['previous_total']):+,.2f} vs {summary['previous_month']}",
+            "Household shared total", format_brl(household["total"]),
+            delta=f"{format_brl_delta(Decimal(household['total']) - Decimal(household['previous_total']))} vs {summary['previous_month']}",
             delta_color="inverse",
             help="Full price of shared expenses this month, whoever paid.",
         )
@@ -287,13 +369,14 @@ else:
             with c2:
                 st.caption("Fixed vs variable")
                 ct_df = pd.DataFrame(summary["by_cost_type"]).rename(columns={"label": "Cost Type", "amount": "Amount"})
-                ct_df["Amount"] = pd.to_numeric(ct_df["Amount"])
-                total = ct_df["Amount"].sum()
-                ct_df["Share"] = ct_df["Amount"] / total * 100 if total else 0
+                amounts = pd.to_numeric(ct_df["Amount"])
+                total = amounts.sum()
+                ct_df["Share"] = amounts / total * 100 if total else 0
+                # Pre-formatted text: NumberColumn can't put a comma before the cents.
+                ct_df["Amount"] = ct_df["Amount"].map(format_brl)
                 st.dataframe(
                     ct_df, width="stretch", hide_index=True,
                     column_config={
-                        "Amount": st.column_config.NumberColumn(format="R$ %.2f"),
                         "Share": st.column_config.ProgressColumn(format="%.0f%%", min_value=0, max_value=100),
                     },
                 )
@@ -307,7 +390,7 @@ balance_report = get_data(balance_endpoint, token)
 if balance_report:
     if balance_report["transfers"]:
         for t in balance_report["transfers"]:
-            st.success(f"**{t['from_name']}** owes **{t['to_name']}** R$ {float(t['amount']):,.2f}")
+            st.success(f"**{t['from_name']}** owes **{t['to_name']}** {md(format_brl(t['amount']))}")
     else:
         st.info("All square — nobody owes anything for this period.")
 
@@ -318,11 +401,10 @@ if balance_report:
             "settled_out": "Paid Back", "settled_in": "Received", "net": "Net (+ is owed)",
         }
         for col in money_cols:
-            balance_df[col] = pd.to_numeric(balance_df[col])
+            balance_df[col] = balance_df[col].map(format_brl)
         st.dataframe(
             balance_df[["full_name", *money_cols]].rename(columns={"full_name": "Person", **money_cols}),
             width="stretch", hide_index=True,
-            column_config={c: st.column_config.NumberColumn(format="R$ %.2f") for c in money_cols.values()},
         )
 
     # --- Record a payment between the two of you ---
@@ -345,31 +427,35 @@ if balance_report:
                     index=member_ids.index(suggestion["to_user_id"]) if suggestion else 1,
                 )
                 f3, f4 = st.columns(2)
-                amount = f3.number_input(
-                    "Amount", min_value=0.0, format="%.2f",
-                    value=float(suggestion["amount"]) if suggestion else 0.0,
+                amount_text = f3.text_input(
+                    "Amount (R$)", placeholder="0,00",
+                    value=format_brl(suggestion["amount"], symbol=False) if suggestion else "",
                 )
                 paid_on = f4.date_input("Paid on", today_brl, format="DD/MM/YYYY")
                 note = st.text_input("Note (optional)", placeholder="e.g. Pix transfer")
 
                 if st.form_submit_button("Record Payment", type="primary"):
+                    try:
+                        amount, amount_error = parse_brl(amount_text), None
+                    except ValueError as e:
+                        amount, amount_error = None, str(e)
                     if from_id == to_id:
                         st.error("⚠️ From and To must be different people.")
-                    elif amount <= 0:
-                        st.error("⚠️ Amount must be greater than zero.")
+                    elif amount_error:
+                        st.error(f"⚠️ Amount: {amount_error}")
                     else:
-                        now_brl = datetime.datetime.now(ZoneInfo("America/Sao_Paulo"))
+                        now_brl = datetime.datetime.now(SAO_PAULO)
                         payload = {
-                            "settled_at": datetime.datetime.combine(paid_on, now_brl.time(), tzinfo=ZoneInfo("America/Sao_Paulo")).isoformat(),
+                            "settled_at": datetime.datetime.combine(paid_on, now_brl.time(), tzinfo=SAO_PAULO).isoformat(),
                             "from_user_id": from_id,
                             "to_user_id": to_id,
-                            "amount": f"{amount:.2f}",
+                            "amount": str(amount),
                             "month": None if selected_period == "All time" else selected_period,
                             "note": note or None,
                         }
                         res = requests.post(f"{API_BASE_URL}/settlements/", json=payload, headers=auth_headers)
                         if res.status_code == 200:
-                            st.success("Payment recorded! ✅")
+                            st.session_state["tracker_toast"] = f"Payment recorded: {format_brl(amount)}"
                             st.cache_data.clear()
                             st.rerun()
                         else:
@@ -381,7 +467,7 @@ if balance_report:
     if settlements:
         with st.expander(f"🧾 Payments recorded ({len(settlements)})"):
             st_df = pd.DataFrame(settlements)
-            st_df["amount"] = pd.to_numeric(st_df["amount"])
+            st_df["amount"] = st_df["amount"].map(format_brl)
             st_df["settled_at"] = pd.to_datetime(st_df["settled_at"], utc=True).dt.tz_convert("America/Sao_Paulo")
             st.dataframe(
                 st_df.assign(settled_at=st_df["settled_at"].dt.strftime("%d/%m/%Y"))[
@@ -391,17 +477,16 @@ if balance_report:
                     "amount": "Amount", "month": "For Month", "note": "Note",
                 }),
                 width="stretch", hide_index=True,
-                column_config={"Amount": st.column_config.NumberColumn(format="R$ %.2f")},
             )
             labels = {
-                row["settlement_id"]: f"{row['settled_at'].strftime('%d/%m')} – {row['from_name']} → {row['to_name']} R$ {row['amount']:,.2f}"
+                row["settlement_id"]: f"{row['settled_at'].strftime('%d/%m')} – {row['from_name']} → {row['to_name']} {row['amount']}"
                 for _, row in st_df.iterrows()
             }
             target = st.selectbox("Remove a payment entered by mistake:", options=list(labels), format_func=labels.get, index=None)
             if st.button("Delete Payment") and target:
                 res = requests.delete(f"{API_BASE_URL}/settlements/{target}", headers=auth_headers)
                 if res.status_code == 200:
-                    st.success("Payment removed.")
+                    st.session_state["tracker_toast"] = "Payment removed."
                     st.cache_data.clear()
                     st.rerun()
                 else:
@@ -448,13 +533,15 @@ else:
         display_df["Timestamp"] = pd.to_datetime(display_df["Timestamp"]).dt.strftime("%d/%m/%Y %H:%M")
         if "Shared?" in display_df.columns:
             display_df["Shared?"] = display_df["Shared?"].apply(lambda x: "✅ Yes" if x else "👤 No")
-        
+        if "Price" in display_df.columns:
+            display_df["Price"] = display_df["Price"].map(format_brl)
+
         st.dataframe(display_df, width="stretch")
 
         # Delete Utility
         with st.expander("🗑️ Delete an Entry"):
             delete_options = {
-                row["expenditure_id"]: f"{row['transaction_timestamp'].strftime('%d/%m %H:%M')} - ${row['price']:.2f}"
+                row["expenditure_id"]: f"{row['transaction_timestamp'].strftime('%d/%m %H:%M')} – {format_brl(row['price'])}"
                 for _, row in all_expenditures_df.iterrows()
             }
             target_id = st.selectbox("Select entry to remove:", options=delete_options.keys(), format_func=lambda x: delete_options[x], index=None)
@@ -463,7 +550,7 @@ else:
                 try:
                     res = requests.delete(f"{API_BASE_URL}/expenditures/{target_id}", headers=auth_headers)
                     if res.status_code == 200:
-                        st.success("Entry removed!")
+                        st.session_state["tracker_toast"] = f"Entry removed: {delete_options[target_id]}"
                         st.cache_data.clear()
                         st.rerun()
                     else:
