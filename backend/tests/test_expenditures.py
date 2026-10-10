@@ -100,3 +100,48 @@ def test_cannot_delete_someone_elses_personal_expense(client, household):
 def test_can_delete_a_shared_expense_someone_else_paid(client, household):
     exp_id = create(client, household, who="a", is_shared=True)
     assert client.delete(f"/expenditures/{exp_id}", headers=household["b"]).status_code == 200
+
+
+# --- "shared" is derived from allocation rows, not the is_shared column ---
+
+def listed(client, headers, exp_id):
+    return next(e for e in client.get("/expenditures/", headers=headers).json() if e["expenditure_id"] == exp_id)
+
+
+def test_outsider_cannot_see_a_shared_expense(client, household):
+    # Before: any logged-in account saw every is_shared expense.
+    exp_id = create(client, household, who="a", is_shared=True)
+    _, carol = signup_and_login(client, "carol")
+    assert exp_id not in visible_ids(client, carol)
+
+
+def test_outsider_cannot_delete_a_shared_expense(client, household):
+    exp_id = create(client, household, who="a", is_shared=True)
+    _, carol = signup_and_login(client, "carol")
+    assert client.delete(f"/expenditures/{exp_id}", headers=carol).status_code == 404
+    assert exp_id in visible_ids(client, household["a"])
+
+
+def test_is_shared_in_response_reflects_split_rows(client, household):
+    shared = create(client, household, is_shared=True)
+    personal = create(client, household, is_shared=False)
+    assert listed(client, household["a"], shared)["is_shared"] is True
+    assert listed(client, household["a"], personal)["is_shared"] is False
+
+
+def test_shared_request_with_payer_only_household_is_not_shared(client, household):
+    # If the household ratio only contains the payer, "split by the ratio"
+    # gives them 100% — nobody else bears anything, so it isn't shared,
+    # whatever the request said, and the other person can't see it.
+    client.put("/household_settings/", headers=household["a"], json={"settings": [
+        {"user_id": household["a_id"], "share_pct": "1"},
+    ]})
+    exp_id = create(client, household, who="a", is_shared=True)
+    assert listed(client, household["a"], exp_id)["is_shared"] is False
+    assert exp_id not in visible_ids(client, household["b"])
+
+
+def test_share_holder_who_did_not_pay_can_see_and_delete(client, household):
+    exp_id = create(client, household, who="a", is_shared=True)
+    assert listed(client, household["b"], exp_id)["user"]["user_id"] == household["a_id"]
+    assert client.delete(f"/expenditures/{exp_id}", headers=household["b"]).status_code == 200
