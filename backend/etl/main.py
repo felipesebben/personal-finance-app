@@ -31,7 +31,12 @@ def extract_data(engine=None):
         f.transaction_timestamp AT TIME ZONE 'America/Sao_Paulo' AS transaction_timestamp,
         f.price,
         f.nature,
-        f.is_shared,
+        -- Derived from allocation rows (someone other than the payer bears
+        -- part of it); the legacy is_shared column is no longer read.
+        EXISTS (
+            SELECT 1 FROM fact_expenditure_split o
+            WHERE o.expenditure_id = f.expenditure_id AND o.user_id <> f.user_id
+        ) AS is_shared,
         p.full_name,
         c.primary_category,
         c.sub_category,
@@ -72,7 +77,10 @@ SELECT
     s.share_amount,
     s.split_source,
     f.price AS expense_total,
-    f.is_shared,
+    EXISTS (
+        SELECT 1 FROM fact_expenditure_split o
+        WHERE o.expenditure_id = f.expenditure_id AND o.user_id <> f.user_id
+    ) AS is_shared,
     f.nature,
     f.current_installment,
     f.total_installments,

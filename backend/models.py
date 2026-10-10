@@ -1,5 +1,5 @@
-from sqlalchemy import Column, Boolean, CheckConstraint, Date, Integer, Numeric, DateTime, ForeignKey, String, UniqueConstraint, func
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, Boolean, CheckConstraint, Date, Integer, Numeric, DateTime, ForeignKey, String, UniqueConstraint, exists, func
+from sqlalchemy.orm import aliased, column_property, relationship
 from database import Base
 
 
@@ -51,6 +51,9 @@ class FactExpenditure(Base):
     transaction_timestamp = Column(DateTime(timezone=True), nullable=False)
     price = Column(Numeric(10, 2), nullable=False)
     nature = Column(String, default="Normal")
+    # Legacy: still written from the request, but nothing reads it any more;
+    # use has_other_share (defined below FactExpenditureSplit). Dropped in a
+    # later migration.
     is_shared = Column(Boolean, default=True)
 
     # Installment tracking
@@ -82,6 +85,19 @@ class FactExpenditureSplit(Base):
     expenditure = relationship("FactExpenditure")
     user = relationship("DimUser")
 
+
+
+# Whether an expense is shared is derived from its allocation rows, not from
+# the legacy is_shared flag: it's shared when someone other than the payer
+# bears part of it. Defined here, after FactExpenditureSplit exists, so every
+# query and response uses the same definition (FactExpenditure.has_other_share).
+_other_share = aliased(FactExpenditureSplit)
+FactExpenditure.has_other_share = column_property(
+    exists().where(
+        _other_share.expenditure_id == FactExpenditure.expenditure_id,
+        _other_share.user_id != FactExpenditure.user_id,
+    )
+)
 
 class FactSettlement(Base):
     """

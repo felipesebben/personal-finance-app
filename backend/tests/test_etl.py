@@ -133,3 +133,12 @@ def test_settlements_hyper_keeps_dates_when_no_month_is_set(client, household, t
     assert types["period_month"] == "TIMESTAMP"
     assert types["settled_month_start"] == "TIMESTAMP"
     assert types["note"] == "TEXT"
+
+
+def test_is_shared_column_is_derived_from_split_rows(seeded):
+    # seeded: three shared expenses and one personal one
+    exps = extract_data(database.engine)
+    assert sorted(exps["is_shared"].tolist()) == [False, True, True, True]
+    alloc = extract_allocations(database.engine)
+    assert set(alloc.loc[alloc["split_source"] == "not_shared", "is_shared"]) == {False}
+    assert set(alloc.loc[alloc["split_source"] == "household_default", "is_shared"]) == {True}

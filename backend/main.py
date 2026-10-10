@@ -76,6 +76,23 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     return user
     
 
+def visible_to(user: models.DimUser):
+    """
+    The expenditures a user may see or delete: ones they paid, plus ones
+    they hold a share of. Derived from allocation rows, not the legacy
+    is_shared flag, so an account outside the household never sees the
+    household's shared expenses.
+    """
+    mine = aliased(models.FactExpenditureSplit)
+    return or_(
+        models.FactExpenditure.user_id == user.user_id,
+        exists().where(
+            mine.expenditure_id == models.FactExpenditure.expenditure_id,
+            mine.user_id == user.user_id,
+        ),
+    )
+
+
 # Create a POST endpoint at the URL /expenditures/.
 @app.post("/expenditures/", response_model=schemas.ExpenditureCreate)
 def create_expenditure(
@@ -100,7 +117,9 @@ def create_expenditure(
     # the same commit.
     db.flush()
 
-    if db_expenditure.is_shared:
+    # The request's is_shared means "split this by the household ratio";
+    # the allocation rows written here are what make it shared from now on.
+    if expenditure.is_shared:
         household = (
             db.query(models.HouseholdSetting)
             .order_by(models.HouseholdSetting.user_id)
@@ -266,19 +285,11 @@ def update_household_settings(payload: schemas.HouseholdSettingsUpdate, db: Sess
 def get_expenditures(db: Session = Depends(get_db),
                      current_user: models.DimUser = Depends(get_current_user)):
     """
-    Fetch only the expenditures if:
-    1. The current user created them
-     OR
-    2. The expenditure is marked as "Shared" (`is_shared = True`).
+    The expenditures the current user paid or holds a share of (see visible_to).
     """
     expenditures = (
         db.query(models.FactExpenditure)
-        .filter(
-            or_(
-                models.FactExpenditure.user_id == current_user.user_id,
-                models.FactExpenditure.is_shared == True
-            )
-        )
+        .filter(visible_to(current_user))
         .options(
             joinedload(models.FactExpenditure.user),
             joinedload(models.FactExpenditure.category),
@@ -396,8 +407,7 @@ def get_summary(
     category = models.DimCategory
 
     local_month = func.to_char(func.timezone("America/Sao_Paulo", fact.transaction_timestamp), "YYYY-MM")
-    other = aliased(models.FactExpenditureSplit)
-    is_shared = exists().where(other.expenditure_id == fact.expenditure_id, other.user_id != fact.user_id)
+    is_shared = fact.has_other_share
 
     # My allocation rows in both months, pre-aggregated.
     mine = (
@@ -596,20 +606,13 @@ def delete_expenditure(
     db: Session = Depends(get_db),
     current_user: models.DimUser = Depends(get_current_user)):
     """
-    Delete an expenditure if:
-    1. User owns it 
-    OR
-    2. It is shared.
+    Delete an expenditure the current user paid or holds a share of
+    (see visible_to). Its allocation rows go with it (ON DELETE CASCADE).
     """
     exp = (
         db.query(models.FactExpenditure)
         .filter(models.FactExpenditure.expenditure_id == expenditure_id)
-        .filter(
-            or_(
-                models.FactExpenditure.user_id == current_user.user_id,
-                models.FactExpenditure.is_shared == True
-            )
-        )
+        .filter(visible_to(current_user))
         .first()
     )
 
