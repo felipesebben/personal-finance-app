@@ -10,8 +10,9 @@ migration chain works on an empty database.
 import os
 
 # Point the app at a dedicated test database BEFORE anything imports
-# `database`, which builds its engine at import time. load_dotenv() never
-# overrides variables that are already set, so this wins over .env.
+# `config`/`database`, which read settings and build the engine at import
+# time. pydantic-settings ranks real environment variables above the .env
+# file, so this wins over .env.
 os.environ["DB_NAME"] = os.environ.get("TEST_DB_NAME", f"{os.environ.get('DB_NAME', 'finance')}_test")
 os.environ.setdefault("SECRET_KEY", "test-only-secret-key")
 
@@ -62,7 +63,7 @@ def clean_tables(request):
         return
     with database.engine.begin() as conn:
         conn.execute(text(
-            "TRUNCATE fact_expenditure_split, fact_expenditures, household_setting, "
+            "TRUNCATE fact_settlement, fact_expenditure_split, fact_expenditures, household_setting, "
             "dim_category, dim_payment_method, dim_user RESTART IDENTITY CASCADE"
         ))
 

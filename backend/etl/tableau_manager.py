@@ -1,5 +1,6 @@
 import tableauserverclient as TSC
-import os
+
+from config import settings
 
 class TableauManager:
     def __init__(self):
@@ -7,10 +8,10 @@ class TableauManager:
         Initialize the manager by loading credentials
         We don't connect yet; just set up the configuration.
         """
-        self.server_url = os.getenv("TABLEAU_SERVER_URL")
-        self.site_name = os.getenv("TABLEAU_SITENAME")
-        self.token_name = os.getenv("TABLEAU_TOKEN_NAME")
-        self.token_value = os.getenv("TABLEAU_TOKEN_VALUE")
+        self.server_url = settings.tableau_server_url
+        self.site_name = settings.tableau_sitename
+        self.token_name = settings.tableau_token_name
+        self.token_value = settings.tableau_token_value.get_secret_value() if settings.tableau_token_value else None
 
         self.server = None
         self.auth = None
@@ -19,9 +20,9 @@ class TableauManager:
         """
         Establishes the connection to Tableau Cloud.
         """
-        if not all([self.server_url, self.site_name, self.token_name, self.token_value]):
-            raise ValueError("Missing Tableau credentials in .env")
-        
+        # Names every missing variable, rather than a generic "missing credentials".
+        settings.require_tableau()
+
         self.auth = TSC.PersonalAccessTokenAuth(
             token_name=self.token_name,
             personal_access_token=self.token_value,

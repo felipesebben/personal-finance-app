@@ -78,6 +78,7 @@ venv.bak/
 # Ignore generated data files
 artifacts/
 *.hyper
+hyperd*.log
 postgres_data/
 
 # Personal working notes, reviews and teaching material (not part of the product)

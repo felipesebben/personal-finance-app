@@ -19,7 +19,9 @@ if config.config_file_name is not None:
 
 # Feed the app's own connection string to Alembic, so alembic.ini
 # stays free of credentials and there's only one source of truth.
-config.set_main_option("sqlalchemy.url", DATABASE_URL)
+# "%" is doubled because Alembic's config is a ConfigParser, which treats
+# "%" as interpolation; URL-escaped passwords can contain it.
+config.set_main_option("sqlalchemy.url", DATABASE_URL.replace("%", "%%"))
 
 # add your model's MetaData object here
 # for 'autogenerate' support
