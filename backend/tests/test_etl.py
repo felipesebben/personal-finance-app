@@ -8,7 +8,7 @@ from tableauhyperapi import Connection, HyperProcess, TableName, Telemetry
 
 import database
 from conftest import expenditure_payload
-from etl.main import extract_allocations, extract_data, extract_settlements, generate_hyper_file
+from etl.main import extract_allocations, extract_cashflow, extract_data, extract_settlements, generate_hyper_file
 
 
 def spend(client, household, who, price, is_shared=True, when="2026-10-08T12:00:00-03:00"):
@@ -142,3 +142,72 @@ def test_is_shared_column_is_derived_from_split_rows(seeded):
     alloc = extract_allocations(database.engine)
     assert set(alloc.loc[alloc["split_source"] == "not_shared", "is_shared"]) == {False}
     assert set(alloc.loc[alloc["split_source"] == "household_default", "is_shared"]) == {True}
+
+
+# --- cashflow: installments spread over billing months ----------------------
+
+def spend_in_installments(client, household, price, total, current=1, who="a", is_shared=True,
+                          when="2026-10-08T12:00:00-03:00"):
+    resp = client.post("/expenditures/", headers=household[who], json=expenditure_payload(
+        household, price=price, is_shared=is_shared, transaction_timestamp=when,
+        current_installment=current, total_installments=total,
+    ))
+    assert resp.status_code == 200, resp.text
+
+
+def months(series):
+    return list(series.dt.strftime("%Y-%m"))
+
+
+def test_installments_spread_each_share_over_the_billing_months(client, household):
+    spend_in_installments(client, household, "100.00", total=3)   # shared 60/40
+    df = extract_cashflow(database.engine)
+
+    alice = df[df["borne_by"] == "alice"]
+    bob = df[df["borne_by"] == "bob"]
+    assert months(alice["billing_month"]) == ["2026-10", "2026-11", "2026-12"]
+    assert list(alice["amount"]) == [20.00, 20.00, 20.00]
+    # 40.00 / 3: the first two round down, the last takes the remainder
+    assert list(bob["amount"]) == [13.33, 13.33, 13.34]
+    assert list(bob["installment_number"]) == [1, 2, 3]
+    assert set(months(df["purchase_month"])) == {"2026-10"}
+    assert round(df["amount"].sum(), 2) == 100.00
+
+
+def test_current_installment_anchors_the_schedule(client, household):
+    # Entered in October while paying installment 2 of 3: it started in September.
+    spend_in_installments(client, household, "90.00", total=3, current=2, is_shared=False)
+    df = extract_cashflow(database.engine)
+    assert months(df["billing_month"]) == ["2026-09", "2026-10", "2026-11"]
+    assert list(df["amount"]) == [30.00, 30.00, 30.00]
+
+
+def test_cashflow_reconciles_to_expenditures(seeded, client):
+    spend_in_installments(client, seeded, "1234.57", total=10)
+    flow = extract_cashflow(database.engine)
+    exps = extract_data(database.engine)
+    per_expense = flow.groupby("expenditure_id")["amount"].sum().round(2)
+    prices = exps.set_index("expenditure_id")["price"]
+    pd.testing.assert_series_equal(per_expense.sort_index(), prices.sort_index(), check_names=False)
+    # Expenses without installments are a single row in their own month.
+    single = flow[flow["total_installments"] == 1]
+    assert (single["billing_month"] == single["purchase_month"]).all()
+
+
+def test_tiny_installments_never_go_negative(client, household):
+    spend_in_installments(client, household, "0.05", total=10, is_shared=False)
+    df = extract_cashflow(database.engine)
+    assert (df["amount"] >= 0).all()
+    assert round(df["amount"].sum(), 2) == 0.05
+
+
+def test_cashflow_hyper_keeps_month_columns_as_dates(client, household, tmp_path):
+    spend_in_installments(client, household, "100.00", total=2)
+    path = generate_hyper_file(extract_cashflow(database.engine), filename="cashflow.hyper", output_dir=str(tmp_path))
+    with HyperProcess(Telemetry.DO_NOT_SEND_USAGE_DATA_TO_TABLEAU, parameters={"log_dir": str(tmp_path)}) as hyper:
+        with Connection(hyper.endpoint, path) as conn:
+            table = conn.catalog.get_table_definition(TableName("Expenditures"))
+            types = {col.name.unescaped: str(col.type) for col in table.columns}
+            assert conn.execute_scalar_query('SELECT COUNT(*) FROM "Expenditures"') == 4
+    assert types["billing_month"] == "TIMESTAMP"
+    assert types["purchase_month"] == "TIMESTAMP"

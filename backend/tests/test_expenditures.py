@@ -68,6 +68,74 @@ def test_price_must_be_positive(client, household):
     assert resp.status_code == 422
 
 
+def test_current_installment_cannot_exceed_total(client, household):
+    body = expenditure_payload(household, current_installment=4, total_installments=3)
+    assert client.post("/expenditures/", headers=household["a"], json=body).status_code == 422
+
+
+def test_installments_must_be_positive(client, household):
+    body = expenditure_payload(household, current_installment=1, total_installments=0)
+    assert client.post("/expenditures/", headers=household["a"], json=body).status_code == 422
+
+
+# --- manual split override ------------------------------------------------
+
+def shares(household, a_pct, b_pct):
+    return [{"user_id": household["a_id"], "share_pct": a_pct}, {"user_id": household["b_id"], "share_pct": b_pct}]
+
+
+def test_manual_shares_override_the_household_ratio(client, household):
+    exp_id = create(client, household, price="100.01", shares=shares(household, "0.3", "0.7"))
+    assert [(r["user_id"], r["share_pct"], r["share_amount"], r["split_source"]) for r in splits_for(exp_id)] == [
+        (household["a_id"], D("0.3000"), D("30.00"), "manual"),
+        (household["b_id"], D("0.7000"), D("70.01"), "manual"),
+    ]
+
+
+def test_expense_entirely_on_the_other_person(client, household):
+    # "This one's on her": A pays, B bears all of it, so B owes A the full price.
+    exp_id = create(client, household, who="a", price="80.00",
+                    shares=[{"user_id": household["b_id"], "share_pct": "1"}])
+    assert splits_for(exp_id) == [{
+        "user_id": household["b_id"], "share_pct": D("1.0000"),
+        "share_amount": D("80.00"), "split_source": "manual",
+    }]
+    assert exp_id in visible_ids(client, household["b"])
+    report = client.get("/balances/", headers=household["a"]).json()
+    assert [(t["from_user_id"], t["to_user_id"], t["amount"]) for t in report["transfers"]] == [
+        (household["b_id"], household["a_id"], "80.00"),
+    ]
+
+
+def test_shares_must_sum_to_one(client, household):
+    resp = client.post("/expenditures/", headers=household["a"],
+                       json=expenditure_payload(household, shares=shares(household, "0.5", "0.4")))
+    assert resp.status_code == 422
+
+
+def test_shares_must_not_repeat_a_person(client, household):
+    body = expenditure_payload(household, shares=[
+        {"user_id": household["a_id"], "share_pct": "0.5"}, {"user_id": household["a_id"], "share_pct": "0.5"},
+    ])
+    assert client.post("/expenditures/", headers=household["a"], json=body).status_code == 422
+
+
+def test_shares_on_a_personal_expense_is_a_422(client, household):
+    body = expenditure_payload(household, is_shared=False, shares=shares(household, "0.5", "0.5"))
+    assert client.post("/expenditures/", headers=household["a"], json=body).status_code == 422
+
+
+def test_shares_naming_an_outsider_is_a_400_and_writes_nothing(client, household):
+    outsider_id, _ = signup_and_login(client, "mallory")
+    body = expenditure_payload(household, shares=[
+        {"user_id": household["a_id"], "share_pct": "0.5"}, {"user_id": outsider_id, "share_pct": "0.5"},
+    ])
+    resp = client.post("/expenditures/", headers=household["a"], json=body)
+    assert resp.status_code == 400
+    assert "not in the household" in resp.json()["detail"]
+    assert client.get("/expenditures/", headers=household["a"]).json() == []
+
+
 # --- delete --------------------------------------------------------------
 
 def test_delete_cascades_to_allocation_rows(client, household):
