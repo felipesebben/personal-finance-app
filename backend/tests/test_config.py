@@ -2,7 +2,7 @@
 import pytest
 from sqlalchemy.engine import make_url
 
-from config import load_settings
+from config import GMAIL_SMTP_HOST, load_settings
 
 # Every test builds Settings from explicit environment variables only, with
 # the .env file switched off, so results don't depend on the machine.
@@ -11,7 +11,9 @@ BASE_ENV = {
     "DB_NAME": "d", "SECRET_KEY": "s3cret",
 }
 ALL_KEYS = [*BASE_ENV, "ACCESS_TOKEN_EXPIRE_MINUTES", "TABLEAU_SERVER_URL", "TABLEAU_SITENAME",
-            "TABLEAU_TOKEN_NAME", "TABLEAU_TOKEN_VALUE", "TABLEAU_PROJECT_NAME", "ALLOWED_SIGNUP_EMAILS"]
+            "TABLEAU_TOKEN_NAME", "TABLEAU_TOKEN_VALUE", "TABLEAU_PROJECT_NAME", "ALLOWED_SIGNUP_EMAILS",
+            "EMAIL_BACKEND", "SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASSWORD", "EMAIL_FROM",
+            "FRONTEND_BASE_URL", "PASSWORD_RESET_EXPIRE_MINUTES"]
 
 
 @pytest.fixture
@@ -114,3 +116,30 @@ def test_signup_allowlist_is_parsed_and_lowercased(env):
     assert s.allowed_signup_emails == {"alice@example.com", "bob@example.com"}
     assert s.signup_allowed("ALICE@example.com")
     assert not s.signup_allowed("mallory@example.com")
+
+
+def test_email_defaults(env):
+    s = env()
+    assert s.email_backend == "console"
+    assert (s.smtp_host, s.smtp_port) == (GMAIL_SMTP_HOST, 587)
+    assert s.frontend_base_url == "http://localhost:8501"
+    assert s.password_reset_expire_minutes == 30
+    s.require_email()  # the console backend needs no SMTP settings
+
+
+def test_require_email_names_missing_smtp_settings(env):
+    s = env(EMAIL_BACKEND="smtp", SMTP_USER="me@example.com")
+    with pytest.raises(ValueError) as exc:
+        s.require_email()
+    assert "SMTP_PASSWORD" in str(exc.value) and "EMAIL_FROM" in str(exc.value)
+    assert "SMTP_USER" not in str(exc.value)
+
+
+def test_require_email_passes_when_complete(env):
+    env(EMAIL_BACKEND="smtp", SMTP_USER="me@example.com", SMTP_PASSWORD="x" * 16,
+        EMAIL_FROM="me@example.com").require_email()
+
+
+def test_unknown_email_backend_is_rejected(env):
+    with pytest.raises(RuntimeError, match="EMAIL_BACKEND"):
+        env(EMAIL_BACKEND="carrier-pigeon")

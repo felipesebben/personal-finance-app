@@ -50,3 +50,18 @@ def test_drop_is_shared_downgrade_rebuilds_the_flag_from_split_rows(client, hous
         command.upgrade(cfg, "head")
 
     assert "is_shared" not in fact_columns()
+
+
+ADD_PASSWORD_RESET = "8f13ace0b19b"
+
+
+def test_password_reset_token_table_round_trips(client):
+    cfg = alembic_config()
+    database.engine.dispose()
+    command.downgrade(cfg, f"{ADD_PASSWORD_RESET}-1")
+    try:
+        assert "password_reset_token" not in inspect(database.engine).get_table_names()
+    finally:
+        database.engine.dispose()
+        command.upgrade(cfg, "head")
+    assert "password_reset_token" in inspect(database.engine).get_table_names()

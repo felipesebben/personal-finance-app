@@ -237,3 +237,30 @@ class TokenData(BaseModel):
     Schema for the data embedded inside the Token.
     """
     email: str | None = None
+
+# -- Password reset --
+
+PASSWORD_MIN_LENGTH = 8
+
+
+class PasswordResetRequest(BaseModel):
+    # A plain string rather than EmailStr: the response must not differ
+    # between addresses, and an unknown address simply matches no account.
+    email: str = Field(max_length=320)
+
+
+class PasswordResetConfirm(BaseModel):
+    token: str = Field(min_length=1, max_length=256)
+    new_password: str = Field(min_length=PASSWORD_MIN_LENGTH)
+
+    @field_validator("new_password")
+    @classmethod
+    def fits_bcrypt(cls, v: str) -> str:
+        # bcrypt only reads the first 72 bytes and the library rejects more.
+        if len(v.encode("utf-8")) > 72:
+            raise ValueError("must be at most 72 bytes")
+        return v
+
+
+class Message(BaseModel):
+    detail: str

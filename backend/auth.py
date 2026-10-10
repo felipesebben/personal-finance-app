@@ -1,4 +1,6 @@
 import bcrypt
+import hashlib
+import secrets
 from datetime import datetime, timedelta, timezone
 from jose import JWTError, jwt
 from typing import Optional
@@ -62,3 +64,19 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     return encoded_jwt
 
 
+
+
+# --- Password-reset tokens ---
+
+def new_reset_token() -> str:
+    """A fresh, unguessable reset token (sent in the email, never stored)."""
+    return secrets.token_urlsafe(32)
+
+
+def hash_reset_token(token: str) -> str:
+    """SHA-256 hex of a reset token: what password_reset_token.token_hash stores.
+
+    A fast hash is enough here (unlike passwords): the token already carries
+    256 bits of randomness, so there is nothing to brute-force.
+    """
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
