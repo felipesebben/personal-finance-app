@@ -50,6 +50,17 @@ cd backend  && poetry install && poetry run alembic upgrade head && poetry run u
 cd frontend && poetry install && poetry run streamlit run Home.py
 ```
 
+### Seeding demo history
+
+To build and test month-over-month views before real history exists, seed a few months of shared and personal expenses, with a settlement squaring up each finished month:
+
+```bash
+docker compose exec backend python seed.py                    # 6 months ending this month
+docker compose exec backend python seed.py --months 12 --random-seed 7
+```
+
+It uses the household configured on Manage Settings (it never creates users), writes through the same code as `POST /expenditures/`, and refuses to write into months that already hold expenses unless you pass `--append`. To start over, `docker compose down -v`. Then press Refresh on Manage Settings to publish it to Tableau.
+
 Note the `alembic upgrade head`: outside Compose nothing runs it for you, and the app no longer creates its own tables. The backend uses flat imports (`import models`), so it must be started from within `backend/`. It also reads `DB_HOST` from `.env` directly, which is set to `db` for the Compose workflow — that name only resolves inside the Compose network, so running the API on the host requires setting `DB_HOST=localhost` first.
 
 ## Configuration
@@ -109,12 +120,14 @@ backend/          FastAPI service
   models.py         SQLAlchemy ORM — source of truth for the schema
   schemas.py        Pydantic request/response contracts
   auth.py           bcrypt hashing, JWT minting
+  ledger.py         expense + split-row writes, shared by the API and the seed
+  seed.py           on-demand demo history for analytics (see below)
   alembic/          migrations — versions/ holds the revision chain
   etl/              Tableau extract + publish
 frontend/         Streamlit app
+  config.py         API_BASE_URL, from API_URL
   Home.py           login / signup
   pages/            Tracker, Analytics, Manage Settings
-database/         legacy SQL — not executed, see CLAUDE.md
 docker-compose.yml
 ```
 

@@ -1,10 +1,9 @@
 import streamlit as st
 import requests
-import os
+
+from config import API_BASE_URL
 
 st.set_page_config(page_title="Manage Settings", page_icon="⚙️", layout="wide")
-
-API_BASE_URL = os.getenv("API_URL", "http://localhost:8000")
 
 # --- Authentication Check ---
 # If the user lands here without logging in, stop them.

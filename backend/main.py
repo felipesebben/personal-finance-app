@@ -8,7 +8,8 @@ from sqlalchemy import exists, or_, func, select
 from sqlalchemy.exc import IntegrityError
 from typing import List
 from decimal import Decimal
-from split_logic import split_amount, settle
+from split_logic import settle
+from ledger import HouseholdNotConfigured, add_expenditure
 
 from auth import verify_password, create_access_token, get_password_hash, SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 
@@ -107,52 +108,20 @@ def create_expenditure(
     # stored column.
     expenditure_data = expenditure.model_dump(exclude={"user_id", "is_shared"})
 
-    db_expenditure = models.FactExpenditure(
-        **expenditure_data,
-        user_id=current_user.user_id # Force correct user id
-    )
-
-    db.add(db_expenditure)
-    # Flush (not commit) so expenditure_id is assigned without ending
-    # the transaction – the split row(s) below still need to land in
-    # the same commit.
-    db.flush()
-
     # The request's is_shared means "split this by the household ratio";
-    # the allocation rows written here are what make it shared from now on.
-    if expenditure.is_shared:
-        household = (
-            db.query(models.HouseholdSetting)
-            .order_by(models.HouseholdSetting.user_id)
-            .all()
+    # the allocation rows written by add_expenditure are what make it shared.
+    try:
+        db_expenditure = add_expenditure(
+            db, current_user.user_id,  # force the logged-in user as payer
+            expenditure_data, shared=expenditure.is_shared,
         )
-        if not household:
-            # Nothing committed yet, so the flushed expenditure is rolled back too.
-            db.rollback()
-            raise HTTPException(
-                status_code=400,
-                detail="Household split ratio is not configured. Set it on the Manage Settings page first.",
-            )
-        user_ids = [row.user_id for row in household]
-        shares = [row.share_pct for row in household]
-        amounts = split_amount(db_expenditure.price, shares)
-
-        for user_id, share_pct, share_amount in zip(user_ids, shares, amounts):
-            db.add(models.FactExpenditureSplit(
-                expenditure_id=db_expenditure.expenditure_id,
-                user_id=user_id,
-                share_pct=share_pct,
-                share_amount=share_amount,
-                split_source="household_default",
-            ))
-    else:
-        db.add(models.FactExpenditureSplit(
-            expenditure_id=db_expenditure.expenditure_id,
-            user_id=current_user.user_id,
-            share_pct=Decimal("1.0"),
-            share_amount=db_expenditure.price,
-            split_source="not_shared"
-        ))
+    except HouseholdNotConfigured:
+        # Nothing committed yet, so the flushed expenditure is rolled back too.
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="Household split ratio is not configured. Set it on the Manage Settings page first.",
+        )
 
     # One commit, covering the expenditure and its allocation row(s) together.
     db.commit()
