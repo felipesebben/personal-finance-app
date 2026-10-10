@@ -6,7 +6,7 @@ frontend/tests/test_money.py. Amounts are Decimal end to end: the API
 stores Numeric(10, 2), and floats would drift by a cent.
 """
 import re
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal, InvalidOperation
 
 CENT = Decimal("0.01")
 # The API's price is Numeric(10, 2): at most 8 digits before the comma.
@@ -81,3 +81,71 @@ def format_brl(value, symbol: bool = True) -> str:
     sign = "-" if amount < 0 else ""
     text = f"{abs(amount):,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
     return f"{sign}R$ {text}" if symbol else f"{sign}{text}"
+
+
+def format_brl_delta(value) -> str:
+    """
+    A signed amount for st.metric's delta: "+R$ 12,00", "-R$ 3,50", "R$ 0,00".
+
+    st.metric colours the arrow from the leading sign, so positives get an
+    explicit "+".
+    """
+    text = format_brl(value)
+    return text if text.startswith("-") or Decimal(str(value)) == 0 else f"+{text}"
+
+
+def installment_amounts(total: Decimal, count: int) -> tuple[Decimal, Decimal]:
+    """
+    The first and last installment of `total` paid in `count` parts, by the
+    rule the ETL's cashflow datasource uses: every installment but the last
+    is rounded down to the cent, and the last takes the remainder.
+
+    installment_amounts(Decimal("40"), 3) -> (13.33, 13.34)
+    """
+    if count < 1:
+        raise ValueError("count must be at least 1")
+    each = (total / count).quantize(CENT, rounding=ROUND_DOWN)
+    return each, total - each * (count - 1)
+
+
+def split_like_backend(total: Decimal, shares: list[tuple[int, Decimal]]) -> dict[int, Decimal]:
+    """
+    How the API will split `total` across (user_id, fraction) pairs, mirroring
+    backend/split_logic.split_amount: pairs are ordered by user_id (as the
+    backend orders household rows and manual shares), each share but the last
+    is rounded half up to the cent, and the last absorbs the remainder.
+    Pairs with a zero fraction are dropped, as the page never sends them.
+    """
+    pairs = sorted((uid, Decimal(str(pct))) for uid, pct in shares if Decimal(str(pct)) > 0)
+    if not pairs:
+        return {}
+    amounts = {uid: (total * pct).quantize(CENT, rounding=ROUND_HALF_UP) for uid, pct in pairs[:-1]}
+    amounts[pairs[-1][0]] = (total - sum(amounts.values(), Decimal("0"))).quantize(CENT, rounding=ROUND_HALF_UP)
+    return amounts
+
+
+def entry_preview(price: Decimal, installments: int = 1,
+                  shares: list[tuple[int, Decimal]] | None = None, me: int | None = None) -> str:
+    """
+    One line read back under the price field, so a typo is caught before
+    saving: "R$ 1.200,00 · 10x R$ 120,00 · your share 60% = R$ 720,00".
+
+    The installment part appears only above 1x, and names the last
+    installment when it differs ("3x R$ 13,33 (last R$ 13,34)"). The share
+    part appears only when `shares` (user_id, fraction) names `me` (even at
+    0%); pass None for a personal expense.
+    """
+    parts = [format_brl(price)]
+    if installments > 1:
+        first, last = installment_amounts(price, installments)
+        text = f"{installments}x {format_brl(first)}"
+        if last != first:
+            text += f" (last {format_brl(last)})"
+        parts.append(text)
+    if shares and me is not None:
+        mine = dict(shares)
+        if me in mine:
+            amount = split_like_backend(price, shares).get(me, Decimal("0.00"))
+            pct_text = f"{(Decimal(str(mine[me])) * 100).normalize():f}".replace(".", ",")
+            parts.append(f"your share {pct_text}% = {format_brl(amount)}")
+    return " · ".join(parts)
