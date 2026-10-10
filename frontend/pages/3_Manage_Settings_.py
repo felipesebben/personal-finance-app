@@ -94,6 +94,8 @@ def delete_item(endpoint: str, item_id: int):
             st.rerun()
         elif response.status_code == 401:
             st.error("Session Expired. Please log in again.")
+        elif response.status_code in (400, 403, 404):
+            st.error(f"Error: {response.json().get('detail', response.text)}")
         else:
             st.error(f"Error: {response.text}")
     except requests.exceptions.RequestException as e:
@@ -161,8 +163,10 @@ with col1:
         for u in users:
             c1, c2 = st.columns([4, 1])
             c1.text(f"{u['full_name']} ({u['email']})")
-            
-            if c2.button("🗑️", key=f"del_u_{u['user_id']}"):
+
+            # The API only lets an account delete itself, so only offer that.
+            is_me = u["email"].lower() == (st.session_state.get("user_email") or "").lower()
+            if is_me and c2.button("🗑️", key=f"del_u_{u['user_id']}", help="Delete your own account"):
                 delete_item("users", u['user_id'])
 
 # Column 2: Categories

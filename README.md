@@ -39,6 +39,32 @@ Both application containers bind-mount their source, so code edits reload withou
 docker compose build --no-cache backend
 ```
 
+### Use it from another device on your home network
+
+The stack already listens on all interfaces, so a phone or laptop on the same Wi-Fi can open the app directly.
+
+1. On the machine running Docker, find its IPv4 address:
+
+   ```powershell
+   ipconfig
+   ```
+
+   Use the `IPv4 Address` of the active Wi-Fi or Ethernet adapter (something like `192.168.0.23`), not the `vEthernet (WSL)` one.
+
+2. On the other device, open `http://<that-ip>:8501`.
+
+3. If it doesn't load, Windows Defender Firewall is probably blocking it. In an **administrator** PowerShell, allow Streamlit's port on private networks only:
+
+   ```powershell
+   New-NetFirewallRule -DisplayName "Personal Finance (Streamlit 8501)" -Direction Inbound -Protocol TCP -LocalPort 8501 -Action Allow -Profile Private
+   ```
+
+   Make sure your home network is set to *Private* in Windows network settings, or the rule won't apply. Remove it later with `Remove-NetFirewallRule -DisplayName "Personal Finance (Streamlit 8501)"`.
+
+Only port 8501 needs to be reachable. Streamlit calls the API from inside the Compose network (`http://backend:8000`), so the API (8000), pgAdmin (5050) and Postgres don't need firewall rules — leave them closed.
+
+Before you do this, set `ALLOWED_SIGNUP_EMAILS` in `.env` to the household's emails (comma-separated) and restart the backend. Otherwise anyone on your network who opens the page can create an account.
+
 ### Running a service outside Docker
 
 Each service is a self-contained Poetry project.
@@ -80,6 +106,7 @@ cp .env.example .env
 | `DB_PORT` | no | default `5432` |
 | `SECRET_KEY` | yes | `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | no | default `30` |
+| `ALLOWED_SIGNUP_EMAILS` | no | comma-separated emails allowed to sign up; empty = open. Set it before using the app over the LAN |
 | `TABLEAU_SERVER_URL`, `TABLEAU_SITENAME`, `TABLEAU_TOKEN_NAME`, `TABLEAU_TOKEN_VALUE` | only for Refresh | checked when publishing; the error names whichever are missing |
 | `TABLEAU_PROJECT_NAME` | no | default `Finance App 2026`; must match the project your workbook uses |
 | `PGADMIN_DEFAULT_EMAIL`, `PGADMIN_DEFAULT_PASSWORD` | for pgAdmin | read by `docker-compose.yml` only |

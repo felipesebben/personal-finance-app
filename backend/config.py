@@ -11,9 +11,10 @@ Tableau credentials are optional here and checked only when publishing,
 so tests and CI run without them.
 """
 from pathlib import Path
+from typing import Annotated
 
 from pydantic import Field, SecretStr, ValidationError, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from sqlalchemy.engine import URL
 
 ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
@@ -32,6 +33,9 @@ class Settings(BaseSettings):
     # --- Auth ---
     secret_key: SecretStr
     access_token_expire_minutes: int = Field(30, gt=0)
+    # Comma-separated emails allowed to sign up. Empty = anyone may sign up.
+    # Stored lowercased, so the check is case-insensitive.
+    allowed_signup_emails: Annotated[frozenset[str], NoDecode] = frozenset()
 
     # --- Tableau (optional until publishing) ---
     tableau_server_url: str | None = None
@@ -39,6 +43,17 @@ class Settings(BaseSettings):
     tableau_token_name: str | None = None
     tableau_token_value: SecretStr | None = None
     tableau_project_name: str = "Finance App 2026"
+
+    @field_validator("allowed_signup_emails", mode="before")
+    @classmethod
+    def parse_email_list(cls, v):
+        if isinstance(v, str):
+            v = v.split(",")
+        return frozenset(e.strip().lower() for e in (v or ()) if e and e.strip())
+
+    def signup_allowed(self, email: str) -> bool:
+        """True when signup is open, or this email is on the allowlist."""
+        return not self.allowed_signup_emails or email.strip().lower() in self.allowed_signup_emails
 
     @field_validator("secret_key")
     @classmethod

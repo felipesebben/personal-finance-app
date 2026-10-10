@@ -11,6 +11,7 @@ from decimal import Decimal
 from split_logic import settle
 from ledger import HouseholdNotConfigured, InvalidSplit, add_expenditure
 
+from config import settings
 from auth import verify_password, create_access_token, get_password_hash, SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 
 
@@ -136,6 +137,11 @@ def create_expenditure(
 
 @app.post("/users/", response_model=schemas.User)
 def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
+    # Public route: on a LAN install anyone who can reach the app could sign
+    # up, so ALLOWED_SIGNUP_EMAILS can restrict it to the household.
+    if not settings.signup_allowed(user.email):
+        raise HTTPException(status_code=403, detail="Sign-up is restricted on this installation")
+
     # Check if email already exists
     db_user = db.query(models.DimUser).filter(models.DimUser.email == user.email).first()
     if db_user:
@@ -166,8 +172,6 @@ def login_for_access_token(db: Session = Depends(get_db), form_data: OAuth2Passw
     3. Returns a JWT Token.
     """
     # OAuth2 form stores the email in a field called 'username'.
-    print(f"Attempting login for: {form_data.username}")
-    
     user = db.query(models.DimUser).filter(models.DimUser.email == form_data.username).first()
 
     # Check 1: Does the user exist? | Check 2: Is password correct?
@@ -529,8 +533,16 @@ def delete_settlement(
 
 # --- Delete Endpoints ---
 
-@app.delete("/users/{user_id}", dependencies=[Depends(get_current_user)])
-def delete_user(user_id: int, db: Session = Depends(get_db)):
+@app.delete("/users/{user_id}")
+def delete_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.DimUser = Depends(get_current_user),
+):
+    # An account can only delete itself, never another household member.
+    if user_id != current_user.user_id:
+        raise HTTPException(status_code=403, detail="You can only delete your own account.")
+
     user = db.query(models.DimUser).filter(models.DimUser.user_id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")

@@ -15,6 +15,9 @@ import os
 # file, so this wins over .env.
 os.environ["DB_NAME"] = os.environ.get("TEST_DB_NAME", f"{os.environ.get('DB_NAME', 'finance')}_test")
 os.environ.setdefault("SECRET_KEY", "test-only-secret-key")
+# Tests sign up throwaway accounts, so an allowlist in the developer's .env
+# must not apply; the allowlist tests set it explicitly.
+os.environ["ALLOWED_SIGNUP_EMAILS"] = ""
 
 from decimal import Decimal
 from pathlib import Path

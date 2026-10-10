@@ -11,7 +11,7 @@ BASE_ENV = {
     "DB_NAME": "d", "SECRET_KEY": "s3cret",
 }
 ALL_KEYS = [*BASE_ENV, "ACCESS_TOKEN_EXPIRE_MINUTES", "TABLEAU_SERVER_URL", "TABLEAU_SITENAME",
-            "TABLEAU_TOKEN_NAME", "TABLEAU_TOKEN_VALUE", "TABLEAU_PROJECT_NAME"]
+            "TABLEAU_TOKEN_NAME", "TABLEAU_TOKEN_VALUE", "TABLEAU_PROJECT_NAME", "ALLOWED_SIGNUP_EMAILS"]
 
 
 @pytest.fixture
@@ -101,3 +101,16 @@ def test_require_tableau_names_every_missing_variable(env):
 def test_require_tableau_passes_when_complete(env):
     env(TABLEAU_SERVER_URL="https://x", TABLEAU_SITENAME="s",
         TABLEAU_TOKEN_NAME="n", TABLEAU_TOKEN_VALUE="v").require_tableau()
+
+
+def test_signup_allowlist_defaults_to_open(env):
+    s = env()
+    assert s.allowed_signup_emails == frozenset()
+    assert s.signup_allowed("anyone@example.com")
+
+
+def test_signup_allowlist_is_parsed_and_lowercased(env):
+    s = env(ALLOWED_SIGNUP_EMAILS=" Alice@Example.com, bob@example.com ,")
+    assert s.allowed_signup_emails == {"alice@example.com", "bob@example.com"}
+    assert s.signup_allowed("ALICE@example.com")
+    assert not s.signup_allowed("mallory@example.com")
