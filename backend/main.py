@@ -625,3 +625,155 @@ def refresh_data():
     except Exception as e:
         print(f"ETL Failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# --- Shared-expense analytics ---
+# The in-app Analytics "Overview": shared expenses only, seen through two
+# lenses (the household's full price and the logged-in user's share).
+
+# Imported here rather than at the top so this section stays self-contained.
+import calendar
+from sqlalchemy import case, extract
+
+
+def shift_month(month: str, delta: int) -> str:
+    """'2026-10', -1 -> '2026-09'; crosses year boundaries."""
+    index = int(month[:4]) * 12 + int(month[5:]) - 1 + delta
+    return f"{index // 12}-{index % 12 + 1:02d}"
+
+
+# Privacy rule for both routes: an expense qualifies only when it is shared
+# (FactExpenditure.has_other_share: someone other than the payer bears part
+# of it) AND the current user holds a split row for it. The inner join on
+# "my" split row enforces the second half and supplies my share_amount, so
+# personal expenses — mine or my partner's — never appear, and an account
+# outside the household gets nothing.
+
+
+@app.get("/analytics/shared", response_model=schemas.SharedAnalytics)
+def get_shared_analytics(
+    month: str | None = Query(None, pattern=MONTH_PATTERN, description="YYYY-MM, the last month of the window; defaults to the current month"),
+    months: int = Query(12, ge=1, le=24, description="How many months the window covers, ending at `month`"),
+    db: Session = Depends(get_db),
+    current_user: models.DimUser = Depends(get_current_user),
+):
+    """
+    Shared expenses per São Paulo month × category over a window of months,
+    as the household's full price and as the current user's share.
+
+    Each row also carries *_to_day totals, counting only days 1..as_of_day,
+    so a month still in progress can be compared with the same days of the
+    other months. Months with no shared expenses have no rows; `months`
+    lists the whole window so the client can zero-fill.
+    """
+    today = datetime.now(SAO_PAULO)
+    current = today.strftime("%Y-%m")
+    if month is None:
+        month = current
+    window = [shift_month(month, -k) for k in range(months - 1, -1, -1)]
+    is_partial = month == current
+    as_of_day = today.day if is_partial else calendar.monthrange(int(month[:4]), int(month[5:]))[1]
+
+    fact = models.FactExpenditure
+    mine = models.FactExpenditureSplit
+    category = models.DimCategory
+
+    local_ts = func.timezone("America/Sao_Paulo", fact.transaction_timestamp)
+    local_month = func.to_char(local_ts, "YYYY-MM")
+    in_first_days = extract("day", local_ts) <= as_of_day
+
+    rows = (
+        db.query(
+            local_month.label("month"),
+            func.coalesce(category.primary_category, "Uncategorised").label("primary_category"),
+            func.coalesce(category.sub_category, "Uncategorised").label("sub_category"),
+            func.coalesce(category.cost_type, "Unknown").label("cost_type"),
+            func.sum(fact.price).label("household"),
+            func.sum(mine.share_amount).label("mine"),
+            func.count(fact.expenditure_id).label("count"),
+            func.sum(case((in_first_days, fact.price), else_=0)).label("household_to_day"),
+            func.sum(case((in_first_days, mine.share_amount), else_=0)).label("mine_to_day"),
+        )
+        # One split row per (expense, user), so this join never duplicates a price.
+        .join(mine, (mine.expenditure_id == fact.expenditure_id) & (mine.user_id == current_user.user_id))
+        .outerjoin(category, category.category_id == fact.category_id)
+        .filter(fact.has_other_share, local_month.in_(window))
+        .group_by("month", "primary_category", "sub_category", "cost_type")
+        .order_by("month", "primary_category", "sub_category")
+        .all()
+    )
+
+    cents = Decimal("0.01")
+    return schemas.SharedAnalytics(
+        month=month,
+        months=window,
+        is_partial=is_partial,
+        as_of_day=as_of_day,
+        rows=[
+            schemas.SharedAnalyticsRow(
+                month=r.month,
+                primary_category=r.primary_category,
+                sub_category=r.sub_category,
+                cost_type=r.cost_type,
+                household=Decimal(r.household).quantize(cents),
+                mine=Decimal(r.mine).quantize(cents),
+                count=r.count,
+                household_to_day=Decimal(r.household_to_day).quantize(cents),
+                mine_to_day=Decimal(r.mine_to_day).quantize(cents),
+            )
+            for r in rows
+        ],
+    )
+
+
+@app.get("/analytics/shared/expenses", response_model=List[schemas.SharedExpense])
+def get_shared_expenses(
+    month: str | None = Query(None, pattern=MONTH_PATTERN, description="YYYY-MM; defaults to the current month"),
+    primary_category: str | None = Query(None, description="Only this primary category ('Uncategorised' for none)"),
+    db: Session = Depends(get_db),
+    current_user: models.DimUser = Depends(get_current_user),
+):
+    """
+    The individual shared expenses behind /analytics/shared for one São Paulo
+    month, newest first, optionally for one primary category. Same privacy
+    rule: shared, and the current user holds a share of it.
+    """
+    if month is None:
+        month = datetime.now(SAO_PAULO).strftime("%Y-%m")
+
+    fact = models.FactExpenditure
+    mine = models.FactExpenditureSplit
+    category = models.DimCategory
+    method = models.DimPaymentMethod
+    payer = models.DimUser
+
+    local_month = func.to_char(func.timezone("America/Sao_Paulo", fact.transaction_timestamp), "YYYY-MM")
+    primary = func.coalesce(category.primary_category, "Uncategorised")
+
+    query = (
+        db.query(
+            fact.expenditure_id,
+            fact.transaction_timestamp,
+            primary.label("primary_category"),
+            func.coalesce(category.sub_category, "Uncategorised").label("sub_category"),
+            func.coalesce(category.cost_type, "Unknown").label("cost_type"),
+            method.method_name.label("payment_method"),
+            method.institution,
+            payer.full_name.label("paid_by"),
+            fact.price,
+            mine.share_amount.label("mine"),
+            mine.share_pct,
+            fact.current_installment,
+            fact.total_installments,
+            fact.nature,
+        )
+        .join(mine, (mine.expenditure_id == fact.expenditure_id) & (mine.user_id == current_user.user_id))
+        .join(payer, payer.user_id == fact.user_id)
+        .outerjoin(category, category.category_id == fact.category_id)
+        .outerjoin(method, method.payment_method_id == fact.payment_method_id)
+        .filter(fact.has_other_share, local_month == month)
+    )
+    if primary_category is not None:
+        query = query.filter(primary == primary_category)
+
+    rows = query.order_by(fact.transaction_timestamp.desc(), fact.expenditure_id.desc()).all()
+    return [schemas.SharedExpense(**r._mapping) for r in rows]
