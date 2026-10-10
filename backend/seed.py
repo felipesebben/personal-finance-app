@@ -44,6 +44,7 @@ class Spend:
     high: float
     per_month: int      # how many per month
     shared_odds: float  # chance each one is split by the household ratio
+    installments: tuple[int, ...] = (1,)  # possible installment counts; >1 goes on the credit card
 
 
 # Fixed costs land on the 5th or 10th; everything else on a random day.
@@ -59,6 +60,7 @@ CATALOGUE = [
     Spend("Leisure", "Streaming", "Fixed", 40, 60, 1, 1.0),
     Spend("Health", "Pharmacy", "Variable", 20, 250, 1, 0.5),
     Spend("Personal", "Clothing", "Variable", 80, 500, 1, 0.0),
+    Spend("Housing", "Furnishings", "Variable", 300, 3000, 1, 0.8, installments=(1, 3, 6, 10)),
 ]
 
 PAYMENT_METHODS = [("Pix", None, False), ("Debit Card", None, False), ("Credit Card", None, True)]
@@ -133,6 +135,7 @@ def seed(db: Session, months: int = 6, rng: random.Random | None = None,
 
     categories = {spend: get_or_create_category(db, spend) for spend in CATALOGUE}
     methods = [get_or_create_payment_method(db, *pm) for pm in PAYMENT_METHODS]
+    credit_method = methods[[pm[2] for pm in PAYMENT_METHODS].index(True)]
     # Use the time of day too, so nothing seeded today lands after "now".
     latest = datetime.combine(today, now.timetz()) if today == now.date() else datetime.combine(today, time(23, 59), SAO_PAULO)
 
@@ -154,12 +157,15 @@ def seed(db: Session, months: int = 6, rng: random.Random | None = None,
                 payer = rng.choice(household)
                 shared = rng.random() < spend.shared_odds
                 price = Decimal(str(round(rng.uniform(spend.low, spend.high), 2)))
+                installments = rng.choice(spend.installments)
                 exp = add_expenditure(db, payer, {
                     "transaction_timestamp": when,
                     "price": price,
                     "category_id": categories[spend],
-                    "payment_method_id": rng.choice(methods),
+                    "payment_method_id": credit_method if installments > 1 else rng.choice(methods),
                     "nature": "Recurring" if spend.cost_type == "Fixed" else "Normal",
+                    "current_installment": 1,
+                    "total_installments": installments,
                 }, shared=shared)
 
                 counts["expenditures"] += 1

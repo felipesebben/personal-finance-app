@@ -118,6 +118,94 @@ def extract_allocations(engine=None):
         print(f"Allocation Extraction Failed: {e}")
         return None
 
+# One row per person per expenditure per *billing month*: the allocation
+# grain with installment purchases spread over the months they're paid in,
+# so SUM(amount) by billing_month is what each month actually cost, card
+# statements included. The fact table keeps one row per purchase (notes/02,
+# decision 3); the spreading happens only here.
+#
+# `price` is the full purchase price, and `current_installment` is the one
+# billed in the month of `transaction_timestamp`, so installment k falls
+# (k - current) months from it. Entering a 10x purchase on the day you buy
+# it means 1/10; entering one you're already paying, 4/10 in this month.
+# Expenses without installments appear once, in their own month.
+#
+# Each person's share is divided by the number of installments; all but the
+# last are rounded down to the cent and the last takes the remainder, so the
+# parts always sum exactly to the share and none can go negative.
+CASHFLOW_QUERY = """
+WITH alloc AS (
+    SELECT
+        s.expenditure_id,
+        s.user_id,
+        s.share_pct,
+        s.share_amount,
+        s.split_source,
+        f.user_id AS payer_id,
+        f.nature,
+        f.category_id,
+        f.payment_method_id,
+        date_trunc('month', f.transaction_timestamp AT TIME ZONE 'America/Sao_Paulo')::date AS purchase_month,
+        GREATEST(COALESCE(f.total_installments, 1), 1) AS n,
+        LEAST(GREATEST(COALESCE(f.current_installment, 1), 1), GREATEST(COALESCE(f.total_installments, 1), 1)) AS cur
+    FROM fact_expenditure_split s
+    JOIN fact_expenditures f ON f.expenditure_id = s.expenditure_id
+)
+SELECT
+    a.expenditure_id,
+    k AS installment_number,
+    a.n AS total_installments,
+    (a.purchase_month + (k - a.cur) * interval '1 month')::date AS billing_month,
+    a.purchase_month,
+    CASE
+        WHEN k < a.n THEN trunc(a.share_amount / a.n, 2)
+        ELSE a.share_amount - (a.n - 1) * trunc(a.share_amount / a.n, 2)
+    END AS amount,
+    bearer.full_name AS borne_by,
+    payer.full_name AS paid_by,
+    a.share_pct,
+    a.split_source,
+    EXISTS (
+        SELECT 1 FROM fact_expenditure_split o
+        WHERE o.expenditure_id = a.expenditure_id AND o.user_id <> a.payer_id
+    ) AS is_shared,
+    a.nature,
+    c.primary_category,
+    c.sub_category,
+    c.cost_type,
+    pm.method_name,
+    pm.institution,
+    pm.is_credit
+FROM alloc a
+CROSS JOIN LATERAL generate_series(1, a.n) AS k
+JOIN dim_user bearer ON bearer.user_id = a.user_id
+JOIN dim_user payer ON payer.user_id = a.payer_id
+LEFT JOIN dim_category c ON c.category_id = a.category_id
+LEFT JOIN dim_payment_method pm ON pm.payment_method_id = a.payment_method_id
+ORDER BY a.expenditure_id, a.user_id, k;
+"""
+
+
+def extract_cashflow(engine=None):
+    """
+    Extracts the billing-month grain (one row per person per expenditure per installment).
+    """
+    engine = engine or get_db_connection()
+    if not engine: return None
+
+    try:
+        df = pd.read_sql(CASHFLOW_QUERY, engine)
+        if df.empty:
+            print("No cashflow rows found.")
+            return None
+        for col in ("billing_month", "purchase_month"):
+            df[col] = pd.to_datetime(df[col])
+        print(f"Extracted {len(df)} cashflow rows.")
+        return df
+    except Exception as e:
+        print(f"Cashflow Extraction Failed: {e}")
+        return None
+
 # One row per payment between household members. Settlements move money
 # between people rather than spending it, so they live in their own
 # datasource instead of being mixed into the spending grain. `period_month`
@@ -221,7 +309,8 @@ def run_pipeline():
     # 2. Transform / Generate Files
     # The datasource name on Tableau comes from the file name, so these
     # publish as separate datasources: "expenditures" (unchanged, one row
-    # per expense), "allocations" (one row per person per expense) and
+    # per expense), "allocations" (one row per person per expense),
+    # "cashflow" (allocations spread over installment billing months) and
     # "settlements" (one row per payment between members).
     hyper_files = []
     hyper_file = generate_hyper_file(df)
@@ -235,6 +324,12 @@ def run_pipeline():
         allocations_file = generate_hyper_file(allocations_df, filename="allocations.hyper")
         if allocations_file:
             hyper_files.append(allocations_file)
+
+    cashflow_df = extract_cashflow()
+    if cashflow_df is not None:
+        cashflow_file = generate_hyper_file(cashflow_df, filename="cashflow.hyper")
+        if cashflow_file:
+            hyper_files.append(cashflow_file)
 
     settlements_df = extract_settlements()
     if settlements_df is not None:

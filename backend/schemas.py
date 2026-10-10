@@ -98,12 +98,20 @@ class ExpenditureCreate(BaseModel):
     # Only valid on a shared expense; omit to use the household ratio.
     shares: List[ShareItem] | None = None
 
-    # Tell API to accept these (with defaults)
-    current_installment: int = 1
-    total_installments: int = 1
+    # Installments: price is the full purchase price, and current_installment
+    # is the one billed in the month of transaction_timestamp. The ETL's
+    # cashflow datasource spreads the price across the billing months.
+    current_installment: int = Field(1, ge=1)
+    total_installments: int = Field(1, ge=1)
 
     class Config:
         from_attributes = True # Changed from orm_mode
+
+    @model_validator(mode="after")
+    def installment_within_total(self):
+        if self.current_installment > self.total_installments:
+            raise ValueError("current_installment cannot be greater than total_installments")
+        return self
 
     @model_validator(mode="after")
     def shares_are_a_valid_split(self):
