@@ -138,6 +138,9 @@ class ExpenditureRead(BaseModel):
     # FactExpenditure.has_other_share (derived from allocation rows), not
     # from the legacy column.
     is_shared: bool = Field(validation_alias="has_other_share")
+    # The logged-in user's part of this expense (their share_amount; 0 if they
+    # hold no share, e.g. one they paid but put entirely on their partner).
+    my_share: Decimal = Decimal("0.00")
 
     # Nest the other schemas to show full objects
     user: User

@@ -213,3 +213,25 @@ def test_share_holder_who_did_not_pay_can_see_and_delete(client, household):
     exp_id = create(client, household, who="a", is_shared=True)
     assert listed(client, household["b"], exp_id)["user"]["user_id"] == household["a_id"]
     assert client.delete(f"/expenditures/{exp_id}", headers=household["b"]).status_code == 200
+
+
+# --- my_share in the list --------------------------------------------------
+
+def my_share_of(client, headers, exp_id):
+    listed = client.get("/expenditures/", headers=headers).json()
+    return D(next(e for e in listed if e["expenditure_id"] == exp_id)["my_share"])
+
+
+def test_list_reports_each_persons_share(client, household):
+    shared = create(client, household, who="a", price="100.01", is_shared=True)
+    personal = create(client, household, who="a", price="55.55", is_shared=False)
+    assert my_share_of(client, household["a"], shared) == D("60.01")
+    assert my_share_of(client, household["b"], shared) == D("40.00")
+    assert my_share_of(client, household["a"], personal) == D("55.55")
+
+
+def test_my_share_is_zero_when_put_on_my_partner(client, household):
+    exp_id = create(client, household, who="a", price="80.00",
+                    shares=[{"user_id": household["b_id"], "share_pct": "1"}])
+    assert my_share_of(client, household["a"], exp_id) == D("0.00")
+    assert my_share_of(client, household["b"], exp_id) == D("80.00")
