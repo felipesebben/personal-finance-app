@@ -1,7 +1,7 @@
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 from datetime import datetime
 from decimal import Decimal
-from typing import List
+from typing import List, Literal
 
 # -- Dimension Schemas --
 # Create schemas for dimensions
@@ -25,17 +25,46 @@ class CategoryCreate(BaseModel):
     # While these were formely optional or defaulted to values in SQL,
     # we'll make them strings for simplicity as of now.
     cost_type: str = "Variable"
+    for_pets: bool = False
+
+class PetCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+
+class Pet(BaseModel):
+    pet_id: int
+    name: str
+    expense_count: int = 0
+
+    class Config:
+        from_attributes = True
 
 class PaymentMethodCreate(BaseModel):
     method_name: str
     institution: str | None = None
     is_credit: bool = False
 
+class CategoryUpdate(BaseModel):
+    """A partial edit: only the fields sent are changed."""
+    primary_category: str | None = Field(default=None, min_length=1)
+    sub_category: str | None = Field(default=None, min_length=1)
+    cost_type: Literal["Fixed", "Variable"] | None = None
+    for_pets: bool | None = None
+
+class PaymentMethodUpdate(BaseModel):
+    """A partial edit; send institution null to clear it."""
+    method_name: str | None = Field(default=None, min_length=1)
+    institution: str | None = None
+    is_credit: bool | None = None
+
 class Category(BaseModel):
     category_id: int
     primary_category: str
     sub_category: str
     cost_type: str
+    # Expenses in it are for the pets, so the Tracker asks which one.
+    for_pets: bool = False
+    # How many expenses use it; one in use can't be deleted.
+    expense_count: int = 0
 
     class Config:
         from_attributes = True
@@ -45,6 +74,7 @@ class PaymentMethod(BaseModel):
     method_name: str
     institution: str | None = None # Optional field
     is_credit: bool = False
+    expense_count: int = 0
 
     class Config:
         from_attributes = True
@@ -104,6 +134,10 @@ class ExpenditureCreate(BaseModel):
     current_installment: int = Field(1, ge=1)
     total_installments: int = Field(1, ge=1)
 
+    # Only with a for_pets category: the pet it was for. Omitted (None) on a
+    # pet category means all of them ("Both").
+    pet_id: int | None = None
+
     class Config:
         from_attributes = True # Changed from orm_mode
 
@@ -146,6 +180,8 @@ class ExpenditureRead(BaseModel):
     user: User
     category: Category
     payment_method: PaymentMethod
+    # The pet it was for; None on a pet category means all of them.
+    pet: Pet | None = None
 
     class Config:
         from_attributes = True

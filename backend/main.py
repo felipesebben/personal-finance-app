@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from typing import List
 from decimal import Decimal
 from split_logic import settle
-from ledger import HouseholdNotConfigured, InvalidSplit, add_expenditure
+from ledger import HouseholdNotConfigured, InvalidSplit, PayerNotInHousehold, add_expenditure
 
 from config import settings
 from auth import verify_password, create_access_token, get_password_hash, hash_reset_token, new_reset_token, SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
@@ -109,6 +109,12 @@ def create_expenditure(
     # is_shared and shares, which are instructions for the split below
     # rather than stored columns.
     expenditure_data = expenditure.model_dump(exclude={"user_id", "is_shared", "shares"})
+    if expenditure.pet_id is not None:
+        category = db.get(models.DimCategory, expenditure.category_id)
+        if not category or not category.for_pets:
+            raise HTTPException(status_code=400, detail="A pet can only be given for a pet category.")
+        if not db.get(models.DimPet, expenditure.pet_id):
+            raise HTTPException(status_code=400, detail="Unknown pet.")
     shares = [(s.user_id, s.share_pct) for s in expenditure.shares] if expenditure.shares else None
 
     # The request's is_shared means "split this by the household ratio";
@@ -124,6 +130,13 @@ def create_expenditure(
         raise HTTPException(
             status_code=400,
             detail="Household split ratio is not configured. Set it on the Manage Settings page first.",
+        )
+    except PayerNotInHousehold:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="You're not in the household split yet, so this can't be shared. "
+                   "Add yourself under Settings → Household, or save it as personal.",
         )
     except InvalidSplit as e:
         db.rollback()
@@ -279,21 +292,64 @@ def confirm_password_reset(payload: schemas.PasswordResetConfirm, db: Session = 
     return {"detail": "Password updated. You can now log in."}
 
 
+# --- Dimensions: create and edit ---
+# Expenses point at a category or payment method by id, so an edit relabels
+# every past expense too (which is what fixing a typo should do).
+
+def commit_or_409(db: Session, detail: str):
+    """Commits, turning a unique-constraint clash into a readable 409."""
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=detail)
+
+
+def category_clash(c) -> str:
+    return f"{c.primary_category} › {c.sub_category} already exists."
+
+
+def payment_method_clash(m) -> str:
+    return f"{m.method_name}{f' · {m.institution}' if m.institution else ''} already exists."
+
+
 @app.post("/categories/", response_model=schemas.Category, dependencies=[Depends(get_current_user)])
 def create_category(category: schemas.CategoryCreate, db: Session=Depends(get_db)):
     db_category = models.DimCategory(**category.model_dump())
     db.add(db_category)
-    db.commit()
+    commit_or_409(db, category_clash(category))
     db.refresh(db_category)
     return db_category
+
+@app.patch("/categories/{category_id}", response_model=schemas.Category, dependencies=[Depends(get_current_user)])
+def update_category(category_id: int, changes: schemas.CategoryUpdate, db: Session = Depends(get_db)):
+    category = db.get(models.DimCategory, category_id)
+    if not category:
+        raise HTTPException(status_code=404, detail="Category not found")
+    for field, value in changes.model_dump(exclude_unset=True).items():
+        setattr(category, field, value)
+    commit_or_409(db, category_clash(category))
+    db.refresh(category)
+    return category
 
 @app.post("/payment_methods/", response_model=schemas.PaymentMethod, dependencies=[Depends(get_current_user)])
 def create_payment_method(method: schemas.PaymentMethodCreate, db: Session=Depends(get_db)):
     db_method = models.DimPaymentMethod(**method.model_dump())
     db.add(db_method)
-    db.commit()
+    commit_or_409(db, payment_method_clash(method))
     db.refresh(db_method)
     return db_method
+
+@app.patch("/payment_methods/{payment_method_id}", response_model=schemas.PaymentMethod, dependencies=[Depends(get_current_user)])
+def update_payment_method(payment_method_id: int, changes: schemas.PaymentMethodUpdate, db: Session = Depends(get_db)):
+    method = db.get(models.DimPaymentMethod, payment_method_id)
+    if not method:
+        raise HTTPException(status_code=404, detail="Payment Method not found")
+    for field, value in changes.model_dump(exclude_unset=True).items():
+        setattr(method, field, value)
+    commit_or_409(db, payment_method_clash(method))
+    db.refresh(method)
+    return method
 
 
 @app.get("/users/", response_model=List[schemas.User], dependencies=[Depends(get_current_user)])
@@ -301,15 +357,64 @@ def get_users(db: Session = Depends(get_db)):
     people = db.query(models.DimUser).all()
     return people
 
+def with_expense_count(db: Session, dim, key: str):
+    """
+    Every row of a dimension with how many expenses use it, so Settings can
+    say up front which rows can't be deleted.
+    """
+    used = func.count(models.FactExpenditure.expenditure_id)
+    rows = (
+        db.query(dim, used)
+        .outerjoin(models.FactExpenditure, getattr(models.FactExpenditure, key) == getattr(dim, key))
+        .group_by(getattr(dim, key))
+        .all()
+    )
+    for row, count in rows:
+        row.expense_count = count
+    return [row for row, _ in rows]
+
+@app.get("/pets/", response_model=List[schemas.Pet], dependencies=[Depends(get_current_user)])
+def get_pets(db: Session = Depends(get_db)):
+    return with_expense_count(db, models.DimPet, "pet_id")
+
+@app.post("/pets/", response_model=schemas.Pet, dependencies=[Depends(get_current_user)])
+def create_pet(pet: schemas.PetCreate, db: Session = Depends(get_db)):
+    db_pet = models.DimPet(name=pet.name.strip())
+    db.add(db_pet)
+    commit_or_409(db, f"{db_pet.name} already exists.")
+    db.refresh(db_pet)
+    return db_pet
+
+@app.patch("/pets/{pet_id}", response_model=schemas.Pet, dependencies=[Depends(get_current_user)])
+def rename_pet(pet_id: int, pet: schemas.PetCreate, db: Session = Depends(get_db)):
+    db_pet = db.get(models.DimPet, pet_id)
+    if not db_pet:
+        raise HTTPException(status_code=404, detail="Pet not found")
+    db_pet.name = pet.name.strip()
+    commit_or_409(db, f"{db_pet.name} already exists.")
+    db.refresh(db_pet)
+    return db_pet
+
+@app.delete("/pets/{pet_id}", dependencies=[Depends(get_current_user)])
+def delete_pet(pet_id: int, db: Session = Depends(get_db)):
+    db_pet = db.get(models.DimPet, pet_id)
+    if not db_pet:
+        raise HTTPException(status_code=404, detail="Pet not found")
+    try:
+        db.delete(db_pet)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Cannot delete: this pet is used in existing records.")
+    return {"message": "Pet deleted successfully"}
+
 @app.get("/categories/", response_model=List[schemas.Category], dependencies=[Depends(get_current_user)])
 def get_categories(db: Session = Depends(get_db)):
-    categories = db.query(models.DimCategory).all()
-    return categories
+    return with_expense_count(db, models.DimCategory, "category_id")
 
 @app.get("/payment_methods/", response_model=List[schemas.PaymentMethod], dependencies=[Depends(get_current_user)])
 def get_payment_methods(db: Session = Depends(get_db)):
-    payment_methods = db.query(models.DimPaymentMethod).all()
-    return payment_methods
+    return with_expense_count(db, models.DimPaymentMethod, "payment_method_id")
 
 @app.get("/household_settings/", response_model=List[schemas.HouseholdSettingRead], dependencies=[Depends(get_current_user)])
 def get_household_settings(db: Session = Depends(get_db)):
@@ -359,7 +464,8 @@ def get_expenditures(db: Session = Depends(get_db),
         .options(
             joinedload(models.FactExpenditure.user),
             joinedload(models.FactExpenditure.category),
-            joinedload(models.FactExpenditure.payment_method)
+            joinedload(models.FactExpenditure.payment_method),
+            joinedload(models.FactExpenditure.pet),
         )
         .all()
     )
@@ -666,7 +772,7 @@ def delete_category(category_id: int, db: Session = Depends(get_db)):
         db.commit()
     except Exception:
         db.rollback()
-        raise HTTPException(status_code=400, detail="Cannot delete: This category is used in existign records.")
+        raise HTTPException(status_code=400, detail="Cannot delete: This category is used in existing records.")
     
     return {"message": "Category deleted successfully"}
 
