@@ -17,7 +17,9 @@ ME = "me@example.com"
 CATEGORIES = [
     {"category_id": 1, "primary_category": "Food", "sub_category": "Groceries", "cost_type": "Variable"},
     {"category_id": 2, "primary_category": "Home", "sub_category": "Furniture", "cost_type": "Variable"},
+    {"category_id": 3, "primary_category": "Pets", "sub_category": "Vet", "cost_type": "Variable", "for_pets": True},
 ]
+PETS = [{"pet_id": 7, "name": "Thor"}, {"pet_id": 8, "name": "Luna"}]
 PAYMENT_METHODS = [
     {"payment_method_id": 10, "method_name": "Credit Card", "institution": "Nubank", "is_credit": True},
     {"payment_method_id": 11, "method_name": "Cash", "institution": None, "is_credit": False},
@@ -45,6 +47,7 @@ def fake_get(url, *args, **kwargs):
         ("/categories", CATEGORIES),
         ("/payment_methods", PAYMENT_METHODS),
         ("/household_settings", HOUSEHOLD),
+        ("/pets", PETS),
     ]:
         if endpoint in url:
             return response(payload)
@@ -192,6 +195,40 @@ def test_method_with_banks_offers_them_and_no_bank(at, api):
     submit(at)
     assert not at.exception
     assert post.call_args.kwargs["json"]["payment_method_id"] == 13
+
+
+def choose_vet(at):
+    at.text_input(key="entry_price_0").input("300").run()
+    at.selectbox(key="entry_payment_0_primary").select("Pix").run()
+    at.selectbox(key="entry_category_0_primary").select("Pets").run()
+    at.selectbox(key="entry_category_0_secondary_Pets").select("Vet").run()
+
+
+def test_pet_category_asks_which_pet_and_sends_it(at, api):
+    _, post = api
+    # Not asked for an ordinary category.
+    assert not at.radio
+    choose_vet(at)
+    picker = at.radio(key="entry_pet_0")
+    assert picker.options == ["Luna", "Thor", "Both"]
+
+    submit(at)  # nothing picked yet
+    assert any("Which pet" in e.value for e in at.error)
+    post.assert_not_called()
+
+    at.radio(key="entry_pet_0").set_value("Thor").run()
+    submit(at)
+    assert not at.exception
+    assert post.call_args.kwargs["json"]["pet_id"] == 7
+
+
+def test_both_pets_is_sent_without_a_pet_id(at, api):
+    _, post = api
+    choose_vet(at)
+    at.radio(key="entry_pet_0").set_value("Both").run()
+    submit(at)
+    assert not at.exception
+    assert "pet_id" not in post.call_args.kwargs["json"]
 
 
 def test_custom_split_is_sent_as_shares(at, api):

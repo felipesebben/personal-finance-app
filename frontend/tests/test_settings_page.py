@@ -59,7 +59,7 @@ def run(users=USERS, household=()):
 def test_renders_every_section_with_no_pending_changes():
     at = run()
     assert not at.exception
-    assert [s.value for s in at.subheader] == ["Household", "Categories", "Payment methods", "Publish to Tableau"]
+    assert [s.value for s in at.subheader] == ["Household", "Categories", "Payment methods", "Pets", "Publish to Tableau"]
     # No edits yet, so no Save changes / Discard buttons for the tables.
     assert not [b for b in at.button if b.label in ("Save changes", "Discard")]
     # The old add-a-person form is gone: partners sign up themselves.

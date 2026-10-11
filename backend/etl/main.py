@@ -42,11 +42,14 @@ def extract_data(engine=None):
         c.sub_category,
         c.cost_type,
         pm.method_name,
-        pm.institution
+        pm.institution,
+        -- The pet a pet-category expense was for; 'Both' when it was for all of them.
+        CASE WHEN c.for_pets THEN COALESCE(pet.name, 'Both') END AS pet
     FROM fact_expenditures f
     JOIN dim_user p ON f.user_id = p.user_id
     JOIN dim_category c ON f.category_id = c.category_id
-    JOIN dim_payment_method pm ON f.payment_method_id = pm.payment_method_id;    
+    JOIN dim_payment_method pm ON f.payment_method_id = pm.payment_method_id
+    LEFT JOIN dim_pet pet ON pet.pet_id = f.pet_id;    
     """
 
     try:
@@ -89,13 +92,15 @@ SELECT
     c.cost_type,
     pm.method_name,
     pm.institution,
-    pm.is_credit
+    pm.is_credit,
+    CASE WHEN c.for_pets THEN COALESCE(pet.name, 'Both') END AS pet
 FROM fact_expenditure_split s
 JOIN fact_expenditures f ON f.expenditure_id = s.expenditure_id
 JOIN dim_user bearer ON bearer.user_id = s.user_id
 JOIN dim_user payer ON payer.user_id = f.user_id
 LEFT JOIN dim_category c ON c.category_id = f.category_id
 LEFT JOIN dim_payment_method pm ON pm.payment_method_id = f.payment_method_id
+LEFT JOIN dim_pet pet ON pet.pet_id = f.pet_id
 ORDER BY s.expenditure_id, s.user_id;
 """
 
@@ -145,6 +150,7 @@ WITH alloc AS (
         f.nature,
         f.category_id,
         f.payment_method_id,
+        f.pet_id,
         date_trunc('month', f.transaction_timestamp AT TIME ZONE 'America/Sao_Paulo')::date AS purchase_month,
         GREATEST(COALESCE(f.total_installments, 1), 1) AS n,
         LEAST(GREATEST(COALESCE(f.current_installment, 1), 1), GREATEST(COALESCE(f.total_installments, 1), 1)) AS cur
@@ -175,13 +181,15 @@ SELECT
     c.cost_type,
     pm.method_name,
     pm.institution,
-    pm.is_credit
+    pm.is_credit,
+    CASE WHEN c.for_pets THEN COALESCE(pet.name, 'Both') END AS pet
 FROM alloc a
 CROSS JOIN LATERAL generate_series(1, a.n) AS k
 JOIN dim_user bearer ON bearer.user_id = a.user_id
 JOIN dim_user payer ON payer.user_id = a.payer_id
 LEFT JOIN dim_category c ON c.category_id = a.category_id
 LEFT JOIN dim_payment_method pm ON pm.payment_method_id = a.payment_method_id
+LEFT JOIN dim_pet pet ON pet.pet_id = a.pet_id
 ORDER BY a.expenditure_id, a.user_id, k;
 """
 

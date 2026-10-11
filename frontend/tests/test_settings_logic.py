@@ -1,7 +1,7 @@
 """From an edited Settings table to the API calls that apply it."""
 import math
 
-from settings_logic import CATEGORIES, PAYMENT_METHODS, household_payload, plan_changes
+from settings_logic import CATEGORIES, PAYMENT_METHODS, PETS, household_payload, plan_changes
 
 CATS = [
     {"category_id": 1, "primary_category": "Food", "sub_category": "Groceries", "cost_type": "Variable", "expense_count": 3},
@@ -37,7 +37,7 @@ def test_changing_cost_type_reads_as_a_sentence():
 
 def test_a_new_row_is_a_post():
     plan = plan_changes(CATS, edited(add=[{"primary_category": "Pets", "sub_category": "Vet", "cost_type": "Variable"}]), CATEGORIES)
-    assert plan.adds == [{"primary_category": "Pets", "sub_category": "Vet", "cost_type": "Variable"}]
+    assert plan.adds == [{"primary_category": "Pets", "sub_category": "Vet", "cost_type": "Variable", "for_pets": False}]
     assert plan.lines == ["Add Pets › Vet"]
 
 
@@ -101,6 +101,23 @@ def test_adding_a_bank_and_ticking_credit():
     plan = plan_changes(PMS, [dict(PMS[0], institution="Nubank", is_credit=True)], PAYMENT_METHODS)
     assert plan.updates == [(5, {"institution": "Nubank", "is_credit": True})]
     assert plan.lines == ["Rename Pix → Pix · Nubank; Pix · Nubank: credit (offers installments)"]
+
+
+def test_ticking_pets_on_a_category():
+    plan = plan_changes(CATS, edited((2, {"for_pets": True})), CATEGORIES)
+    assert plan.updates == [(2, {"for_pets": True})]
+    assert plan.lines == ["Leisure › Streaming: asks which pet"]
+
+
+# --- pets ------------------------------------------------------------------
+
+def test_pets_add_rename_and_block_removing_one_in_use():
+    pets = [{"pet_id": 1, "name": "Thor", "expense_count": 4}, {"pet_id": 2, "name": "Luna", "expense_count": 0}]
+    rows = [dict(pets[1], name="Lua"), {"pet_id": None, "name": "Bob", "expense_count": None}]
+    plan = plan_changes(pets, rows, PETS)
+    assert plan.updates == [(2, {"name": "Lua"})]
+    assert plan.adds == [{"name": "Bob"}]
+    assert plan.errors == ["Thor can't be removed: 4 expenses use it. Rename it instead, or delete those expenses first."]
 
 
 # --- household split -----------------------------------------------------

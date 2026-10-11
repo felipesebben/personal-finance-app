@@ -115,8 +115,19 @@ token = st.session_state["access_token"]
 categories_data = get_data("categories", token)
 payment_methods_data = get_data("payment_methods", token)
 household_data = get_data("household_settings", token)
+pets_data = get_data("pets", token)
 
 categories_df = pd.DataFrame(categories_data)
+
+# A pet-category expense with no pet_id was for all the pets.
+ALL_PETS = "Both"
+
+
+def is_pet_category(primary: str, sub: str) -> bool:
+    if categories_df.empty or "for_pets" not in categories_df:
+        return False
+    match = categories_df[(categories_df["primary_category"] == primary) & (categories_df["sub_category"] == sub)]
+    return bool(not match.empty and match["for_pets"].eq(True).iloc[0])  # NaN (field missing) would be truthy
 payment_methods_df = pd.DataFrame(payment_methods_data)
 
 # Who is logged in, for "your share" in the preview: Home.py keeps the login email.
@@ -210,6 +221,21 @@ def expense_entry_form():
         key=k("category"),
     )
 
+    # 4b. For a pet category, which pet. "Both" is sent as no pet_id.
+    pet_id, pet_choice_missing = None, False
+    if selected_sub and is_pet_category(selected_primary, selected_sub):
+        if not pets_data:
+            st.caption("Want to know what each pet costs? Add them in Settings → Pets.")
+        elif len(pets_data) == 1:
+            pet_id = pets_data[0]["pet_id"]
+            st.caption(f"For {pets_data[0]['name']}.")
+        else:
+            names = {p["name"]: p["pet_id"] for p in sorted(pets_data, key=lambda p: p["name"].lower())}
+            choice = st.radio("Which pet?", [*names, ALL_PETS], index=None, horizontal=True, key=k("pet"),
+                              help=f"{ALL_PETS}: one expense for all of them, e.g. a bag of food they share.")
+            pet_id = names.get(choice)
+            pet_choice_missing = choice is None
+
     # 5. Who bears it.
     is_shared = st.toggle("Shared Household Expense?", value=True, key=k("shared"),
                           help="Leave ON if split between couple.")
@@ -264,6 +290,7 @@ def expense_entry_form():
     if not selected_institution: missing_fields.append("Institution")
     if not selected_primary: missing_fields.append("Category")
     if not selected_sub: missing_fields.append("Sub-Category")
+    if pet_choice_missing: missing_fields.append("Which pet")
     if not nature_option: missing_fields.append("Nature")
     if custom_shares is not None and sum(pct for _, pct in custom_shares) != 100:
         missing_fields.append("Custom split (must add up to 100%)")
@@ -300,6 +327,8 @@ def expense_entry_form():
             "current_installment": current_inst,
             "total_installments": total_inst
         }
+        if pet_id is not None:
+            payload["pet_id"] = int(pet_id)
         if custom_shares is not None:
             # People at 0% simply bear none of it, so they get no row.
             payload["shares"] = [
@@ -613,9 +642,14 @@ with history_tab:
         def column(name: str, default="—"):
             return all_expenditures_df[name] if name in all_expenditures_df else pd.Series(default, index=all_expenditures_df.index)
 
+        # A pet-category expense names its pet, or "Both" when it was for all of them.
+        pet = column("pet.name", None).where(column("pet.name", None).notna(), ALL_PETS)
+        for_pets = column("category.for_pets", False).eq(True)
+        what = column("category.primary_category").fillna("—") + " · " + column("category.sub_category").fillna("—")
+
         display_df = pd.DataFrame({
             "When": all_expenditures_df["transaction_timestamp"].dt.strftime("%d/%m/%Y %H:%M"),
-            "What": column("category.primary_category").fillna("—") + " · " + column("category.sub_category").fillna("—"),
+            "What": what.where(~for_pets, what + " · " + pet),
             "Paid by": column("user.full_name"),
             "Type": all_expenditures_df.apply(kind, axis=1),
             "Paid with": column("payment_method.method_name"),
