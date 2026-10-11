@@ -350,7 +350,8 @@ def update_household_settings(payload: schemas.HouseholdSettingsUpdate, db: Sess
 def get_expenditures(db: Session = Depends(get_db),
                      current_user: models.DimUser = Depends(get_current_user)):
     """
-    The expenditures the current user paid or holds a share of (see visible_to).
+    The expenditures the current user paid or holds a share of (see visible_to),
+    each with `my_share`: the current user's share_amount, 0 when they hold none.
     """
     expenditures = (
         db.query(models.FactExpenditure)
@@ -362,6 +363,16 @@ def get_expenditures(db: Session = Depends(get_db),
         )
         .all()
     )
+    split = models.FactExpenditureSplit
+    my_shares = dict(
+        db.query(split.expenditure_id, split.share_amount)
+        .filter(split.user_id == current_user.user_id,
+                split.expenditure_id.in_([e.expenditure_id for e in expenditures]))
+        .all()
+    )
+    for e in expenditures:
+        # Read by ExpenditureRead.my_share; not a mapped column.
+        e.my_share = my_shares.get(e.expenditure_id, Decimal("0.00"))
     return expenditures
 
 @app.get("/balances/", response_model=schemas.BalanceReport, dependencies=[Depends(get_current_user)])

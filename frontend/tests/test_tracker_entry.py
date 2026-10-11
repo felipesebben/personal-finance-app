@@ -76,9 +76,12 @@ def api():
 
 @pytest.fixture
 def at(api):
-    app = AppTest.from_file(PAGE, default_timeout=30)
+    # Start from Home so st.page_link (used in the tabs) can resolve pages.
+    app = AppTest.from_file("Home.py", default_timeout=30)
     app.session_state["access_token"] = "x"
     app.session_state["user_email"] = ME
+    app.run()
+    app.switch_page(PAGE)
     return app.run()
 
 
@@ -180,7 +183,7 @@ BALANCES = {
 }
 EXPENDITURE = {
     "expenditure_id": 7, "transaction_timestamp": "2026-10-05T15:30:00+00:00", "price": "1666.67",
-    "nature": "Normal", "is_shared": True,
+    "nature": "Normal", "is_shared": True, "my_share": "1000.00", "total_installments": 10,
     "user": {"user_id": 1, "full_name": "Me", "email": ME},
     "category": CATEGORIES[1], "payment_method": PAYMENT_METHODS[0],
 }
@@ -199,16 +202,29 @@ def test_overview_formats_money_the_brazilian_way(api):
         return fake_get(url)
 
     get.side_effect = with_overview
-    app = AppTest.from_file(PAGE, default_timeout=30)
+    # Start from Home so st.page_link (used in the tabs) can resolve pages.
+    app = AppTest.from_file("Home.py", default_timeout=30)
     app.session_state["access_token"] = "x"
+    app.session_state["user_email"] = ME
+    app.run()
+    app.switch_page(PAGE)
     at = app.run()
 
     assert not at.exception
+    # This month: three explained metrics, deltas against the named previous month.
+    assert [m.label for m in at.metric] == ["You spent", "Your share of shared", "Household shared total"]
     assert at.metric[0].value == "R$ 1.234,50"
-    assert at.metric[0].delta == "+R$ 234,50 vs 2026-09"
-    assert at.metric[3].delta == "-R$ 33,33 vs 2026-09"
-    assert any(r"R\$ 666,67" in s.value for s in at.success)
-    # The settlement form is pre-filled with what's owed, typed like a price.
+    assert at.metric[0].delta == "+R$ 234,50 vs September 2026"
+    assert at.metric[2].delta == "-R$ 33,33 vs September 2026"
+    # Settle up leads with the answer, then the plain-language table.
+    html = " ".join(str(h.proto) for h in at.get("html"))
+    assert "Her owes Me" in html and "R$ 666,67" in html
+    owed = next(df.value for df in at.dataframe if "Should have paid" in df.value.columns)
+    assert list(owed["Difference"]) == ["R$ 666,67", "-R$ 666,67"]
+    # The other-payment form is pre-filled with what's owed, typed like a price.
     assert "666,67" in [t.value for t in at.text_input]
+    # History: full price and the viewer's part, with the type spelled out.
     recent = at.dataframe[-1].value
     assert list(recent["Price"]) == ["R$ 1.666,67"]
+    assert list(recent["Your part"]) == ["R$ 1.000,00"]
+    assert list(recent["Type"]) == ["Shared · 10x"]
