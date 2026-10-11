@@ -83,7 +83,7 @@ def test_successful_reset_clears_the_link_and_shows_login(api):
     assert not at.exception
     assert api.calls == [("/password-reset/confirm", {"token": LINK_ID, "new_password": NEW_PW})]
     assert "reset_token" not in at.query_params
-    assert any(t.value == "Secure Access" for t in at.title)
+    assert any(t.value == "Home Finances" for t in at.title)
     assert any("Password updated" in s.value for s in at.success)
 
 
