@@ -21,6 +21,10 @@ CATEGORIES = [
 PAYMENT_METHODS = [
     {"payment_method_id": 10, "method_name": "Credit Card", "institution": "Nubank", "is_credit": True},
     {"payment_method_id": 11, "method_name": "Cash", "institution": None, "is_credit": False},
+    # Pix registered only without a bank; Debit Card both with and without one.
+    {"payment_method_id": 12, "method_name": "Pix", "institution": None, "is_credit": False},
+    {"payment_method_id": 13, "method_name": "Debit Card", "institution": "Itaú", "is_credit": False},
+    {"payment_method_id": 14, "method_name": "Debit Card", "institution": None, "is_credit": False},
 ]
 HOUSEHOLD = [
     {"user_id": 1, "share_pct": "0.6000", "user": {"user_id": 1, "full_name": "Me", "email": ME}},
@@ -143,6 +147,51 @@ def test_valid_submit_posts_price_as_string_and_resets(at, api):
     assert at.session_state["entry_nonce"] == 1
     assert at.text_input(key="entry_price_1").value == ""
     assert at.selectbox(key="entry_payment_1_primary").value is None
+
+
+def fill_rest_and_submit(at):
+    at.text_input(key="entry_price_0").input("50").run()
+    at.selectbox(key="entry_category_0_primary").select("Food").run()
+    at.selectbox(key="entry_category_0_secondary_Food").select("Groceries").run()
+    submit(at)
+
+
+def test_method_without_institution_is_picked_and_submits(at, api):
+    _, post = api
+    at.selectbox(key="entry_payment_0_primary").select("Pix").run()
+
+    inst = at.selectbox(key="entry_payment_0_secondary_Pix")
+    assert inst.options == ["N/A"] and inst.value == "N/A" and inst.disabled
+    assert any("Settings → Payment methods" in c for c in captions(at))
+
+    fill_rest_and_submit(at)
+    assert not at.exception
+    assert post.call_args.kwargs["json"]["payment_method_id"] == 12
+
+
+def test_cash_gets_no_add_a_bank_hint(at):
+    at.selectbox(key="entry_payment_0_primary").select("Cash").run()
+    assert at.selectbox(key="entry_payment_0_secondary_Cash").value == "N/A"
+    assert not any("Settings → Payment methods" in c for c in captions(at))
+
+
+def test_method_with_banks_offers_them_and_no_bank(at, api):
+    _, post = api
+    at.selectbox(key="entry_payment_0_primary").select("Debit Card").run()
+
+    inst = at.selectbox(key="entry_payment_0_secondary_Debit Card")
+    assert inst.options == ["Itaú", "N/A"] and inst.value is None and not inst.disabled
+
+    # Choosing is required while banks exist...
+    fill_rest_and_submit(at)
+    assert any("Institution" in e.value for e in at.error)
+    post.assert_not_called()
+
+    # ...and the bank picked decides which payment method is saved.
+    at.selectbox(key="entry_payment_0_secondary_Debit Card").select("Itaú").run()
+    submit(at)
+    assert not at.exception
+    assert post.call_args.kwargs["json"]["payment_method_id"] == 13
 
 
 def test_custom_split_is_sent_as_shares(at, api):
