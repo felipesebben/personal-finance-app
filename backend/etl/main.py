@@ -29,6 +29,8 @@ def extract_data(engine=None):
     SELECT
         f.expenditure_id,
         f.transaction_timestamp AT TIME ZONE 'America/Sao_Paulo' AS transaction_timestamp,
+        -- The São Paulo day, to relate to the calendar datasource.
+        (f.transaction_timestamp AT TIME ZONE 'America/Sao_Paulo')::date AS transaction_date,
         f.price,
         f.nature,
         -- Derived from allocation rows (someone other than the payer bears
@@ -57,6 +59,7 @@ def extract_data(engine=None):
         if df.empty:
             print("Connection successful, but no data found.")
             return None
+        df["transaction_date"] = pd.to_datetime(df["transaction_date"])
         print(f"Extracted {len(df)} rows.")
         return df
     except Exception as e:
@@ -73,6 +76,7 @@ ALLOCATIONS_QUERY = """
 SELECT
     s.expenditure_id,
     f.transaction_timestamp AT TIME ZONE 'America/Sao_Paulo' AS transaction_timestamp,
+    (f.transaction_timestamp AT TIME ZONE 'America/Sao_Paulo')::date AS transaction_date,
     date_trunc('month', f.transaction_timestamp AT TIME ZONE 'America/Sao_Paulo')::date AS month_start,
     bearer.full_name AS borne_by,
     payer.full_name AS paid_by,
@@ -117,6 +121,8 @@ def extract_allocations(engine=None):
         if df.empty:
             print("No allocation rows found.")
             return None
+        for col in ("transaction_date", "month_start"):
+            df[col] = pd.to_datetime(df[col])
         print(f"Extracted {len(df)} allocation rows.")
         return df
     except Exception as e:
@@ -152,6 +158,7 @@ WITH alloc AS (
         f.payment_method_id,
         f.pet_id,
         date_trunc('month', f.transaction_timestamp AT TIME ZONE 'America/Sao_Paulo')::date AS purchase_month,
+        (f.transaction_timestamp AT TIME ZONE 'America/Sao_Paulo')::date AS transaction_date,
         GREATEST(COALESCE(f.total_installments, 1), 1) AS n,
         LEAST(GREATEST(COALESCE(f.current_installment, 1), 1), GREATEST(COALESCE(f.total_installments, 1), 1)) AS cur
     FROM fact_expenditure_split s
@@ -163,6 +170,7 @@ SELECT
     a.n AS total_installments,
     (a.purchase_month + (k - a.cur) * interval '1 month')::date AS billing_month,
     a.purchase_month,
+    a.transaction_date,
     CASE
         WHEN k < a.n THEN trunc(a.share_amount / a.n, 2)
         ELSE a.share_amount - (a.n - 1) * trunc(a.share_amount / a.n, 2)
@@ -206,7 +214,7 @@ def extract_cashflow(engine=None):
         if df.empty:
             print("No cashflow rows found.")
             return None
-        for col in ("billing_month", "purchase_month"):
+        for col in ("billing_month", "purchase_month", "transaction_date"):
             df[col] = pd.to_datetime(df[col])
         print(f"Extracted {len(df)} cashflow rows.")
         return df
@@ -223,6 +231,7 @@ SETTLEMENTS_QUERY = """
 SELECT
     s.settlement_id,
     s.settled_at AT TIME ZONE 'America/Sao_Paulo' AS settled_at,
+    (s.settled_at AT TIME ZONE 'America/Sao_Paulo')::date AS settled_date,
     date_trunc('month', s.settled_at AT TIME ZONE 'America/Sao_Paulo')::date AS settled_month_start,
     s.period_month,
     payer.full_name AS from_name,
@@ -253,12 +262,85 @@ def extract_settlements(engine=None):
         # Pin the date columns' type: if every period_month is NULL, pandas
         # can't infer one, and a column that is text on one refresh and a
         # date on the next breaks Tableau workbooks built on it.
-        for col in ("period_month", "settled_month_start"):
+        for col in ("period_month", "settled_month_start", "settled_date"):
             df[col] = pd.to_datetime(df[col])
         print(f"Extracted {len(df)} settlements.")
         return df
     except Exception as e:
         print(f"Settlement Extraction Failed: {e}")
+        return None
+
+# One row per day, with no gaps, so Tableau can put the calendar on the
+# left of a relationship (or left join) and show days and weeks with no
+# spending as empty rather than missing. It runs from 1 January of the year
+# of the first expense to 31 December of the later of this year and the
+# year of the last installment still to be billed, so cashflow's future
+# billing months are covered too. Built here rather than stored in Postgres:
+# it always reaches today and nothing has to maintain it.
+#
+# Relate calendar.date to transaction_date (expenditures, allocations,
+# cashflow) or settled_date (settlements); for cashflow's billing view,
+# relate calendar.month_start to billing_month. Weeks are ISO: they start
+# on Monday, and iso_year is the year the week belongs to (29 Dec 2025 is
+# week 1 of 2026).
+CALENDAR_QUERY = """
+WITH today AS (
+    SELECT (now() AT TIME ZONE 'America/Sao_Paulo')::date AS d
+),
+last_billed AS (
+    SELECT (f.transaction_timestamp AT TIME ZONE 'America/Sao_Paulo')::date
+           + (GREATEST(COALESCE(f.total_installments, 1), 1)
+              - LEAST(GREATEST(COALESCE(f.current_installment, 1), 1), GREATEST(COALESCE(f.total_installments, 1), 1)))
+             * interval '1 month' AS d
+    FROM fact_expenditures f
+),
+bounds AS (
+    SELECT
+        date_trunc('year', LEAST(
+            (SELECT d FROM today),
+            (SELECT MIN((transaction_timestamp AT TIME ZONE 'America/Sao_Paulo')::date) FROM fact_expenditures),
+            (SELECT MIN((settled_at AT TIME ZONE 'America/Sao_Paulo')::date) FROM fact_settlement)
+        ))::date AS first_day,
+        (date_trunc('year', GREATEST((SELECT d FROM today), (SELECT MAX(d) FROM last_billed)))
+            + interval '1 year' - interval '1 day')::date AS last_day
+)
+SELECT
+    d::date AS date,
+    date_trunc('week', d)::date AS week_start,
+    EXTRACT(isoyear FROM d)::int AS iso_year,
+    EXTRACT(week FROM d)::int AS iso_week,
+    date_trunc('month', d)::date AS month_start,
+    EXTRACT(month FROM d)::int AS month_number,
+    to_char(d, 'FMMonth') AS month_name,
+    EXTRACT(quarter FROM d)::int AS quarter,
+    EXTRACT(year FROM d)::int AS year,
+    EXTRACT(day FROM d)::int AS day_of_month,
+    EXTRACT(isodow FROM d)::int AS weekday_number,
+    to_char(d, 'FMDay') AS weekday_name,
+    EXTRACT(isodow FROM d) >= 6 AS is_weekend,
+    d::date > (SELECT d FROM today) AS is_future
+FROM bounds, generate_series(bounds.first_day, bounds.last_day, interval '1 day') AS d
+ORDER BY d;
+"""
+
+
+def extract_calendar(engine=None):
+    """
+    Extracts the calendar: one row per day, never empty (an empty database
+    still gets this year).
+    """
+    engine = engine or get_db_connection()
+    if not engine: return None
+
+    try:
+        df = pd.read_sql(CALENDAR_QUERY, engine)
+        # Same type as every other date column, so relationships match.
+        for col in ("date", "week_start", "month_start"):
+            df[col] = pd.to_datetime(df[col])
+        print(f"Extracted {len(df)} calendar days.")
+        return df
+    except Exception as e:
+        print(f"Calendar Extraction Failed: {e}")
         return None
 
     # 2. Hyper Logic
@@ -318,8 +400,9 @@ def run_pipeline():
     # The datasource name on Tableau comes from the file name, so these
     # publish as separate datasources: "expenditures" (unchanged, one row
     # per expense), "allocations" (one row per person per expense),
-    # "cashflow" (allocations spread over installment billing months) and
-    # "settlements" (one row per payment between members).
+    # "cashflow" (allocations spread over installment billing months),
+    # "settlements" (one row per payment between members) and "calendar"
+    # (one row per day, to relate the others to).
     hyper_files = []
     hyper_file = generate_hyper_file(df)
     if not hyper_file:
@@ -344,6 +427,12 @@ def run_pipeline():
         settlements_file = generate_hyper_file(settlements_df, filename="settlements.hyper")
         if settlements_file:
             hyper_files.append(settlements_file)
+
+    calendar_df = extract_calendar()
+    if calendar_df is not None:
+        calendar_file = generate_hyper_file(calendar_df, filename="calendar.hyper")
+        if calendar_file:
+            hyper_files.append(calendar_file)
 
     # 3. Publish
     try:
