@@ -2,8 +2,9 @@ import streamlit as st
 import requests
 
 from config import API_BASE_URL
+import ui
 
-st.set_page_config(page_title="Personal Finance", page_icon="🫰", layout="wide")
+ui.setup("Home")
 
 # --- 1. Session State Initialization ---
 if "access_token" not in st.session_state:
@@ -122,7 +123,7 @@ def logout_user():
 # Arriving from a reset email: http://<host>:8501/?reset_token=...
 reset_token = st.query_params.get("reset_token")
 if reset_token:
-    st.title("Set a new password")
+    ui.page_header("Set a new password", "Choose a new password for your account. The link works once.")
     with st.form("reset_password_form"):
         new_password = st.text_input("New password", type="password", help=f"At least {PASSWORD_MIN_LENGTH} characters.")
         repeat_password = st.text_input("Repeat new password", type="password")
@@ -149,7 +150,7 @@ if reset_token:
 
 # Case A: User is not logged in (Show Login/Register Forms)
 if st.session_state["access_token"] is None:
-    st.title("Secure Access")
+    ui.page_header(ui.APP_NAME, "Your household's shared spending, split fairly by income. Log in, or create an account if you're new.")
     if st.session_state.pop("password_reset_done", False):
         st.success("Password updated. You can now log in with the new one.")
 
@@ -213,12 +214,25 @@ else:
         if st.button("Log Out", key="sidebar_logout"):
             logout_user()
 
-    st.title("Finance Dashboard")
-    st.info("Welcome! You are securely logged in.")
+    ui.page_header(ui.APP_NAME, "What would you like to do?")
 
-    st.write("### Where to go next?")
-    st.write("**Check the Sidebar** to access the Tracker, the Analytics page or Settings.")
+    go_cols = st.columns(3)
+    with go_cols[0]:
+        with st.container(border=True):
+            st.subheader("Tracker")
+            st.write("Add an expense, see where this month stands, and settle up with each other.")
+            st.page_link("pages/1_Tracker.py", label="Open the Tracker", icon=":material/edit_note:")
+    with go_cols[1]:
+        with st.container(border=True):
+            st.subheader("Analytics")
+            st.write("Compare this month with earlier ones to see where your shared spending is going.")
+            st.page_link("pages/2_Analytics.py", label="Open Analytics", icon=":material/monitoring:")
+    with go_cols[2]:
+        with st.container(border=True):
+            st.subheader("Settings")
+            st.write("Categories, payment methods, and the household split between you.")
+            st.page_link("pages/3_Manage_Settings_.py", label="Open Settings", icon=":material/settings:")
 
-    st.write("---")
+    st.write("")
     if st.button("Log Out", key="main_logout"):
         logout_user()

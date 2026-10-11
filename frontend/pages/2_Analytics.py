@@ -11,11 +11,12 @@ import analytics_charts as charts
 import analytics_shaping as shape
 from config import API_BASE_URL
 from money import format_brl
+import ui
 
-# 1. Force Wide Mode (important for Tableau)
-st.set_page_config(page_title="Analytics", layout="wide")
+# Wide layout matters for the Tableau embed.
+ui.setup("Analytics")
 
-st.title("📈 Financial Analytics")
+ui.page_header("Analytics", "How your shared spending this month compares with earlier months, and where it's going.")
 
 overview_tab, tableau_tab = st.tabs(["Overview", "Tableau"])
 

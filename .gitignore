@@ -72,8 +72,10 @@ venv.bak/
 *.duckdb
 *.duckdb.wal
 
-# Streamlit
+# Streamlit: local secrets stay out; the app's theme (frontend/.streamlit/config.toml) is committed
 .streamlit/
+!frontend/.streamlit/
+frontend/.streamlit/secrets.toml
 
 # Ignore generated data files
 artifacts/

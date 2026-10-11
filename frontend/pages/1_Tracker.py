@@ -7,13 +7,14 @@ import pandas as pd
 
 from config import API_BASE_URL
 from money import entry_preview, format_brl, format_brl_delta, parse_brl
+import ui
 
 SAO_PAULO = ZoneInfo("America/Sao_Paulo")
 INSTALLMENT_PICKS = [1, 2, 3, 6, 10, 12, "Other"]
 NATURES = ["Normal", "Extraordinary", "Recurring", "Annual"]
 
 # Page Configuration
-st.set_page_config(page_title="Tracker & Dashboard", page_icon="🤑", layout="wide")
+ui.setup("Tracker")
 
 # --- Authentication check ---
 if "access_token" not in st.session_state or st.session_state["access_token"] is None:
@@ -312,7 +313,7 @@ def expense_entry_form():
 
 
 # -- Main Page UI --
-st.title("💰 Expenditure Tracker")
+ui.page_header("Tracker", "Log what you spend, see where this month stands, and square up with each other.")
 
 if categories_df.empty or payment_methods_df.empty:
     st.warning("⚠️ Database missing Categories or Payment Methods! Please go to **Manage Settings** in the sidebar.")
