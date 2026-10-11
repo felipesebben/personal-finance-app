@@ -20,6 +20,10 @@ class InvalidSplit(Exception):
     """A manual split named someone outside the household."""
 
 
+class PayerNotInHousehold(Exception):
+    """A shared expense was paid by someone outside the household split."""
+
+
 def add_expenditure(db: Session, payer_id: int, fields: dict, shared: bool,
                     shares: list[tuple[int, Decimal]] | None = None) -> models.FactExpenditure:
     """
@@ -34,6 +38,8 @@ def add_expenditure(db: Session, payer_id: int, fields: dict, shared: bool,
 
     :raises HouseholdNotConfigured: if `shared` and the ratio isn't set.
     :raises InvalidSplit: if `shares` names someone outside the household.
+    :raises PayerNotInHousehold: if `shared` and the payer has no share,
+        which would split their expense between other people entirely.
         Either way the flushed expenditure is still in the session; the
         caller rolls back.
     """
@@ -51,8 +57,10 @@ def add_expenditure(db: Session, payer_id: int, fields: dict, shared: bool,
         )
         if not household:
             raise HouseholdNotConfigured()
+        members = {row.user_id for row in household}
+        if payer_id not in members:
+            raise PayerNotInHousehold()
         if shares:
-            members = {row.user_id for row in household}
             outsiders = sorted({uid for uid, _ in shares} - members)
             if outsiders:
                 raise InvalidSplit(f"user_id {outsiders} not in the household")
