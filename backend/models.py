@@ -39,11 +39,21 @@ class DimCategory(Base):
     primary_category = Column(String(255), nullable=False)
     sub_category = Column(String(255), nullable=False)
     cost_type = Column(String(50), nullable=False)
-    
+    # Expenses in this category are for the pets, so the Tracker asks which
+    # one (see FactExpenditure.pet_id).
+    for_pets = Column(Boolean, nullable=False, server_default="false", default=False)
+
     __table_args__ = (
         UniqueConstraint('primary_category', 'sub_category',name="uq_category"),
     )
-    
+
+
+class DimPet(Base):
+    __tablename__ = "dim_pet"
+    pet_id = Column(Integer, primary_key=True)
+    name = Column(String(100), nullable=False, unique=True)
+
+
 class FactExpenditure(Base):
     __tablename__ = "fact_expenditures"
 
@@ -63,11 +73,15 @@ class FactExpenditure(Base):
     user_id = Column(Integer, ForeignKey("dim_user.user_id"), nullable=False)
     category_id = Column(Integer, ForeignKey("dim_category.category_id"))
     payment_method_id = Column(Integer, ForeignKey("dim_payment_method.payment_method_id"))
+    # Only for a for_pets category: the pet it was for, or NULL for all of
+    # them ("Both"). Always NULL for any other category.
+    pet_id = Column(Integer, ForeignKey("dim_pet.pet_id", name="fk_fact_expenditures_pet_id"), nullable=True)
 
     # Define the relationships
     user = relationship("DimUser", back_populates="expenditures")
     category = relationship("DimCategory")
     payment_method = relationship("DimPaymentMethod")
+    pet = relationship("DimPet")
 
 class FactExpenditureSplit(Base):
     __tablename__ = "fact_expenditure_split"

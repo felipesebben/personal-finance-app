@@ -66,11 +66,10 @@ def clean_tables(request):
     yield
     if "client" not in request.fixturenames:
         return
+    import models  # every table the models define, so a new one is never missed
+    tables = ", ".join(t.name for t in models.Base.metadata.sorted_tables)
     with database.engine.begin() as conn:
-        conn.execute(text(
-            "TRUNCATE password_reset_token, fact_settlement, fact_expenditure_split, fact_expenditures, "
-            "household_setting, dim_category, dim_payment_method, dim_user RESTART IDENTITY CASCADE"
-        ))
+        conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
 
 
 @pytest.fixture

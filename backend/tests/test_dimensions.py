@@ -32,7 +32,7 @@ def test_patch_category_changes_only_the_fields_sent(client, household):
     assert resp.status_code == 200, resp.text
     assert resp.json() | {"expense_count": 0} == {
         "category_id": cid, "primary_category": "Food", "sub_category": "Supermarket",
-        "cost_type": "Variable", "expense_count": 0,
+        "cost_type": "Variable", "for_pets": False, "expense_count": 0,
     }
 
     resp = client.patch(f"/categories/{cid}", headers=h, json={"cost_type": "Fixed"})

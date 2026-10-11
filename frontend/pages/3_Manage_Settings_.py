@@ -78,6 +78,11 @@ def editable_table(title: str, endpoint: str, rows: list, table: logic.Table, co
     st.subheader(title)
     ui.lede(*how)
     df = pd.DataFrame(rows, columns=[table.key, *table.fields, "expense_count"])
+    # Pin the column types: an empty list (no pets yet) or a missing field
+    # leaves untyped columns, which the editor's checkbox/number columns reject.
+    for flag in table.flags:
+        df[flag] = df[flag].eq(True)
+    df["expense_count"] = pd.to_numeric(df["expense_count"]).fillna(0).astype(int)
     df = df.sort_values(list(table.fields[:2]), key=lambda s: s.fillna("").str.lower()).reset_index(drop=True)
 
     edited = st.data_editor(
@@ -142,6 +147,7 @@ users = get_data("users", token)
 household = get_data("household_settings", token)
 categories = get_data("categories", token)
 payment_methods = get_data("payment_methods", token)
+pets = get_data("pets", token)
 
 # --- Household ---
 st.subheader("Household")
@@ -195,6 +201,9 @@ editable_table(
             "Cost type", options=["Variable", "Fixed"], required=True, default="Variable",
             help="Fixed costs repeat every month (rent, internet); variable ones don't.",
         ),
+        "for_pets": st.column_config.CheckboxColumn(
+            "Pets", default=False, help="Tick for pet costs (food, vet…): the Tracker then asks which pet it was for.",
+        ),
     },
     ("Edit right in the table.", " Click a cell to rename it, type in the empty last row to add one, "
      "or select a row (the box on its left) and press Delete to remove it. Renaming also relabels past expenses."),
@@ -212,6 +221,16 @@ editable_table(
     },
     ("One row per way you pay, e.g. Pix · Nubank.", " The Tracker asks for the bank whenever a method has one. "
      "Tick Credit for credit cards so it offers installments."),
+)
+
+st.divider()
+
+# --- Pets ---
+editable_table(
+    "Pets", "pets", pets, logic.PETS,
+    {"name": st.column_config.TextColumn("Name", required=True)},
+    ("Who the pet expenses are for.", " For a category ticked Pets above, the Tracker asks which pet it was, "
+     "or Both for one expense shared by all of them, so Tableau can show what each one costs."),
 )
 
 st.divider()

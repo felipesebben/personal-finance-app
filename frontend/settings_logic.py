@@ -20,15 +20,17 @@ class Table:
     unique: tuple            # fields that together must be unique
     label: callable          # row dict -> human label, e.g. "Food › Groceries"
     choices: dict = field(default_factory=dict)  # field -> allowed values
+    flags: dict = field(default_factory=dict)    # tick-box field -> (on, off) wording
 
 
 CATEGORIES = Table(
     key="category_id",
-    fields=("primary_category", "sub_category", "cost_type"),
+    fields=("primary_category", "sub_category", "cost_type", "for_pets"),
     required=("primary_category", "sub_category", "cost_type"),
     unique=("primary_category", "sub_category"),
     label=lambda r: f"{r['primary_category']} › {r['sub_category']}",
     choices={"cost_type": ("Variable", "Fixed")},
+    flags={"for_pets": ("asks which pet", "doesn't ask which pet")},
 )
 
 PAYMENT_METHODS = Table(
@@ -37,6 +39,15 @@ PAYMENT_METHODS = Table(
     required=("method_name",),
     unique=("method_name", "institution"),
     label=lambda r: f"{r['method_name']}{' · ' + r['institution'] if r.get('institution') else ''}",
+    flags={"is_credit": ("credit (offers installments)", "not credit")},
+)
+
+PETS = Table(
+    key="pet_id",
+    fields=("name",),
+    required=("name",),
+    unique=("name",),
+    label=lambda r: r["name"],
 )
 
 
@@ -64,8 +75,8 @@ def clean(value):
 
 def normalise(row: dict, table: Table) -> dict:
     out = {f: clean(row.get(f)) for f in table.fields}
-    if "is_credit" in out:
-        out["is_credit"] = bool(out["is_credit"])
+    for flag in table.flags:
+        out[flag] = bool(out[flag])  # a new row's untouched tick box is None
     return out
 
 
@@ -140,8 +151,9 @@ def describe_update(old: dict, new: dict, table: Table) -> str:
         parts.append(f"Rename {before} → {after}")
     for f in rest:
         value = new[f]
-        if f == "is_credit":
-            parts.append(f"{after}: {'credit (offers installments)' if value else 'not credit'}")
+        if f in table.flags:
+            on, off = table.flags[f]
+            parts.append(f"{after}: {on if value else off}")
         else:
             parts.append(f"{after}: {f.replace('_', ' ')} → {value}")
     return "; ".join(parts)

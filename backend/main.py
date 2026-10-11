@@ -109,6 +109,12 @@ def create_expenditure(
     # is_shared and shares, which are instructions for the split below
     # rather than stored columns.
     expenditure_data = expenditure.model_dump(exclude={"user_id", "is_shared", "shares"})
+    if expenditure.pet_id is not None:
+        category = db.get(models.DimCategory, expenditure.category_id)
+        if not category or not category.for_pets:
+            raise HTTPException(status_code=400, detail="A pet can only be given for a pet category.")
+        if not db.get(models.DimPet, expenditure.pet_id):
+            raise HTTPException(status_code=400, detail="Unknown pet.")
     shares = [(s.user_id, s.share_pct) for s in expenditure.shares] if expenditure.shares else None
 
     # The request's is_shared means "split this by the household ratio";
@@ -367,6 +373,41 @@ def with_expense_count(db: Session, dim, key: str):
         row.expense_count = count
     return [row for row, _ in rows]
 
+@app.get("/pets/", response_model=List[schemas.Pet], dependencies=[Depends(get_current_user)])
+def get_pets(db: Session = Depends(get_db)):
+    return with_expense_count(db, models.DimPet, "pet_id")
+
+@app.post("/pets/", response_model=schemas.Pet, dependencies=[Depends(get_current_user)])
+def create_pet(pet: schemas.PetCreate, db: Session = Depends(get_db)):
+    db_pet = models.DimPet(name=pet.name.strip())
+    db.add(db_pet)
+    commit_or_409(db, f"{db_pet.name} already exists.")
+    db.refresh(db_pet)
+    return db_pet
+
+@app.patch("/pets/{pet_id}", response_model=schemas.Pet, dependencies=[Depends(get_current_user)])
+def rename_pet(pet_id: int, pet: schemas.PetCreate, db: Session = Depends(get_db)):
+    db_pet = db.get(models.DimPet, pet_id)
+    if not db_pet:
+        raise HTTPException(status_code=404, detail="Pet not found")
+    db_pet.name = pet.name.strip()
+    commit_or_409(db, f"{db_pet.name} already exists.")
+    db.refresh(db_pet)
+    return db_pet
+
+@app.delete("/pets/{pet_id}", dependencies=[Depends(get_current_user)])
+def delete_pet(pet_id: int, db: Session = Depends(get_db)):
+    db_pet = db.get(models.DimPet, pet_id)
+    if not db_pet:
+        raise HTTPException(status_code=404, detail="Pet not found")
+    try:
+        db.delete(db_pet)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Cannot delete: this pet is used in existing records.")
+    return {"message": "Pet deleted successfully"}
+
 @app.get("/categories/", response_model=List[schemas.Category], dependencies=[Depends(get_current_user)])
 def get_categories(db: Session = Depends(get_db)):
     return with_expense_count(db, models.DimCategory, "category_id")
@@ -423,7 +464,8 @@ def get_expenditures(db: Session = Depends(get_db),
         .options(
             joinedload(models.FactExpenditure.user),
             joinedload(models.FactExpenditure.category),
-            joinedload(models.FactExpenditure.payment_method)
+            joinedload(models.FactExpenditure.payment_method),
+            joinedload(models.FactExpenditure.pet),
         )
         .all()
     )
