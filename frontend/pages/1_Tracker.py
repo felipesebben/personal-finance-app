@@ -60,11 +60,21 @@ def get_data(endpoint: str, token: str):
         st.error(f"Connection Error: Could not connect to the API to fetch {endpoint}.")
         return []
 
+
+# How a payment method stored without an institution is shown and matched.
+NO_INSTITUTION = "N/A"
+
+
 def cascading_selectbox(label_primary, label_secondary, df, col_primary, col_secondary, key,
-                        force_na_if=None, help_text_secondary=""):
+                        blank_label=None, help_text_secondary=""):
     """
     Two selects side by side, the second filtered by the first. `key` must
     change when the form resets (it carries the entry form's nonce).
+
+    With `blank_label` set, rows whose secondary value is empty are offered
+    as that label (e.g. a payment method stored without an institution). When
+    it is the only option it is picked and locked, so the form never asks for
+    a value the data doesn't have.
     """
     col_a, col_b = st.columns(2)
     primary_options = sorted(df[col_primary].unique()) if not df.empty else []
@@ -79,19 +89,16 @@ def cascading_selectbox(label_primary, label_secondary, df, col_primary, col_sec
     dynamic_help = ""
 
     if selected_primary:
-        if force_na_if and selected_primary == force_na_if:
-            secondary_options = ["N/A"]
-            disabled_secondary = True
+        values = df.loc[df[col_primary] == selected_primary, col_secondary]
+        named = sorted({x for x in values.dropna() if x})
+        has_blank = blank_label is not None and (values.isna() | (values == "")).any()
+        secondary_options = named + ([blank_label] if has_blank else [])
+        if named:
+            disabled_secondary = False
+            dynamic_help = help_text_secondary
+        elif has_blank:
             index_secondary = 0
-            dynamic_help = f"⚠️ When selecting **{force_na_if}**, defaults to `N/A`."
-        else:
-            filtered_df = df[df[col_primary] == selected_primary]
-            secondary_options = sorted([x for x in filtered_df[col_secondary].unique() if x])
-            if secondary_options:
-                disabled_secondary = False
-                dynamic_help = help_text_secondary
-            else:
-                disabled_secondary = True
+            dynamic_help = f"No {label_secondary.lower()} is registered for **{selected_primary}**."
 
     # The primary choice is part of the key, so switching it starts the
     # secondary select afresh instead of keeping a value it no longer offers.
@@ -162,8 +169,13 @@ def expense_entry_form():
     selected_method_name, selected_institution = cascading_selectbox(
         label_primary="Payment Method", label_secondary="Institution",
         df=payment_methods_df, col_primary="method_name", col_secondary="institution",
-        key=k("payment"), force_na_if="Cash",
+        key=k("payment"), blank_label=NO_INSTITUTION,
     )
+    if selected_institution == NO_INSTITUTION and selected_method_name != "Cash":
+        st.caption(
+            f"Want to record which account paid? Add e.g. *{selected_method_name} · Nubank* "
+            "in Settings → Payment methods."
+        )
 
     # 3. Installments, for credit only.
     current_inst = 1
@@ -264,7 +276,7 @@ def expense_entry_form():
         # 2. Lookups
         matched_method = payment_methods_df[
             (payment_methods_df["method_name"] == selected_method_name) &
-            (payment_methods_df["institution"].fillna("N/A") == (selected_institution if selected_institution else "N/A"))
+            (payment_methods_df["institution"].fillna("").replace("", NO_INSTITUTION) == selected_institution)
         ]
         payment_method_id = matched_method["payment_method_id"].iloc[0]
 
