@@ -1,7 +1,9 @@
-import streamlit as st
+import pandas as pd
 import requests
+import streamlit as st
 
 from config import API_BASE_URL
+import settings_logic as logic
 import ui
 
 ui.setup("Settings")
@@ -13,294 +15,236 @@ if "access_token" not in st.session_state or st.session_state["access_token"] is
     st.info("Please go to the **Home** page to log in.", icon=":material/info:")
     st.stop()
 
-# Prepare headers for API calls
-auth_headers = {"Authorization": f"Bearer {st.session_state['access_token']}"}
-            
+token = st.session_state["access_token"]
+auth_headers = {"Authorization": f"Bearer {token}"}
+me = (st.session_state.get("user_email") or "").lower()
+
+# A message shown right before st.rerun() would never appear, so it waits
+# here for the next run.
+if "settings_toast" in st.session_state:
+    st.toast(st.session_state.pop("settings_toast"), icon="✅")
+
+
 # --- Helper Functions ---
 
-def send_post_request(endpoint: str, payload: dict, success_message: str):
-    """
-    Sends a POST request to the specified API endpoint with authentication headers
-
-    
-    :param endpoint: The API route endpoint (e.g., "categories).
-    :type endpoint: str
-    :param payload: The dictionary containing data to be sent.
-    :type payload: dict
-    :param success_message: The message to display upon successful creation.
-    :type success_message: str
-    :return: None
-    """
-    try:
-        # Add headers
-        response = requests.post(f"{API_BASE_URL}/{endpoint}/", json=payload, headers=auth_headers)
-        if response.status_code == 200:
-            st.success(success_message)
-            st.cache_data.clear()
-            st.rerun() # Updates the list immediately
-        elif response.status_code == 401:
-            st.error("Session Expired. Please log in again.")
-        elif response.status_code == 409:
-            st.error("Error: This item already exists.")
-        elif response.status_code == 500:
-            # Creates a more meaningful error message if tried to duplicate.
-            st.error("Internal Server Error: Something went wrong on the server.")
-        else:
-            st.error(f"Error: {response.status_code}: – {response.text}")
-    except requests.exceptions.ConnectionError:
-        st.error("Connection Error: Could not connect to the API.")
-
-def send_put_request(endpoint: str, payload: dict, success_message: str):
-    """
-    Sends a PUT request to the specified API endpoint with authentication headers.
-
-    :param endpoint: The API route endpoint (e.g., "household_settings").
-    :type endpoint: str
-    :param payload: The dictionary containing data to be sent.
-    :type payload: dict
-    :param success_message: The message to display upon success.
-    :type success_message: str
-    :return: None
-    """
-    try:
-        response = requests.put(f"{API_BASE_URL}/{endpoint}/", json=payload, headers=auth_headers)
-        if response.status_code == 200:
-            st.success(success_message)
-            st.cache_data.clear()
-            st.rerun()
-        elif response.status_code == 401:
-            st.error("Session Expired. Please log in again.")
-        elif response.status_code == 400:
-            st.error(f"Error: {response.json().get('detail', response.text)}")
-        else:
-            st.error(f"Error: {response.status_code} – {response.text}")
-    except requests.exceptions.ConnectionError:
-        st.error("Connection Error: Could not connect to the API.")
-
-def delete_item(endpoint: str, item_id: int):
-    """
-    Sends a DELETE request to remove an item by ID.
-    
-    :param endpoint: The API route endpoint (e.g., "categories").
-    :type endpoint: str
-    :param item_id: The unique identifier of the item to delete.
-    :type item_id: int
-    :return: None
-    """
-    try:
-        response = requests.delete(f"{API_BASE_URL}/{endpoint}/{item_id}", headers=auth_headers)
-        if response.status_code == 200:
-            st.success("Item deleted!")
-            st.cache_data.clear()
-            st.rerun()
-        elif response.status_code == 401:
-            st.error("Session Expired. Please log in again.")
-        elif response.status_code in (400, 403, 404):
-            st.error(f"Error: {response.json().get('detail', response.text)}")
-        else:
-            st.error(f"Error: {response.text}")
-    except requests.exceptions.RequestException as e:
-        st.error(f"Request failed: {e}")
-
 @st.cache_data
-def get_data(endpoint: str, token:str):
-    """
-    Fetches data from the API with authentication headers.
-    
-    :param endpoint: The API route endpoint (e.g., "users").
-    :type endpoint: str
-    :param token: The Bearer token for authentication.
-    :type token: str
-    :return: A list of records from the API, or an empty list on failure.
-    :rtype: list
-    """
-    headers = {"Authorization": f"Bearer {token}"}
+def get_data(endpoint: str, token: str) -> list:
+    """GET /<endpoint>/ with the session's token; an empty list on any failure."""
     try:
-        response = requests.get(f"{API_BASE_URL}/{endpoint}/", headers=headers)
+        response = requests.get(f"{API_BASE_URL}/{endpoint}/", headers={"Authorization": f"Bearer {token}"})
         if response.status_code == 200:
             return response.json()
-        elif response.status_code == 401:
+        if response.status_code == 401:
             st.warning("Session expired. Data could not be loaded.")
-            return []
-        else:
-            return []
     except requests.exceptions.RequestException:
-        return []
-    
+        st.error("Connection Error: Could not connect to the API.")
+    return []
+
+
+def call(method: str, path: str, payload=None) -> str | None:
+    """Sends one request; returns None on success, else a readable error."""
+    try:
+        response = requests.request(method, f"{API_BASE_URL}/{path}", json=payload, headers=auth_headers)
+    except requests.exceptions.RequestException:
+        return "Could not connect to the API."
+    if response.status_code == 200:
+        return None
+    if response.status_code == 401:
+        return "Session expired. Please log in again."
+    try:
+        detail = response.json().get("detail", response.text)
+    except ValueError:
+        detail = response.text
+    return detail if isinstance(detail, str) else f"Error {response.status_code}: {detail}"
+
+
+def done(message: str) -> None:
+    """After a successful change: fresh data, fresh editors, a toast."""
+    st.session_state["settings_toast"] = message
+    st.session_state["settings_nonce"] = st.session_state.get("settings_nonce", 0) + 1
+    st.cache_data.clear()
+    st.rerun()
+
+
+nonce = st.session_state.get("settings_nonce", 0)
+
+
+def editable_table(title: str, endpoint: str, rows: list, table: logic.Table, columns: dict, how: str) -> None:
+    """
+    One dimension as an editable table: edit cells, add a row at the bottom,
+    select rows and press Delete. Nothing is written until Save, which first
+    lists exactly what will change.
+    """
+    st.subheader(title)
+    ui.lede(*how)
+    df = pd.DataFrame(rows, columns=[table.key, *table.fields, "expense_count"])
+    df = df.sort_values(list(table.fields[:2]), key=lambda s: s.fillna("").str.lower()).reset_index(drop=True)
+
+    edited = st.data_editor(
+        df,
+        key=f"{endpoint}_editor_{nonce}",
+        num_rows="dynamic",
+        hide_index=True,
+        width="stretch",
+        column_order=[*table.fields, "expense_count"],
+        column_config={
+            table.key: None,
+            **columns,
+            "expense_count": st.column_config.NumberColumn(
+                "Used by", disabled=True, format="%d", help="How many expenses use it. Rows in use can't be removed.",
+            ),
+        },
+    )
+
+    plan = logic.plan_changes(rows, edited.to_dict("records"), table)
+    if plan.empty and not plan.errors:
+        return
+    with st.container(border=True):
+        for line in plan.lines:
+            st.markdown(f"- {line}")
+        for error in plan.errors:
+            st.warning(error, icon=":material/warning:")
+        save, discard = st.columns([1, 1])
+        if save.button("Save changes", type="primary", key=f"{endpoint}_save_{nonce}",
+                       disabled=bool(plan.errors) or plan.empty, width="stretch"):
+            apply(endpoint, plan)
+        if discard.button("Discard", key=f"{endpoint}_discard_{nonce}", width="stretch"):
+            done("Changes discarded.")
+
+
+def apply(endpoint: str, plan: logic.Plan) -> None:
+    """Deletes, then edits, then adds, so a rename can free up a name an add reuses."""
+    failures = []
+    for row_id in plan.deletes:
+        if err := call("DELETE", f"{endpoint}/{row_id}"):
+            failures.append(err)
+    for row_id, changes in plan.updates:
+        if err := call("PATCH", f"{endpoint}/{row_id}", changes):
+            failures.append(err)
+    for payload in plan.adds:
+        if err := call("POST", f"{endpoint}/", payload):
+            failures.append(err)
+    if failures:
+        st.cache_data.clear()
+        for err in failures:
+            st.error(err)
+        st.info("The other changes were saved. Reload the page to see the current list.")
+        return
+    count = len(plan.lines)
+    done(f"Saved {count} change{'s' if count != 1 else ''}.")
+
+
 # --- Main UI ---
 
-ui.page_header("Settings", "The lists the Tracker offers, and how shared expenses are split between you.")
+ui.page_header("Settings", "Who shares expenses and how, and the lists the Tracker offers.")
 
-# Fetch data
-users = get_data("users", st.session_state["access_token"])
-categories = get_data("categories", st.session_state["access_token"])
-payment_methods = get_data("payment_methods", st.session_state["access_token"])
+users = get_data("users", token)
+household = get_data("household_settings", token)
+categories = get_data("categories", token)
+payment_methods = get_data("payment_methods", token)
 
-col1, col2 = st.columns(2)
+# --- Household ---
+st.subheader("Household")
+ui.lede(
+    "Who shares expenses, and in what proportion.",
+    " Set each person's share from your incomes, e.g. 60/40. It applies to expenses saved from now on; "
+    "earlier ones keep the split they were saved with. Leave someone at 0% to keep them out.",
+)
 
-# Column 1: Users
-with col1:
-    st.subheader("People")
-    st.caption("Everyone with an account. You can only delete your own.")
-    with st.form("add_user", clear_on_submit=True):
-        new_name = st.text_input("Name")
-        new_email = st.text_input("Email")
-        new_pass = st.text_input("Password", type="password")
-        submit_user = st.form_submit_button("Add Person")
+current = {s["user_id"]: float(s["share_pct"]) * 100 for s in household}
+people = sorted(users, key=lambda u: (u["email"].lower() != me, u["full_name"] or ""))
+shares = {}
+for person in people:
+    name, email = person["full_name"] or person["email"], person["email"]
+    you = " (you)" if email.lower() == me else ""
+    c_name, c_share = st.columns([3, 1])
+    c_name.markdown(f"**{name}**{you}  \n{email}")
+    shares[person["user_id"]] = c_share.number_input(
+        "Share (%)", min_value=0.0, max_value=100.0, step=1.0,
+        value=current.get(person["user_id"], 0.0),
+        key=f"share_{person['user_id']}_{nonce}",
+    )
 
-        if submit_user and new_email and new_name:
-            payload = {
-                "full_name": new_name,
-                "email": new_email,
-                "password": new_pass
-            }
-            send_post_request("users", payload, f"Added user {new_name}!")
-        elif submit_user:
-            st.warning("Please fill in all fields(Name, Email, and Password).")
+if len(people) < 2:
+    st.caption(
+        "Adding your partner: they open this app's login page and choose **Sign up** with their email. "
+        "Once they have, they appear here and you can give them a share."
+    )
 
-    st.divider()
-    st.caption("Existing Users")
-    if users:
-        for u in users:
-            c1, c2 = st.columns([4, 1])
-            c1.text(f"{u['full_name']} ({u['email']})")
-
-            # The API only lets an account delete itself, so only offer that.
-            is_me = u["email"].lower() == (st.session_state.get("user_email") or "").lower()
-            if is_me and c2.button("🗑️", key=f"del_u_{u['user_id']}", help="Delete your own account"):
-                delete_item("users", u['user_id'])
-
-# Column 2: Categories
-with col2:
-    st.subheader("Categories")
-    st.caption("What you spend on, as category and sub-category. Fixed costs repeat every month; variable ones don't.")
-    with st.form("add_category", clear_on_submit=True):
-        new_primary = st.text_input("Primary Category (e.g., Food)")
-        new_sub = st.text_input("Sub Category (e.g., Groceries)")
-        
-        # 2.1 Capture the user's choice
-        new_type = st.radio("Cost Type", ["Variable", "Fixed"], horizontal=True)
-
-        if st.form_submit_button("Add") and new_sub and new_primary:
-            payload = {
-                "primary_category": new_primary,
-                "sub_category": new_sub,
-                "cost_type": new_type,
-            }
-            send_post_request("categories", payload, f"Added {new_primary} – {new_sub}!")
-
-
-    st.divider()
-    st.caption("Existing Categories")
-    # Sort items so they don't look random
-    if categories:
-        sorted_cats = sorted(categories, key=lambda x: (x["primary_category"], x["sub_category"]))
-        for c in sorted_cats:
-            c1, c2 = st.columns([4, 1])
-            # Display formatted as 'primary > sub (type)'
-            cost_type_short = c.get("cost_type", "?")[0] if c.get("cost_type") else "?"
-            c1.text(f"{c['primary_category']} > {c['sub_category']} ({c.get('cost_type', '?')[0]})")
-            
-            if c2.button("🗑️", key=f"del_c_{c['category_id']}"):
-                delete_item("categories", c["category_id"])
-
-# --- Payment Methods Section ---
-st.divider()
-st.subheader("Payment methods")
-st.caption("What you pay with. Mark credit cards so the Tracker offers installments.")
-pm_col1, pm_col2 = st.columns(2)
-
-with pm_col1:
-    with st.form("add_payment_method", clear_on_submit=True):
-        new_method_name = st.text_input("Method Name (e.g., Credit Card, Cash, Debit)")
-        new_institution = st.text_input("Institution (e.g., Nubank, Itaú)", help="Leave blank for Cash.")
-        new_is_credit = st.checkbox("Credit Card?", help="Enable to track installments for this payment method.")
-        submit_pm = st.form_submit_button("Add Payment Method")
-
-        if submit_pm and new_method_name:
-            payload = {
-                "method_name": new_method_name,
-                "institution": new_institution if new_institution else None,
-                "is_credit": new_is_credit,
-            }
-            send_post_request("payment_methods", payload, f"Added {new_method_name}!")
-        elif submit_pm:
-            st.warning("Method Name is required.")
-
-with pm_col2:
-    st.caption("Existing Payment Methods")
-    if payment_methods:
-        for pm in sorted(payment_methods, key=lambda x: x["method_name"]):
-            c1, c2 = st.columns([4, 1])
-            credit_tag = " 💳" if pm.get("is_credit") else ""
-            institution_label = f" ({pm['institution']})" if pm.get("institution") else ""
-            c1.text(f"{pm['method_name']}{institution_label}{credit_tag}")
-            if c2.button("🗑️", key=f"del_pm_{pm['payment_method_id']}"):
-                delete_item("payment_methods", pm["payment_method_id"])
-
-# --- Household Split Section ---
-st.divider()
-st.subheader("Household split")
-ui.lede("How shared expenses are divided.", " Set each person's share from your incomes, e.g. 60/40. It applies to expenses saved from now on; earlier ones keep the split they were saved with. Must add up to 100%.")
-
-household_settings = get_data("household_settings", st.session_state["access_token"])
-
-if household_settings:
-    sorted_settings = sorted(household_settings, key=lambda s: s["user"]["full_name"])
-    share_inputs = {}
-    hs_cols = st.columns(len(sorted_settings))
-    for col, setting in zip(hs_cols, sorted_settings):
-        with col:
-            share_inputs[setting["user_id"]] = st.number_input(
-                f"{setting['user']['full_name']}'s share (%)",
-                min_value=0.0,
-                max_value=100.0,
-                value=float(setting["share_pct"]) * 100,
-                step=1.0,
-                key=f"share_{setting['user_id']}",
-            )
-
-    total_pct = sum(share_inputs.values())
-    shares_valid = abs(total_pct - 100) < 0.01
-
-    if shares_valid:
-        st.success(f"Shares sum to {total_pct:.2f}%.")
+payload, problem = logic.household_payload(shares)
+changed = {s["user_id"]: s["share_pct"] for s in payload} != {
+    s["user_id"]: round(float(s["share_pct"]), 4) for s in household
+}
+if problem:
+    st.caption(f"⚠️ {problem}")
+if st.button("Save split", type="primary", disabled=bool(problem) or not changed, key=f"save_split_{nonce}"):
+    if err := call("PUT", "household_settings/", {"settings": payload}):
+        st.error(err)
     else:
-        st.warning(f"Shares must sum to 100% (currently {total_pct:.2f}%).")
+        done("Household split saved.")
 
-    if st.button("Save Household Split", disabled=not shares_valid):
-        payload = {
-            "settings": [
-                {"user_id": user_id, "share_pct": round(pct / 100, 4)}
-                for user_id, pct in share_inputs.items()
-            ]
-        }
-        send_put_request("household_settings", payload, "Household split updated!")
-else:
-    st.info("No household settings found yet.")
+st.divider()
+
+# --- Categories ---
+editable_table(
+    "Categories", "categories", categories, logic.CATEGORIES,
+    {
+        "primary_category": st.column_config.TextColumn("Category", required=True),
+        "sub_category": st.column_config.TextColumn("Sub-category", required=True),
+        "cost_type": st.column_config.SelectboxColumn(
+            "Cost type", options=["Variable", "Fixed"], required=True, default="Variable",
+            help="Fixed costs repeat every month (rent, internet); variable ones don't.",
+        ),
+    },
+    ("Edit right in the table.", " Click a cell to rename it, type in the empty last row to add one, "
+     "or select a row (the box on its left) and press Delete to remove it. Renaming also relabels past expenses."),
+)
+
+st.divider()
+
+# --- Payment methods ---
+editable_table(
+    "Payment methods", "payment_methods", payment_methods, logic.PAYMENT_METHODS,
+    {
+        "method_name": st.column_config.TextColumn("Method", required=True, help="e.g. Pix, Debit Card, Credit Card, Cash"),
+        "institution": st.column_config.TextColumn("Bank / account", help="e.g. Nubank. Leave blank for Cash."),
+        "is_credit": st.column_config.CheckboxColumn("Credit", default=False, help="Credit cards offer installments in the Tracker."),
+    },
+    ("One row per way you pay, e.g. Pix · Nubank.", " The Tracker asks for the bank whenever a method has one. "
+     "Tick Credit for credit cards so it offers installments."),
+)
+
+st.divider()
 
 # --- ETL Trigger ---
-st.divider()
 st.subheader("Publish to Tableau")
 st.caption("Sends the latest data to the Tableau dashboard. Only needed when you want Tableau up to date; the app's own pages are always live.")
 
-if st.button("Run ETL Pipeline", type="primary"):
+if st.button("Run ETL Pipeline"):
     with st.spinner("Pipeline running... (This may take a moment)"):
         try:
-            # Add headers
-            # Use the /refresh endpoint in backend
             response = requests.post(f"{API_BASE_URL}/refresh", headers=auth_headers)
-
             if response.status_code == 200:
-                data = response.json()
                 st.success("ETL Finished Successfully!")
-                st.json(data)
+                st.json(response.json())
             elif response.status_code == 401:
                 st.error("Session Expired. Please log in again.")
             else:
                 st.error(f"Server Error: ({response.status_code})")
                 st.code(response.text)
-        
         except requests.exceptions.ConnectionError:
             st.error("Connection Failed")
             st.warning(f"Could not reach the backend at `{API_BASE_URL}`. Is the Docker container running?")
+
+# --- Your account ---
+st.divider()
+mine = next((u for u in users if u["email"].lower() == me), None)
+if mine:
+    with st.expander("Delete my account"):
+        st.caption("Only possible while no expenses or settlements are recorded under your name.")
+        if st.button("Delete my account", key=f"delete_me_{nonce}"):
+            if err := call("DELETE", f"users/{mine['user_id']}"):
+                st.error(err)
+            else:
+                st.session_state.clear()
+                st.rerun()

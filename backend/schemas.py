@@ -1,7 +1,7 @@
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 from datetime import datetime
 from decimal import Decimal
-from typing import List
+from typing import List, Literal
 
 # -- Dimension Schemas --
 # Create schemas for dimensions
@@ -31,11 +31,25 @@ class PaymentMethodCreate(BaseModel):
     institution: str | None = None
     is_credit: bool = False
 
+class CategoryUpdate(BaseModel):
+    """A partial edit: only the fields sent are changed."""
+    primary_category: str | None = Field(default=None, min_length=1)
+    sub_category: str | None = Field(default=None, min_length=1)
+    cost_type: Literal["Fixed", "Variable"] | None = None
+
+class PaymentMethodUpdate(BaseModel):
+    """A partial edit; send institution null to clear it."""
+    method_name: str | None = Field(default=None, min_length=1)
+    institution: str | None = None
+    is_credit: bool | None = None
+
 class Category(BaseModel):
     category_id: int
     primary_category: str
     sub_category: str
     cost_type: str
+    # How many expenses use it; one in use can't be deleted.
+    expense_count: int = 0
 
     class Config:
         from_attributes = True
@@ -45,6 +59,7 @@ class PaymentMethod(BaseModel):
     method_name: str
     institution: str | None = None # Optional field
     is_credit: bool = False
+    expense_count: int = 0
 
     class Config:
         from_attributes = True
