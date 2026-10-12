@@ -221,6 +221,60 @@ def test_personal_account_at_the_same_method_keeps_the_choice(at):
     assert not any("joint account" in c for c in captions(at))
 
 
+JOINT_STATUS = {
+    "payment_method_id": 15, "label": "Debit Card · Nubank Conjunta",
+    "balance": "500.00", "counted_from": "2026-12-01T11:00:00Z",
+    "deposits_since": "0.00", "spent_since": "500.00",
+    "month": "2026-12", "as_of_day": 3, "days_in_month": 31,
+    "spent_to_day": "500.00", "usual_to_day": "400.00", "usual_month_total": "450.00",
+    "history_months": 2, "runs_out_on": "2026-12-20",
+    "days": [{"day": d, "this_month": "500.00" if d <= 3 else None, "usual": "400.00"} for d in range(1, 32)],
+}
+JOINT_ENTRIES = [{"joint_entry_id": 3, "payment_method_id": 15, "kind": "balance", "amount": "1000.00",
+                  "entry_at": "2026-12-01T11:00:00Z", "note": "start"}]
+
+
+def test_joint_account_tab_shows_whats_left_and_records_a_deposit(at, api):
+    get, post = api
+
+    def with_joint(url, *args, **kwargs):
+        if "/joint/status" in url:
+            return response([JOINT_STATUS])
+        if "/joint/entries" in url:
+            return response(JOINT_ENTRIES)
+        return fake_get(url)
+
+    get.side_effect = with_joint
+    st.cache_data.clear()
+    at.run()
+    assert not at.exception
+    assert [t.label for t in at.tabs][-1] == "Joint account"
+    metrics = {m.label: m for m in at.metric}
+    assert metrics["Left in the account"].value == "R$ 500,00"
+    assert metrics["Spent this month"].delta == "+R$ 100,00 vs usual"
+    assert metrics["Runs out"].value == "20/12"
+    assert any("▲" in c and "100,00 more than usual" in c for c in captions(at))
+    assert list(at.dataframe[-1].value["What"]) == ["Balance check"]
+
+    at.text_input(key="joint_amount").input("1.500,00")
+    at.button(key="FormSubmitter:joint_entry_form-Save").click().run()
+    assert not at.exception
+    url, sent = post.call_args.args[0], post.call_args.kwargs["json"]
+    assert url.endswith("/joint/entries")
+    assert (sent["payment_method_id"], sent["kind"], sent["amount"]) == (15, "deposit", "1500.00")
+
+
+def test_no_joint_tab_without_a_joint_method(api, monkeypatch):
+    monkeypatch.setitem(globals(), "PAYMENT_METHODS", [m for m in PAYMENT_METHODS if not m.get("is_joint")])
+    app = AppTest.from_file("Home.py", default_timeout=30)
+    app.session_state["access_token"] = "x"
+    app.session_state["user_email"] = ME
+    app.run()
+    app.switch_page(PAGE)
+    at = app.run()
+    assert "Joint account" not in [t.label for t in at.tabs]
+
+
 def choose_vet(at):
     at.text_input(key="entry_price_0").input("300").run()
     at.selectbox(key="entry_payment_0_primary").select("Pix").run()

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import List, Literal
 
@@ -241,6 +241,57 @@ class SettlementRead(BaseModel):
     to_name: str | None = None
     amount: Decimal
     note: str | None = None
+
+# -- Joint account Schemas --
+class JointEntryCreate(BaseModel):
+    payment_method_id: int
+    # "deposit": money put in. "balance": what the bank shows right now.
+    kind: Literal["deposit", "balance"]
+    amount: Decimal = Field(ge=0, max_digits=10, decimal_places=2)
+    entry_at: datetime
+    note: str | None = None
+
+    @model_validator(mode="after")
+    def deposit_is_positive(self):
+        if self.kind == "deposit" and self.amount == 0:
+            raise ValueError("A deposit must be more than zero")
+        return self
+
+class JointEntryRead(BaseModel):
+    joint_entry_id: int
+    payment_method_id: int
+    kind: str
+    amount: Decimal
+    entry_at: datetime
+    note: str | None = None
+
+    class Config:
+        from_attributes = True
+
+class JointDay(BaseModel):
+    day: int
+    this_month: Decimal | None = None  # None after today
+    usual: Decimal | None = None       # None without a full month of history
+
+class JointStatus(BaseModel):
+    """One joint account, now: what's left, and this month's pace."""
+    payment_method_id: int
+    label: str
+    # None until a balance or deposit has been recorded.
+    balance: Decimal | None = None
+    # The balance check it counts from, if any (else the first deposit).
+    counted_from: datetime | None = None
+    deposits_since: Decimal
+    spent_since: Decimal
+    month: str               # "YYYY-MM", the current São Paulo month
+    as_of_day: int
+    days_in_month: int
+    spent_to_day: Decimal
+    usual_to_day: Decimal | None = None
+    usual_month_total: Decimal | None = None
+    history_months: int      # full months behind "usual", 0 to 3
+    runs_out_on: date | None = None
+    days: List[JointDay]
 
 # -- Monthly Summary Schemas --
 # From the logged-in user's point of view: what they bear (their share of
