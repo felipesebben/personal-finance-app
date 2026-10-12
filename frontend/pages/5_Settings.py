@@ -141,7 +141,7 @@ def apply(endpoint: str, plan: logic.Plan) -> None:
 
 # --- Main UI ---
 
-ui.page_header("Settings", "Who shares expenses and how, and the lists the Tracker offers.")
+ui.page_header("Settings", "Who shares expenses and how, and the lists Add expense offers.")
 
 users = get_data("users", token)
 household = get_data("household_settings", token)
@@ -202,7 +202,7 @@ editable_table(
             help="Fixed costs repeat every month (rent, internet); variable ones don't.",
         ),
         "for_pets": st.column_config.CheckboxColumn(
-            "Pets", default=False, help="Tick for pet costs (food, vet…): the Tracker then asks which pet it was for.",
+            "Pets", default=False, help="Tick for pet costs (food, vet…): Add expense then asks which pet it was for.",
         ),
     },
     ("Edit right in the table.", " Click a cell to rename it, type in the empty last row to add one, "
@@ -217,14 +217,14 @@ editable_table(
     {
         "method_name": st.column_config.TextColumn("Method", required=True, help="e.g. Pix, Debit Card, Credit Card, Cash"),
         "institution": st.column_config.TextColumn("Bank / account", help="e.g. Nubank. Leave blank for Cash."),
-        "is_credit": st.column_config.CheckboxColumn("Credit", default=False, help="Credit cards offer installments in the Tracker."),
+        "is_credit": st.column_config.CheckboxColumn("Credit", default=False, help="Credit cards offer installments when you add an expense."),
         "is_joint": st.column_config.CheckboxColumn(
             "Joint", default=False,
             help="An account you both top up in advance, e.g. a shared card for groceries. "
                  "What it pays for never makes either of you owe the other.",
         ),
     },
-    ("One row per way you pay, e.g. Pix · Nubank.", " The Tracker asks for the bank whenever a method has one. "
+    ("One row per way you pay, e.g. Pix · Nubank.", " Add expense asks for the bank whenever a method has one. "
      "Tick Credit for credit cards so it offers installments, and Joint for an account you both fund "
      "(name it apart from a personal card at the same bank, e.g. Nubank Conjunta)."),
 )
@@ -235,7 +235,7 @@ st.divider()
 editable_table(
     "Pets", "pets", pets, logic.PETS,
     {"name": st.column_config.TextColumn("Name", required=True)},
-    ("Who the pet expenses are for.", " For a category ticked Pets above, the Tracker asks which pet it was, "
+    ("Who the pet expenses are for.", " For a category ticked Pets above, Add expense asks which pet it was, "
      "or Both for one expense shared by all of them, so Tableau can show what each one costs."),
 )
 

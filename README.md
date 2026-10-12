@@ -165,7 +165,7 @@ Timestamps are stored timezone-aware and converted to `America/Sao_Paulo` at the
 | `cashflow` | person × expense × installment | what each month actually cost, installments spread over billing months |
 | `settlements` | payment between members | squaring up |
 
-The Analytics page then embeds the published dashboard in an iframe.
+The Tableau page then embeds the published dashboard in an iframe.
 
 ## Project layout
 
@@ -184,7 +184,9 @@ backend/          FastAPI service
 frontend/         Streamlit app
   config.py         API_BASE_URL, from API_URL
   Home.py           login / signup
-  pages/            Tracker, Analytics, Manage Settings
+  common.py         login check, cached API reads, toasts, month pickers
+  sections/         the parts the pages are built from (overview, joint, settle, my month, history)
+  pages/            Add expense, Our expenses, My expenses, Tableau, Settings
 docker-compose.yml
 ```
 

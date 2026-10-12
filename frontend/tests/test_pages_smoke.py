@@ -9,7 +9,10 @@ def test_home_shows_the_login_form():
     assert any(b.label == "Log In" for b in at.button)
 
 
-@pytest.mark.parametrize("page", ["pages/1_Tracker.py", "pages/2_Analytics.py", "pages/3_Manage_Settings_.py"])
+@pytest.mark.parametrize("page", [
+    "pages/1_Add_expense.py", "pages/2_Our_expenses.py", "pages/3_My_expenses.py",
+    "pages/4_Tableau.py", "pages/5_Settings.py",
+])
 def test_pages_ask_for_login(page):
     at = AppTest.from_file(page, default_timeout=30).run()
     assert not at.exception

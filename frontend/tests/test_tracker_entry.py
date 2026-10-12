@@ -1,5 +1,5 @@
 """
-The Tracker's expense entry form, driven through AppTest with the API mocked.
+The Add expense page's entry form, driven through AppTest with the API mocked.
 
 The page calls requests.get / requests.post directly, so patching those on
 the requests module is enough; nothing here needs a backend.
@@ -11,7 +11,7 @@ import streamlit as st
 from streamlit.testing.v1 import AppTest
 from streamlit.testing.v1.element_tree import ButtonGroup
 
-PAGE = "pages/1_Tracker.py"
+PAGE = "pages/1_Add_expense.py"
 ME = "me@example.com"
 
 CATEGORIES = [
@@ -234,47 +234,6 @@ JOINT_ENTRIES = [{"joint_entry_id": 3, "payment_method_id": 15, "kind": "balance
                   "entry_at": "2026-12-01T11:00:00Z", "note": "start"}]
 
 
-def test_joint_account_tab_shows_whats_left_and_records_a_deposit(at, api):
-    get, post = api
-
-    def with_joint(url, *args, **kwargs):
-        if "/joint/status" in url:
-            return response([JOINT_STATUS])
-        if "/joint/entries" in url:
-            return response(JOINT_ENTRIES)
-        return fake_get(url)
-
-    get.side_effect = with_joint
-    st.cache_data.clear()
-    at.run()
-    assert not at.exception
-    assert [t.label for t in at.tabs][-1] == "Joint account"
-    metrics = {m.label: m for m in at.metric}
-    assert metrics["Left in the account"].value == "R$ 500,00"
-    assert metrics["Spent this month"].delta == "+R$ 100,00 vs usual"
-    assert metrics["Runs out"].value == "20/12"
-    assert any("▲" in c and "100,00 more than usual" in c for c in captions(at))
-    assert list(at.dataframe[-1].value["What"]) == ["Balance check"]
-
-    at.text_input(key="joint_amount").input("1.500,00")
-    at.button(key="FormSubmitter:joint_entry_form-Save").click().run()
-    assert not at.exception
-    url, sent = post.call_args.args[0], post.call_args.kwargs["json"]
-    assert url.endswith("/joint/entries")
-    assert (sent["payment_method_id"], sent["kind"], sent["amount"]) == (15, "deposit", "1500.00")
-
-
-def test_no_joint_tab_without_a_joint_method(api, monkeypatch):
-    monkeypatch.setitem(globals(), "PAYMENT_METHODS", [m for m in PAYMENT_METHODS if not m.get("is_joint")])
-    app = AppTest.from_file("Home.py", default_timeout=30)
-    app.session_state["access_token"] = "x"
-    app.session_state["user_email"] = ME
-    app.run()
-    app.switch_page(PAGE)
-    at = app.run()
-    assert "Joint account" not in [t.label for t in at.tabs]
-
-
 def choose_vet(at):
     at.text_input(key="entry_price_0").input("300").run()
     at.selectbox(key="entry_payment_0_primary").select("Pix").run()
@@ -351,44 +310,3 @@ EXPENDITURE = {
     "user": {"user_id": 1, "full_name": "Me", "email": ME},
     "category": CATEGORIES[1], "payment_method": PAYMENT_METHODS[0],
 }
-
-
-def test_overview_formats_money_the_brazilian_way(api):
-    get, _ = api
-
-    def with_overview(url, *args, **kwargs):
-        if "/summary/" in url:
-            return response(SUMMARY)
-        if "/balances/" in url:
-            return response(BALANCES)
-        if url.endswith("/expenditures"):
-            return response([EXPENDITURE])
-        return fake_get(url)
-
-    get.side_effect = with_overview
-    # Start from Home so st.page_link (used in the tabs) can resolve pages.
-    app = AppTest.from_file("Home.py", default_timeout=30)
-    app.session_state["access_token"] = "x"
-    app.session_state["user_email"] = ME
-    app.run()
-    app.switch_page(PAGE)
-    at = app.run()
-
-    assert not at.exception
-    # This month: three explained metrics, deltas against the named previous month.
-    assert [m.label for m in at.metric] == ["You spent", "Your share of shared", "Household shared total"]
-    assert at.metric[0].value == "R$ 1.234,50"
-    assert at.metric[0].delta == "+R$ 234,50 vs September 2026"
-    assert at.metric[2].delta == "-R$ 33,33 vs September 2026"
-    # Settle up leads with the answer, then the plain-language table.
-    html = " ".join(str(h.proto) for h in at.get("html"))
-    assert "Her owes Me" in html and "R$ 666,67" in html
-    owed = next(df.value for df in at.dataframe if "Should have paid" in df.value.columns)
-    assert list(owed["Difference"]) == ["R$ 666,67", "-R$ 666,67"]
-    # The other-payment form is pre-filled with what's owed, typed like a price.
-    assert "666,67" in [t.value for t in at.text_input]
-    # History: full price and the viewer's part, with the type spelled out.
-    recent = at.dataframe[-1].value
-    assert list(recent["Price"]) == ["R$ 1.666,67"]
-    assert list(recent["Your part"]) == ["R$ 1.000,00"]
-    assert list(recent["Type"]) == ["Shared · 10x"]

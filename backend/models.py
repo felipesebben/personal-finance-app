@@ -42,7 +42,7 @@ class DimCategory(Base):
     primary_category = Column(String(255), nullable=False)
     sub_category = Column(String(255), nullable=False)
     cost_type = Column(String(50), nullable=False)
-    # Expenses in this category are for the pets, so the Tracker asks which
+    # Expenses in this category are for the pets, so Add expense asks which
     # one (see FactExpenditure.pet_id).
     for_pets = Column(Boolean, nullable=False, server_default="false", default=False)
 

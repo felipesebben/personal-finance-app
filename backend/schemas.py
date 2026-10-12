@@ -63,7 +63,7 @@ class Category(BaseModel):
     primary_category: str
     sub_category: str
     cost_type: str
-    # Expenses in it are for the pets, so the Tracker asks which one.
+    # Expenses in it are for the pets, so Add expense asks which one.
     for_pets: bool = False
     # How many expenses use it; one in use can't be deleted.
     expense_count: int = 0

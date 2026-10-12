@@ -1,4 +1,4 @@
-"""The Analytics page renders from mocked API responses (no backend needed)."""
+"""The shared-expense overview (Our expenses, and My expenses' "My share over time") from mocked API responses."""
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, urlparse
 
@@ -8,7 +8,8 @@ from streamlit.testing.v1 import AppTest
 
 from conftest import empty_payload, sample_expenses, sample_payload
 
-PAGE = "pages/2_Analytics.py"
+PAGE = "pages/2_Our_expenses.py"
+MINE = "pages/3_My_expenses.py"
 
 
 def fake_api(payload_for, expenses=None, status=200):
@@ -19,8 +20,11 @@ def fake_api(payload_for, expenses=None, status=200):
         response = MagicMock(status_code=status)
         if parsed.path.endswith("/analytics/shared/expenses"):
             response.json.return_value = sample_expenses() if expenses is None else expenses
-        else:
+        elif parsed.path.endswith("/analytics/shared"):
             response.json.return_value = payload_for(month)
+        else:  # the page's other reads (payment methods, household, balances...): nothing
+            response.status_code = 200
+            response.json.return_value = []
         return response
     return get
 
@@ -33,11 +37,11 @@ def fresh_cache():
     st.cache_data.clear()
 
 
-def run_page(get, **state):
+def run_page(get, page=PAGE, **state):
     # Start from Home.py, as `streamlit run` does, so st.page_link can resolve
-    # the other pages, then open the Analytics page.
+    # the other pages, then open the page.
     at = AppTest.from_file("Home.py", default_timeout=30)
-    at.switch_page(PAGE)
+    at.switch_page(page)
     at.session_state["access_token"] = "test-token"
     for key, value in state.items():
         at.session_state[key] = value
@@ -53,7 +57,7 @@ def labels(elements):
 def test_renders_with_data():
     at = run_page(fake_api(lambda month: sample_payload(month)))
     assert not at.exception
-    assert [t.label for t in at.tabs] == ["Overview", "Tableau"]
+    assert [t.label for t in at.tabs] == ["Overview", "Settle up"]
     assert len(at.metric) == 4
     assert any("to date" in label for label in labels(at.metric))
     assert at.metric[3].value == "Food"  # biggest increase
@@ -70,7 +74,7 @@ def test_complete_month_is_not_labelled_to_date():
 def test_my_share_lens():
     # Preset through session state: AppTest 1.50 can't set_value on a
     # single-select segmented_control next to another one.
-    at = run_page(fake_api(lambda month: sample_payload(month)), analytics_lens="My share", analytics_window=6)
+    at = run_page(fake_api(lambda month: sample_payload(month)), page=MINE, mine_window=6)
     assert not at.exception
     assert at.metric[0].label.startswith("My share")
 

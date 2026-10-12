@@ -1,5 +1,5 @@
 """
-Pure helpers for the Tracker's Joint account tab: turn one /joint/status
+Pure helpers for the Joint account tab on Our expenses: turn one /joint/status
 item into a chart frame and the sentences around it. No Streamlit import,
 so they're unit-tested in tests/test_joint_shaping.py.
 """
