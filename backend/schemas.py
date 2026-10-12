@@ -42,6 +42,7 @@ class PaymentMethodCreate(BaseModel):
     method_name: str
     institution: str | None = None
     is_credit: bool = False
+    is_joint: bool = False
 
 class CategoryUpdate(BaseModel):
     """A partial edit: only the fields sent are changed."""
@@ -55,6 +56,7 @@ class PaymentMethodUpdate(BaseModel):
     method_name: str | None = Field(default=None, min_length=1)
     institution: str | None = None
     is_credit: bool | None = None
+    is_joint: bool | None = None
 
 class Category(BaseModel):
     category_id: int
@@ -74,6 +76,8 @@ class PaymentMethod(BaseModel):
     method_name: str
     institution: str | None = None # Optional field
     is_credit: bool = False
+    # Paid from a household account both fund in advance: nobody owes anybody.
+    is_joint: bool = False
     expense_count: int = 0
 
     class Config:

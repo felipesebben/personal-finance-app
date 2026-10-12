@@ -21,6 +21,9 @@ class DimPaymentMethod(Base):
     method_name = Column(String(255), nullable=False)
     institution = Column(String(255), nullable=True)
     is_credit = Column(Boolean, default=False)
+    # A household account both people fund in advance: what it pays for is
+    # already settled between them, so it never makes anyone owe anyone.
+    is_joint = Column(Boolean, nullable=False, server_default="false", default=False)
 
     __table_args__ = (
         UniqueConstraint("method_name", "institution", name="uq_payment_method"),

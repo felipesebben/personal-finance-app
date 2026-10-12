@@ -45,6 +45,7 @@ def extract_data(engine=None):
         c.cost_type,
         pm.method_name,
         pm.institution,
+        COALESCE(pm.is_joint, false) AS paid_from_joint,
         -- The pet a pet-category expense was for; 'Both' when it was for all of them.
         CASE WHEN c.for_pets THEN COALESCE(pet.name, 'Both') END AS pet
     FROM fact_expenditures f
@@ -96,6 +97,7 @@ SELECT
     c.cost_type,
     pm.method_name,
     pm.institution,
+    COALESCE(pm.is_joint, false) AS paid_from_joint,
     pm.is_credit,
     CASE WHEN c.for_pets THEN COALESCE(pet.name, 'Both') END AS pet
 FROM fact_expenditure_split s
@@ -189,6 +191,7 @@ SELECT
     c.cost_type,
     pm.method_name,
     pm.institution,
+    COALESCE(pm.is_joint, false) AS paid_from_joint,
     pm.is_credit,
     CASE WHEN c.for_pets THEN COALESCE(pet.name, 'Both') END AS pet
 FROM alloc a

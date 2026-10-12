@@ -218,9 +218,15 @@ editable_table(
         "method_name": st.column_config.TextColumn("Method", required=True, help="e.g. Pix, Debit Card, Credit Card, Cash"),
         "institution": st.column_config.TextColumn("Bank / account", help="e.g. Nubank. Leave blank for Cash."),
         "is_credit": st.column_config.CheckboxColumn("Credit", default=False, help="Credit cards offer installments in the Tracker."),
+        "is_joint": st.column_config.CheckboxColumn(
+            "Joint", default=False,
+            help="An account you both top up in advance, e.g. a shared card for groceries. "
+                 "What it pays for never makes either of you owe the other.",
+        ),
     },
     ("One row per way you pay, e.g. Pix · Nubank.", " The Tracker asks for the bank whenever a method has one. "
-     "Tick Credit for credit cards so it offers installments."),
+     "Tick Credit for credit cards so it offers installments, and Joint for an account you both fund "
+     "(name it apart from a personal card at the same bank, e.g. Nubank Conjunta)."),
 )
 
 st.divider()
