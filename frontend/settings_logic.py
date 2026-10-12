@@ -35,11 +35,14 @@ CATEGORIES = Table(
 
 PAYMENT_METHODS = Table(
     key="payment_method_id",
-    fields=("method_name", "institution", "is_credit"),
+    fields=("method_name", "institution", "is_credit", "is_joint"),
     required=("method_name",),
     unique=("method_name", "institution"),
     label=lambda r: f"{r['method_name']}{' · ' + r['institution'] if r.get('institution') else ''}",
-    flags={"is_credit": ("credit (offers installments)", "not credit")},
+    flags={
+        "is_credit": ("credit (offers installments)", "not credit"),
+        "is_joint": ("a joint account (nobody owes for it)", "a personal account"),
+    },
 )
 
 PETS = Table(
