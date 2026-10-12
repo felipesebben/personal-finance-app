@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from typing import List
 from decimal import Decimal
 from split_logic import settle
+import joint_logic
 from ledger import HouseholdNotConfigured, InvalidSplit, PayerNotInHousehold, add_expenditure
 
 from config import settings
@@ -749,6 +750,165 @@ def delete_settlement(
     db.delete(settlement)
     db.commit()
     return {"message": "Settlement deleted"}
+
+# --- Joint accounts ---------------------------------------------------------
+# What's left in an account the household tops up in advance, and whether
+# this month's spending from it is running ahead of the usual month. The pot
+# belongs to the household, so only household members see or change it.
+
+def require_household(db: Session, user: models.DimUser) -> None:
+    if db.get(models.HouseholdSetting, user.user_id) is None:
+        raise HTTPException(status_code=403, detail="Only household members can see the joint account")
+
+
+def joint_method(db: Session, payment_method_id: int) -> models.DimPaymentMethod:
+    method = db.get(models.DimPaymentMethod, payment_method_id)
+    if method is None or not method.is_joint:
+        raise HTTPException(status_code=400, detail="That payment method isn't a joint account. Tick Joint in Settings first.")
+    return method
+
+
+@app.post("/joint/entries", response_model=schemas.JointEntryRead)
+def create_joint_entry(
+    payload: schemas.JointEntryCreate,
+    db: Session = Depends(get_db),
+    current_user: models.DimUser = Depends(get_current_user),
+):
+    """Records a deposit into a joint account, or what its balance is right now."""
+    require_household(db, current_user)
+    joint_method(db, payload.payment_method_id)
+    entry = models.FactJointEntry(**payload.model_dump())
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+    return entry
+
+
+@app.get("/joint/entries", response_model=List[schemas.JointEntryRead])
+def get_joint_entries(
+    payment_method_id: int | None = None,
+    db: Session = Depends(get_db),
+    current_user: models.DimUser = Depends(get_current_user),
+):
+    """Deposits and balance checks, newest first."""
+    require_household(db, current_user)
+    entry = models.FactJointEntry
+    query = db.query(entry)
+    if payment_method_id is not None:
+        query = query.filter(entry.payment_method_id == payment_method_id)
+    return query.order_by(entry.entry_at.desc(), entry.joint_entry_id.desc()).all()
+
+
+@app.delete("/joint/entries/{joint_entry_id}")
+def delete_joint_entry(
+    joint_entry_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.DimUser = Depends(get_current_user),
+):
+    """Deletes a deposit or balance check entered by mistake."""
+    require_household(db, current_user)
+    entry = db.get(models.FactJointEntry, joint_entry_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    db.delete(entry)
+    db.commit()
+    return {"message": "Entry deleted"}
+
+
+def joint_status(db: Session, method: models.DimPaymentMethod, today: date) -> schemas.JointStatus:
+    fact = models.FactExpenditure
+    entry = models.FactJointEntry
+    local_day = func.date(func.timezone("America/Sao_Paulo", fact.transaction_timestamp))
+    zero = Decimal("0.00")
+
+    # What's left: the latest balance check, plus deposits and minus spending
+    # after it. Without a check, count from the first deposit.
+    check = (
+        db.query(entry)
+        .filter(entry.payment_method_id == method.payment_method_id, entry.kind == "balance")
+        .order_by(entry.entry_at.desc(), entry.joint_entry_id.desc())
+        .first()
+    )
+    first_deposit = (
+        db.query(func.min(entry.entry_at))
+        .filter(entry.payment_method_id == method.payment_method_id, entry.kind == "deposit")
+        .scalar()
+    )
+    balance = counted_from = None
+    deposits_since = spent_since = zero
+    if check is not None or first_deposit is not None:
+        if check is not None:
+            start, counted_from = check.amount, check.entry_at
+            after_entry, after_spend = entry.entry_at > check.entry_at, fact.transaction_timestamp > check.entry_at
+        else:
+            start = zero
+            after_entry, after_spend = entry.entry_at >= first_deposit, fact.transaction_timestamp >= first_deposit
+        deposits_since = db.query(func.coalesce(func.sum(entry.amount), 0)).filter(
+            entry.payment_method_id == method.payment_method_id, entry.kind == "deposit", after_entry,
+        ).scalar()
+        spent_since = db.query(func.coalesce(func.sum(fact.price), 0)).filter(
+            fact.payment_method_id == method.payment_method_id, after_spend,
+        ).scalar()
+        balance = start + deposits_since - spent_since
+
+    # The pace: daily spending for this month and the months behind "usual".
+    first_spend = db.query(func.min(local_day)).filter(fact.payment_method_id == method.payment_method_id).scalar()
+    first_entry = db.query(func.min(func.date(func.timezone("America/Sao_Paulo", entry.entry_at)))).filter(
+        entry.payment_method_id == method.payment_method_id,
+    ).scalar()
+    tracked_since = min((d for d in (first_spend, first_entry) if d is not None), default=None)
+    history = joint_logic.full_months_before(today, tracked_since)
+    window_start = history[-1] if history else joint_logic.month_start(today)
+    daily = dict(
+        db.query(local_day, func.sum(fact.price))
+        .filter(fact.payment_method_id == method.payment_method_id, local_day >= window_start, local_day <= today)
+        .group_by(local_day)
+        .all()
+    )
+
+    first = joint_logic.month_start(today)
+    days = joint_logic.days_in(today)
+    this_month = joint_logic.cumulative(daily, first, today.day)
+    usual = joint_logic.usual_curve(daily, history, days)
+    spent_to_day = this_month[-1]
+
+    return schemas.JointStatus(
+        payment_method_id=method.payment_method_id,
+        label=f"{method.method_name}{' · ' + method.institution if method.institution else ''}",
+        balance=balance, counted_from=counted_from,
+        deposits_since=deposits_since, spent_since=spent_since,
+        month=today.strftime("%Y-%m"), as_of_day=today.day, days_in_month=days,
+        spent_to_day=spent_to_day,
+        usual_to_day=usual[today.day - 1] if usual else None,
+        usual_month_total=usual[-1] if usual else None,
+        history_months=len(history),
+        runs_out_on=joint_logic.run_out_date(balance, spent_to_day, today.day, today),
+        days=[
+            schemas.JointDay(
+                day=d,
+                this_month=this_month[d - 1] if d <= today.day else None,
+                usual=usual[d - 1] if usual else None,
+            )
+            for d in range(1, days + 1)
+        ],
+    )
+
+
+@app.get("/joint/status", response_model=List[schemas.JointStatus])
+def get_joint_status(
+    db: Session = Depends(get_db),
+    current_user: models.DimUser = Depends(get_current_user),
+):
+    """Every joint account: what's left, and this São Paulo month's pace against the usual month."""
+    require_household(db, current_user)
+    today = datetime.now(SAO_PAULO).date()
+    methods = (
+        db.query(models.DimPaymentMethod)
+        .filter(models.DimPaymentMethod.is_joint)
+        .order_by(models.DimPaymentMethod.payment_method_id)
+        .all()
+    )
+    return [joint_status(db, m, today) for m in methods]
 
 # --- Delete Endpoints ---
 

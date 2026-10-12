@@ -145,6 +145,34 @@ class FactSettlement(Base):
     to_user = relationship("DimUser", foreign_keys=[to_user_id])
 
 
+class FactJointEntry(Base):
+    """
+    Money going into a joint account, so the app knows what's left in it.
+    A "deposit" adds to the pot; a "balance" says what the bank showed at
+    that moment (the starting balance, or a correction when unlogged
+    spending has made the app drift). What's left is the latest balance
+    plus deposits since, minus what the account paid since. Who deposited
+    isn't recorded: the pot is the household's, and deposits never affect
+    who owes whom.
+    """
+    __tablename__ = "fact_joint_entry"
+
+    joint_entry_id = Column(Integer, primary_key=True)
+    payment_method_id = Column(Integer, ForeignKey("dim_payment_method.payment_method_id"), nullable=False)
+    kind = Column(String(20), nullable=False)
+    amount = Column(Numeric(10, 2), nullable=False)
+    entry_at = Column(DateTime(timezone=True), nullable=False)
+    note = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint("kind IN ('deposit', 'balance')", name="ck_joint_entry_kind"),
+        CheckConstraint("amount >= 0", name="ck_joint_entry_amount_not_negative"),
+    )
+
+    payment_method = relationship("DimPaymentMethod")
+
+
 class PasswordResetToken(Base):
     """
     A one-time password-reset link. Only the SHA-256 of the token is stored,

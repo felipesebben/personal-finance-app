@@ -7,6 +7,8 @@ import pandas as pd
 
 from config import API_BASE_URL
 from money import entry_preview, format_brl, format_brl_delta, parse_brl
+import analytics_charts
+import joint_shaping
 import ui
 
 SAO_PAULO = ZoneInfo("America/Sao_Paulo")
@@ -396,7 +398,16 @@ def ratio_text() -> str:
     return " · ".join(parts)
 
 
-add_tab, month_tab, settle_tab, history_tab = st.tabs(["Add expense", "This month", "Settle up", "History"])
+# The Joint account tab appears once a payment method is ticked Joint in
+# Settings, for household members (the pot is the household's).
+in_household = any(m["user_id"] == my_user_id for m in household_data or [])
+has_joint = "is_joint" in payment_methods_df and payment_methods_df["is_joint"].eq(True).any()
+tab_names = ["Add expense", "This month", "Settle up", "History"]
+if has_joint and in_household:
+    tab_names.append("Joint account")
+tabs = st.tabs(tab_names)
+add_tab, month_tab, settle_tab, history_tab = tabs[:4]
+joint_tab = tabs[4] if len(tabs) > 4 else None
 
 # --- Add expense -----------------------------------------------------------
 with add_tab:
@@ -693,3 +704,115 @@ with history_tab:
                         st.error("Error deleting entry.")
                 except Exception as e:
                     st.error(f"Connection error: {e}")
+
+
+# --- Joint account ---------------------------------------------------------
+def record_joint_entry(payment_method_id, kind, amount, on_day, note):
+    now_brl = datetime.datetime.now(SAO_PAULO)
+    payload = {
+        "payment_method_id": payment_method_id,
+        "kind": kind,
+        "amount": str(amount),
+        "entry_at": datetime.datetime.combine(on_day, now_brl.time(), tzinfo=SAO_PAULO).isoformat(),
+        "note": note or None,
+    }
+    res = requests.post(f"{API_BASE_URL}/joint/entries", json=payload, headers=auth_headers)
+    if res.status_code == 200:
+        done = "Deposit recorded" if kind == "deposit" else "Balance updated"
+        st.session_state["tracker_toast"] = f"{done}: {format_brl(amount)}"
+        st.cache_data.clear()
+        st.rerun()
+    else:
+        st.error(f"Error: {res.status_code} – {res.json().get('detail', res.text)}")
+
+
+if joint_tab is not None:
+    with joint_tab:
+        ui.lede(
+            "What's left in the account you both top up, and whether it's going faster than usual.",
+            " Spending is whatever you log with the joint card; add money here when you top it up.",
+        )
+        statuses = get_data("joint/status", token) or []
+        if len(statuses) > 1:
+            labels = {s["label"]: s for s in statuses}
+            status = labels[st.selectbox("Account", list(labels), key="joint_account_pick")]
+        elif statuses:
+            status = statuses[0]
+        else:
+            status = None
+
+        if status:
+            gap = joint_shaping.pace_gap(status)
+            j1, j2, j3 = st.columns(3)
+            with j1:
+                st.metric("Left in the account",
+                          format_brl(status["balance"]) if status["balance"] is not None else "–", border=True)
+                st.caption(md(joint_shaping.counted_from_text(status, SAO_PAULO)))
+            with j2:
+                st.metric("Spent this month", format_brl(status["spent_to_day"]),
+                          delta=f"{format_brl_delta(gap)} vs usual" if gap is not None else None,
+                          delta_color="inverse", border=True)
+                usual_total = status.get("usual_month_total")
+                st.caption(md(f"A usual month: {format_brl(usual_total)}." if usual_total is not None
+                              else "No usual month yet."))
+            with j3:
+                runs_out = status.get("runs_out_on")
+                st.metric("Runs out", datetime.date.fromisoformat(runs_out).strftime("%d/%m") if runs_out else "–",
+                          border=True)
+                st.caption(md(joint_shaping.run_out_text(status) or "Needs the balance first."))
+
+            st.subheader("Spending through the month")
+            st.caption(md(joint_shaping.pace_sentence(status)))
+            frame = joint_shaping.pace_frame(status)
+            if not frame.empty:
+                st.altair_chart(
+                    analytics_charts.joint_pace_chart(frame, joint_shaping.THIS_MONTH, joint_shaping.USUAL,
+                                                      status["days_in_month"]),
+                    use_container_width=True,
+                )
+
+            st.subheader("Add money or correct the balance")
+            with st.form("joint_entry_form", clear_on_submit=True, border=True):
+                kind = st.radio(
+                    "What happened?", ["deposit", "balance"], horizontal=True, key="joint_kind",
+                    format_func=lambda k: "Money went in" if k == "deposit" else "The bank shows this balance",
+                    help="Use the balance option the first time, and whenever the app drifts from what your bank "
+                         "shows (e.g. a purchase nobody logged).",
+                )
+                e1, e2 = st.columns(2)
+                amount_text = e1.text_input("Amount (R$)", placeholder="e.g. 1.500,00", key="joint_amount")
+                on_day = e2.date_input("Date", today_brl, format="DD/MM/YYYY", key="joint_date")
+                note = st.text_input("Note (optional)", key="joint_note")
+                if st.form_submit_button("Save", type="primary"):
+                    try:
+                        amount = parse_brl(amount_text)
+                    except ValueError as e:
+                        st.error(str(e))
+                    else:
+                        record_joint_entry(status["payment_method_id"], kind, amount, on_day, note)
+
+            entries = get_data(f"joint/entries?payment_method_id={status['payment_method_id']}", token) or []
+            if entries:
+                st.subheader("Recent entries")
+                shown = entries[:20]
+                entries_df = pd.DataFrame({
+                    "Date": [pd.Timestamp(e["entry_at"]).tz_convert(SAO_PAULO).strftime("%d/%m/%Y") for e in shown],
+                    "What": ["Deposit" if e["kind"] == "deposit" else "Balance check" for e in shown],
+                    "Amount": [format_brl(e["amount"]) for e in shown],
+                    "Note": [e.get("note") or "" for e in shown],
+                })
+                st.dataframe(entries_df, width="stretch", hide_index=True)
+                with st.expander("Remove an entry"):
+                    by_label = {
+                        f"{row.Date} · {row.What} · {row.Amount}": e["joint_entry_id"]
+                        for row, e in zip(entries_df.itertuples(), shown)
+                    }
+                    pick = st.selectbox("Entry", list(by_label), index=None, key="joint_remove_pick")
+                    if st.button("Remove", disabled=pick is None, key="joint_remove"):
+                        res = requests.delete(f"{API_BASE_URL}/joint/entries/{by_label[pick]}", headers=auth_headers)
+                        if res.status_code == 200:
+                            st.session_state["tracker_toast"] = "Entry removed"
+                            st.cache_data.clear()
+                            st.rerun()
+                        else:
+                            st.error(f"Error: {res.status_code} – {res.json().get('detail', res.text)}")

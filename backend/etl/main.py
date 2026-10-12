@@ -273,6 +273,46 @@ def extract_settlements(engine=None):
         print(f"Settlement Extraction Failed: {e}")
         return None
 
+# Deposits into joint accounts and balance checks (what the bank showed),
+# one row each. The spending side is already in the expense datasources,
+# flagged paid_from_joint. Relate entry_date to calendar.date.
+JOINT_ENTRIES_QUERY = """
+SELECT
+    e.joint_entry_id,
+    pm.method_name,
+    pm.institution,
+    e.kind,
+    e.amount,
+    e.entry_at AT TIME ZONE 'America/Sao_Paulo' AS entry_at,
+    (e.entry_at AT TIME ZONE 'America/Sao_Paulo')::date AS entry_date,
+    date_trunc('month', e.entry_at AT TIME ZONE 'America/Sao_Paulo')::date AS month_start,
+    e.note
+FROM fact_joint_entry e
+JOIN dim_payment_method pm ON pm.payment_method_id = e.payment_method_id
+ORDER BY e.entry_at, e.joint_entry_id;
+"""
+
+
+def extract_joint_entries(engine=None):
+    """
+    Extracts joint-account deposits and balance checks, one row per entry.
+    """
+    engine = engine or get_db_connection()
+    if not engine: return None
+
+    try:
+        df = pd.read_sql(JOINT_ENTRIES_QUERY, engine)
+        if df.empty:
+            print("No joint account entries found.")
+            return None
+        for col in ("entry_date", "month_start"):
+            df[col] = pd.to_datetime(df[col])
+        print(f"Extracted {len(df)} joint account entries.")
+        return df
+    except Exception as e:
+        print(f"Joint Entries Extraction Failed: {e}")
+        return None
+
 # One row per day, with no gaps, so Tableau can put the calendar on the
 # left of a relationship (or left join) and show days and weeks with no
 # spending as empty rather than missing. It runs from 1 January of the year
@@ -430,6 +470,12 @@ def run_pipeline():
         settlements_file = generate_hyper_file(settlements_df, filename="settlements.hyper")
         if settlements_file:
             hyper_files.append(settlements_file)
+
+    joint_df = extract_joint_entries()
+    if joint_df is not None:
+        joint_file = generate_hyper_file(joint_df, filename="joint_account.hyper")
+        if joint_file:
+            hyper_files.append(joint_file)
 
     calendar_df = extract_calendar()
     if calendar_df is not None:
