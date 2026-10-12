@@ -508,12 +508,27 @@ def get_balances(
         shared_ids = shared_ids.filter(local_month == month)
     shared_ids = shared_ids.distinct().subquery()
 
-    paid = dict(
+    # Paid from a joint account, everyone has already put in their part, so
+    # each person counts as having paid exactly their own share and the
+    # expense nets to zero. Otherwise the person who logged it paid it all.
+    method = models.DimPaymentMethod
+    joint_ids = (
+        select(fact.expenditure_id)
+        .join(method, method.payment_method_id == fact.payment_method_id)
+        .where(method.is_joint)
+    )
+    paid: dict[int, Decimal] = dict(
         db.query(fact.user_id, func.sum(fact.price))
-        .filter(fact.expenditure_id.in_(select(shared_ids)))
+        .filter(fact.expenditure_id.in_(select(shared_ids)), fact.expenditure_id.not_in(joint_ids))
         .group_by(fact.user_id)
         .all()
     )
+    for uid, amount in (
+        db.query(split.user_id, func.sum(split.share_amount))
+        .filter(split.expenditure_id.in_(select(shared_ids)), split.expenditure_id.in_(joint_ids))
+        .group_by(split.user_id)
+    ):
+        paid[uid] = paid.get(uid, Decimal("0")) + amount
     borne = dict(
         db.query(split.user_id, func.sum(split.share_amount))
         .filter(split.expenditure_id.in_(select(shared_ids)))
@@ -966,7 +981,8 @@ def get_shared_expenses(
             func.coalesce(category.cost_type, "Unknown").label("cost_type"),
             method.method_name.label("payment_method"),
             method.institution,
-            payer.full_name.label("paid_by"),
+            # Nobody in particular paid what came out of the joint account.
+            case((method.is_joint, "Joint account"), else_=payer.full_name).label("paid_by"),
             fact.price,
             func.coalesce(mine.share_amount, 0).label("mine"),
             func.coalesce(mine.share_pct, 0).label("share_pct"),

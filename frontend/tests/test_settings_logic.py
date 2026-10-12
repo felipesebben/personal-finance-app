@@ -93,7 +93,7 @@ def test_blank_institution_stays_none_and_credit_is_a_bool():
                                            "institution": "Nubank", "is_credit": None, "expense_count": None}]
     plan = plan_changes(PMS, rows, PAYMENT_METHODS)
     assert plan.updates == []
-    assert plan.adds == [{"method_name": "Credit Card", "institution": "Nubank", "is_credit": False}]
+    assert plan.adds == [{"method_name": "Credit Card", "institution": "Nubank", "is_credit": False, "is_joint": False}]
     assert plan.lines == ["Add Credit Card · Nubank"]
 
 
@@ -101,6 +101,17 @@ def test_adding_a_bank_and_ticking_credit():
     plan = plan_changes(PMS, [dict(PMS[0], institution="Nubank", is_credit=True)], PAYMENT_METHODS)
     assert plan.updates == [(5, {"institution": "Nubank", "is_credit": True})]
     assert plan.lines == ["Rename Pix → Pix · Nubank; Pix · Nubank: credit (offers installments)"]
+
+
+def test_ticking_joint_on_a_payment_method():
+    plan = plan_changes(PMS, [dict(PMS[0], is_joint=True)], PAYMENT_METHODS)
+    assert plan.updates == [(5, {"is_joint": True})]
+    assert plan.lines == ["Pix: a joint account (nobody owes for it)"]
+
+
+def test_rows_from_an_api_without_is_joint_read_as_personal():
+    # PMS has no is_joint key, as before this field existed: no change planned.
+    assert plan_changes(PMS, [dict(PMS[0])], PAYMENT_METHODS).updates == []
 
 
 def test_ticking_pets_on_a_category():

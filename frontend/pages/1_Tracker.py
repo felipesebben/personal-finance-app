@@ -130,6 +130,15 @@ def is_pet_category(primary: str, sub: str) -> bool:
     return bool(not match.empty and match["for_pets"].eq(True).iloc[0])  # NaN (field missing) would be truthy
 payment_methods_df = pd.DataFrame(payment_methods_data)
 
+
+def is_joint_method(method: str | None, institution: str | None) -> bool:
+    """Paid from an account you both fund in advance, so nobody owes for it."""
+    if not method or payment_methods_df.empty or "is_joint" not in payment_methods_df:
+        return False
+    bank = payment_methods_df["institution"].fillna("").replace("", NO_INSTITUTION)
+    match = payment_methods_df[(payment_methods_df["method_name"] == method) & (bank == institution)]
+    return bool(not match.empty and match["is_joint"].eq(True).iloc[0])
+
 # Who is logged in, for "your share" in the preview: Home.py keeps the login email.
 my_email = (st.session_state.get("user_email") or "").strip().lower()
 my_user_id = next(
@@ -236,9 +245,15 @@ def expense_entry_form():
             pet_id = names.get(choice)
             pet_choice_missing = choice is None
 
-    # 5. Who bears it.
-    is_shared = st.toggle("Shared Household Expense?", value=True, key=k("shared"),
-                          help="Leave ON if split between couple.")
+    # 5. Who bears it. The joint account only pays for shared things, and
+    # since you both fund it, nobody owes the other for what it paid.
+    if is_joint_method(selected_method_name, selected_institution):
+        is_shared = st.toggle("Shared Household Expense?", value=True, disabled=True, key=k("shared_joint"))
+        st.caption("Paid from the joint account, so nobody owes anything for this. "
+                   "It still counts towards each person's share of spending.")
+    else:
+        is_shared = st.toggle("Shared Household Expense?", value=True, key=k("shared"),
+                              help="Leave ON if split between couple.")
 
     # Optional per-expense override of the household ratio, sent as "shares".
     custom_shares = None

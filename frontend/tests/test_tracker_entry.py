@@ -27,6 +27,9 @@ PAYMENT_METHODS = [
     {"payment_method_id": 12, "method_name": "Pix", "institution": None, "is_credit": False},
     {"payment_method_id": 13, "method_name": "Debit Card", "institution": "Itaú", "is_credit": False},
     {"payment_method_id": 14, "method_name": "Debit Card", "institution": None, "is_credit": False},
+    # The account you both top up, e.g. for groceries.
+    {"payment_method_id": 15, "method_name": "Debit Card", "institution": "Nubank Conjunta",
+     "is_credit": False, "is_joint": True},
 ]
 HOUSEHOLD = [
     {"user_id": 1, "share_pct": "0.6000", "user": {"user_id": 1, "full_name": "Me", "email": ME}},
@@ -183,7 +186,7 @@ def test_method_with_banks_offers_them_and_no_bank(at, api):
     at.selectbox(key="entry_payment_0_primary").select("Debit Card").run()
 
     inst = at.selectbox(key="entry_payment_0_secondary_Debit Card")
-    assert inst.options == ["Itaú", "N/A"] and inst.value is None and not inst.disabled
+    assert inst.options == ["Itaú", "Nubank Conjunta", "N/A"] and inst.value is None and not inst.disabled
 
     # Choosing is required while banks exist...
     fill_rest_and_submit(at)
@@ -195,6 +198,27 @@ def test_method_with_banks_offers_them_and_no_bank(at, api):
     submit(at)
     assert not at.exception
     assert post.call_args.kwargs["json"]["payment_method_id"] == 13
+
+
+def test_joint_account_is_shared_and_says_nobody_owes(at, api):
+    _, post = api
+    at.selectbox(key="entry_payment_0_primary").select("Debit Card").run()
+    at.selectbox(key="entry_payment_0_secondary_Debit Card").select("Nubank Conjunta").run()
+
+    shared = at.toggle(key="entry_shared_joint_0")
+    assert shared.value is True and shared.disabled
+    assert any("joint account, so nobody owes" in c for c in captions(at))
+
+    fill_rest_and_submit(at)
+    sent = post.call_args.kwargs["json"]
+    assert sent["payment_method_id"] == 15 and sent["is_shared"] is True
+
+
+def test_personal_account_at_the_same_method_keeps_the_choice(at):
+    at.selectbox(key="entry_payment_0_primary").select("Debit Card").run()
+    at.selectbox(key="entry_payment_0_secondary_Debit Card").select("Itaú").run()
+    assert not at.toggle(key="entry_shared_0").disabled
+    assert not any("joint account" in c for c in captions(at))
 
 
 def choose_vet(at):
