@@ -154,3 +154,24 @@ def cost_type_chart(split: pd.DataFrame, current_title: str, previous_title: str
     ).transform_calculate(
         cost_type_order=f"indexof({types!r}, datum.cost_type)",
     ).properties(height=110)
+
+
+def joint_pace_chart(data: pd.DataFrame, this_month: str, usual: str, days_in_month: int) -> alt.Chart:
+    """
+    Cumulative spending through the month: this month as a solid accent line
+    (it stops at today), the usual month as a dashed grey line across all days.
+    """
+    return alt.Chart(data).mark_line(point=False, strokeWidth=2.5).encode(
+        x=alt.X("day:Q", title="Day of the month", scale=alt.Scale(domain=[1, days_in_month]),
+                axis=alt.Axis(tickMinStep=1, format="d")),
+        y=alt.Y("amount:Q", title=None, axis=alt.Axis(labelExpr=BRL_AXIS_EXPR, tickCount=4)),
+        color=alt.Color("series:N", scale=alt.Scale(domain=[this_month, usual], range=[ACCENT, MUTED]),
+                        legend=alt.Legend(title=None, orient="bottom")),
+        strokeDash=alt.StrokeDash("series:N", scale=alt.Scale(domain=[this_month, usual], range=[[1, 0], [6, 4]]),
+                                  legend=None),
+        tooltip=[
+            alt.Tooltip("series:N", title=" "),
+            alt.Tooltip("day:Q", title="Day"),
+            alt.Tooltip("amount_brl:N", title="Spent by then"),
+        ],
+    ).properties(height=260)

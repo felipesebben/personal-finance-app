@@ -6,6 +6,10 @@ from conftest import expenditure_payload, signup_and_login
 PROTECTED_ROUTES = [
     ("get", "/users/"),
     ("get", "/categories/"),
+    ("post", "/joint/entries"),
+    ("get", "/joint/entries"),
+    ("delete", "/joint/entries/1"),
+    ("get", "/joint/status"),
     ("post", "/categories/"),
     ("patch", "/categories/1"),
     ("delete", "/categories/1"),
