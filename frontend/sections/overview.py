@@ -1,63 +1,33 @@
+"""
+Shared expenses over time: KPIs against earlier months, the monthly trend,
+categories, a heatmap, a drill-down and fixed vs variable. One lens per
+call: "Household" (full prices, on Our expenses) or "My share" (the
+caller's part, on My expenses). Data shaping lives in analytics_shaping,
+the Altair specs in analytics_charts.
+"""
+from __future__ import annotations
+
 import datetime
 from urllib.parse import urlencode
-from zoneinfo import ZoneInfo
 
 import pandas as pd
 import requests
 import streamlit as st
-import streamlit.components.v1 as components
 
 import analytics_charts as charts
 import analytics_shaping as shape
+from common import SAO_PAULO, auth_headers
 from config import API_BASE_URL
 from money import format_brl
-import ui
 
-# Wide layout matters for the Tableau embed.
-ui.setup("Analytics")
-
-ui.page_header("Analytics", "How your shared spending this month compares with earlier months, and where it's going.")
-
-overview_tab, tableau_tab = st.tabs(["Overview", "Tableau"])
-
-# --- Tableau: the long-term analytics home, unchanged ---
-with tableau_tab:
-    # Tableau Link
-    base_url = "https://10ax.online.tableau.com/t/felipetabdev/views/ExpendituresControlCenter/Dashboard1"
-    params= "?:embed=yes&:showVizHome=no&:toolbar=top&:tabs=no"
-    final_url = base_url + params
-
-    # Embed the code
-    html_code = f"""
-        <div style="
-            display: flex;
-            justify-content: center;
-            width: 100%;
-        ">
-            <iframe
-                src="{final_url}"
-                width="1000"
-                height="1100"
-                style="border: none; overflow: hidden;"
-            ></iframe>
-        </div>
-    """
-
-    # Render
-    components.html(html_code, height=1150,scrolling=True)
-
-
-# --- Overview: shared expenses, in-app ---
-
-SAO_PAULO = ZoneInfo("America/Sao_Paulo")
 BASIS = "Shared expenses only · purchase month · São Paulo time."
 
 
 @st.cache_data(ttl=60)
 def fetch(endpoint: str, token: str):
-    """GET from the API; None (with a message) on failure. Keyed on the token, like the Tracker."""
+    """GET from the API; None (with a message) on failure."""
     try:
-        response = requests.get(f"{API_BASE_URL}/{endpoint}", headers={"Authorization": f"Bearer {token}"})
+        response = requests.get(f"{API_BASE_URL}/{endpoint}", headers=auth_headers(token))
     except requests.exceptions.ConnectionError:
         st.error("Connection Error: Could not connect to the API.")
         return None
@@ -96,38 +66,27 @@ def changes_table(comparison: pd.DataFrame, by: str, label: str, previous_title:
     })
 
 
-with overview_tab:
-    token = st.session_state.get("access_token")
-    if not token:
-        st.error("You are not logged in.")
-        st.info("Please go to the **Home** page to log in.")
-        st.stop()
-
+def render(token: str, lens: str, key: str) -> None:
+    """The whole overview for one lens. `key` prefixes widget keys so each page keeps its own picks."""
     current_month = datetime.datetime.now(SAO_PAULO).strftime("%Y-%m")
 
-    # --- Controls ---
-    # Defaults go through session state (not `default=`) so a test or a
-    # later page can preset them without Streamlit warning about both.
-    st.session_state.setdefault("analytics_lens", "Household")
-    st.session_state.setdefault("analytics_window", 12)
-    c1, c2, c3 = st.columns([2, 2, 2], vertical_alignment="bottom")
+    # Defaults go through session state (not `default=`) so a test can
+    # preset them without Streamlit warning about both.
+    st.session_state.setdefault(f"{key}_window", 12)
+    c1, c2 = st.columns(2, vertical_alignment="bottom")
     selected = c1.selectbox(
         "Month", shape.month_options(current_month, 12),
-        format_func=shape.month_label, key="analytics_month",
+        format_func=shape.month_label, key=f"{key}_month",
     )
-    lens = c2.segmented_control(
-        "Lens", list(shape.LENSES), key="analytics_lens",
-        help="Household: the full price of shared expenses. My share: the part of each that is yours.",
-    ) or "Household"
-    window = c3.segmented_control(
-        "Trend window", [6, 12], key="analytics_window",
+    window = c2.segmented_control(
+        "Trend window", [6, 12], key=f"{key}_window",
         format_func=lambda n: f"{n} months",
     ) or 12
 
     # Always fetch 12 months: the 6-month view and the 3-month average both fit inside.
     data = fetch(f"analytics/shared?{urlencode({'month': selected, 'months': 12})}", token)
     if data is None:
-        st.stop()
+        return
 
     df = shape.to_frame(data)
     months = data["months"]
@@ -137,17 +96,18 @@ with overview_tab:
     selected_label = shape.month_label(selected)
     previous_title = f"{shape.month_label(previous, short=True)} (days 1–{as_of_day})" if is_partial else shape.month_label(previous, short=True)
     to_date = " to date" if is_partial else ""
+    household = lens == "Household"
 
     st.caption(
-        f"{BASIS} {lens}: "
-        + ("full price of each shared expense." if lens == "Household" else "your share of each shared expense.")
+        f"{BASIS} "
+        + ("Full price of each shared expense, whoever paid." if household else "Your share of each shared expense.")
         + (f" {selected_label} is in progress, so it's compared with days 1–{as_of_day} of other months." if is_partial else "")
     )
 
     if df.empty:
-        st.info(f"No shared expenses in the 12 months up to {selected_label}. Log one in the Tracker to see this overview.")
-        st.page_link("pages/1_Tracker.py", label="Go to the Tracker", icon="📝")
-        st.stop()
+        st.info(f"No shared expenses in the 12 months up to {selected_label}. Log one to see this overview.")
+        st.page_link("pages/1_Add_expense.py", label="Add an expense", icon=":material/edit_note:")
+        return
 
     # --- KPIs ---
     total = shape.compare_total(df, selected, is_partial, lens)
@@ -158,8 +118,8 @@ with overview_tab:
     k1, k2, k3, k4 = st.columns(4)
     delta, colour = metric_delta(total["change"], total["pct"])
     k1.metric(
-        f"{lens} · {shape.month_label(selected, short=True)}{to_date}", format_brl(total["current"]),
-        delta=delta, delta_color=colour, border=True,
+        f"{'Shared total' if household else 'My share'} · {shape.month_label(selected, short=True)}{to_date}",
+        format_brl(total["current"]), delta=delta, delta_color=colour, border=True,
         help=f"Against {format_brl(total['previous'])} in {previous_title}.",
     )
     if average is None:
@@ -194,8 +154,8 @@ with overview_tab:
            else "The 3-month average line appears once three full months of history exist.")
     )
 
-    # --- Where are we spending more ---
-    st.subheader("Where are we spending more")
+    # --- Where is it going ---
+    st.subheader("Where we're spending more" if household else "Where my share is going")
     st.caption(f"{selected_label}{to_date} by category, largest first. Grey tick: {previous_title}.")
     if comparison.empty:
         st.info(f"No shared expenses in {selected_label} or {shape.month_label(previous)}.")
@@ -218,7 +178,7 @@ with overview_tab:
         st.info(f"Nothing to drill into for {selected_label}.")
     else:
         default = categories.index(rising) if rising in categories else 0
-        category = st.selectbox("Category", categories, index=default, key="analytics_category")
+        category = st.selectbox("Category", categories, index=default, key=f"{key}_category")
         sub = shape.compare(df, selected, is_partial, lens, by="sub_category", where={"primary_category": category})
         st.altair_chart(charts.comparison_bars(sub, "sub_category", previous_title), use_container_width=True)
 
@@ -229,7 +189,7 @@ with overview_tab:
             exp["payment"] = [f"{m} ({i})" if i else (m or "") for m, i in zip(exp["payment_method"], exp["institution"])]
             exp["price"] = exp["price"].map(format_brl)
             exp["mine"] = exp["mine"].map(format_brl)
-            amounts = ["price", "mine"] if lens == "Household" else ["mine", "price"]
+            amounts = ["price", "mine"] if household else ["mine", "price"]
             names = {"date": "Date", "sub_category": "Sub-category", "price": "Price", "mine": "My share",
                      "payment": "Payment", "paid_by": "Paid by"}
             order = ["date", "sub_category", *amounts, "payment", "paid_by"]
