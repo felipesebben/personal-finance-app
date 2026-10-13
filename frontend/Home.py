@@ -216,22 +216,21 @@ else:
 
     ui.page_header(ui.APP_NAME, "What would you like to do?")
 
-    go_cols = st.columns(3)
-    with go_cols[0]:
-        with st.container(border=True):
-            st.subheader("Tracker")
-            st.write("Add an expense, see where this month stands, and settle up with each other.")
-            st.page_link("pages/1_Tracker.py", label="Open the Tracker", icon=":material/edit_note:")
-    with go_cols[1]:
-        with st.container(border=True):
-            st.subheader("Analytics")
-            st.write("Compare this month with earlier ones to see where your shared spending is going.")
-            st.page_link("pages/2_Analytics.py", label="Open Analytics", icon=":material/monitoring:")
-    with go_cols[2]:
-        with st.container(border=True):
-            st.subheader("Settings")
-            st.write("Categories, payment methods, and the household split between you.")
-            st.page_link("pages/3_Manage_Settings_.py", label="Open Settings", icon=":material/settings:")
+    cards = [
+        ("Add expense", "Record a purchase in a few taps.", "pages/1_Add_expense.py", ":material/edit_note:"),
+        ("Our expenses", "How our shared spending is doing: this month against earlier ones, "
+                         "the joint account, and who owes whom.", "pages/2_Our_expenses.py", ":material/home:"),
+        ("My expenses", "How your own spending is doing: your part of what you share, plus what's only yours.",
+         "pages/3_My_expenses.py", ":material/person:"),
+        ("Settings", "Categories, payment methods, pets, and the household split between you.",
+         "pages/5_Settings.py", ":material/settings:"),
+    ]
+    for col, (title, text, page, icon) in zip(st.columns(len(cards)), cards):
+        with col:
+            with st.container(border=True):
+                st.subheader(title)
+                st.write(text)
+                st.page_link(page, label=f"Open {title}", icon=icon)
 
     st.write("")
     if st.button("Log Out", key="main_logout"):
