@@ -13,14 +13,17 @@ MINE = "pages/3_My_expenses.py"
 
 
 def fake_api(payload_for, expenses=None, status=200):
-    """A requests.get stand-in: answers /analytics/shared for the requested month, and its expenses route."""
+    """
+    A requests.get stand-in: answers /analytics/shared and /analytics/personal
+    for the requested month (the same payload), and their expenses routes.
+    """
     def get(url, headers=None, **kwargs):
         parsed = urlparse(url)
         month = parse_qs(parsed.query).get("month", [None])[0]
         response = MagicMock(status_code=status)
-        if parsed.path.endswith("/analytics/shared/expenses"):
+        if parsed.path.endswith(("/analytics/shared/expenses", "/analytics/personal/expenses")):
             response.json.return_value = sample_expenses() if expenses is None else expenses
-        elif parsed.path.endswith("/analytics/shared"):
+        elif parsed.path.endswith(("/analytics/shared", "/analytics/personal")):
             response.json.return_value = payload_for(month)
         else:  # the page's other reads (payment methods, household, balances...): nothing
             response.status_code = 200
@@ -74,9 +77,40 @@ def test_complete_month_is_not_labelled_to_date():
 def test_my_share_lens():
     # Preset through session state: AppTest 1.50 can't set_value on a
     # single-select segmented_control next to another one.
-    at = run_page(fake_api(lambda month: sample_payload(month)), page=MINE, mine_window=6)
+    at = run_page(fake_api(lambda month: sample_payload(month)), page=MINE, mine_window=6, mine_view="shared")
     assert not at.exception
     assert at.metric[0].label.startswith("My share")
+
+
+def money(text: str) -> float:
+    return float(text.replace("R$", "").replace(".", "").replace(",", ".").strip())
+
+
+def test_my_spending_views_and_everything_adds_both_halves():
+    get = fake_api(lambda month: sample_payload(month))
+    personal = run_page(get, page=MINE, mine_view="personal")
+    assert not personal.exception
+    assert personal.metric[0].label.startswith("Personal")
+    st.cache_data.clear()
+    everything = run_page(get, page=MINE)  # the default view
+    assert not everything.exception
+    assert everything.metric[0].label.startswith("I spent")
+    # The fake answers both endpoints with the same rows, so everything is twice either half.
+    assert money(everything.metric[0].value) == 2 * money(personal.metric[0].value)
+
+
+def test_personal_view_asks_only_the_personal_endpoints():
+    calls = []
+    inner = fake_api(lambda month: sample_payload(month))
+
+    def get(url, *args, **kwargs):
+        calls.append(urlparse(url).path)
+        return inner(url, *args, **kwargs)
+
+    at = run_page(get, page=MINE, mine_view="personal")
+    assert not at.exception
+    analytics_calls = [c for c in calls if "/analytics/" in c]
+    assert analytics_calls and all("/analytics/personal" in c for c in analytics_calls)
 
 
 def test_empty_data_points_to_the_tracker():
