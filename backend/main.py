@@ -1169,3 +1169,111 @@ def get_shared_expenses(
 
     rows = query.order_by(fact.transaction_timestamp.desc(), fact.expenditure_id.desc()).all()
     return [schemas.SharedExpense(**r._mapping) for r in rows]
+
+
+# --- Personal-expense analytics -------------------------------------------
+# The same shapes as /analytics/shared, for the caller's personal expenses:
+# ones they paid that nobody else holds a share of. Only ever the caller's
+# own: a partner's personal spending never appears, and neither does any
+# shared expense. A personal expense is borne in full, so "household" and
+# "mine" are both its price.
+
+def personal_to(user: models.DimUser):
+    fact = models.FactExpenditure
+    return (fact.user_id == user.user_id) & ~fact.has_other_share
+
+
+@app.get("/analytics/personal", response_model=schemas.SharedAnalytics)
+def get_personal_analytics(
+    month: str | None = Query(None, pattern=MONTH_PATTERN, description="YYYY-MM, the last month of the window; defaults to the current month"),
+    months: int = Query(12, ge=1, le=24, description="How many months the window covers, ending at `month`"),
+    db: Session = Depends(get_db),
+    current_user: models.DimUser = Depends(get_current_user),
+):
+    """My personal expenses per São Paulo month × category, shaped like /analytics/shared."""
+    today = datetime.now(SAO_PAULO)
+    current = today.strftime("%Y-%m")
+    if month is None:
+        month = current
+    window = [shift_month(month, -k) for k in range(months - 1, -1, -1)]
+    is_partial = month == current
+    as_of_day = today.day if is_partial else calendar.monthrange(int(month[:4]), int(month[5:]))[1]
+
+    fact = models.FactExpenditure
+    category = models.DimCategory
+    local_ts = func.timezone("America/Sao_Paulo", fact.transaction_timestamp)
+    local_month = func.to_char(local_ts, "YYYY-MM")
+    in_first_days = extract("day", local_ts) <= as_of_day
+
+    rows = (
+        db.query(
+            local_month.label("month"),
+            func.coalesce(category.primary_category, "Uncategorised").label("primary_category"),
+            func.coalesce(category.sub_category, "Uncategorised").label("sub_category"),
+            func.coalesce(category.cost_type, "Unknown").label("cost_type"),
+            func.sum(fact.price).label("amount"),
+            func.count(fact.expenditure_id).label("count"),
+            func.sum(case((in_first_days, fact.price), else_=0)).label("amount_to_day"),
+        )
+        .outerjoin(category, category.category_id == fact.category_id)
+        .filter(personal_to(current_user), local_month.in_(window))
+        .group_by("month", "primary_category", "sub_category", "cost_type")
+        .order_by("month", "primary_category", "sub_category")
+        .all()
+    )
+
+    cents = Decimal("0.01")
+    out = []
+    for r in rows:
+        amount, to_day = Decimal(r.amount).quantize(cents), Decimal(r.amount_to_day).quantize(cents)
+        out.append(schemas.SharedAnalyticsRow(
+            month=r.month, primary_category=r.primary_category, sub_category=r.sub_category,
+            cost_type=r.cost_type, household=amount, mine=amount, count=r.count,
+            household_to_day=to_day, mine_to_day=to_day,
+        ))
+    return schemas.SharedAnalytics(month=month, months=window, is_partial=is_partial, as_of_day=as_of_day, rows=out)
+
+
+@app.get("/analytics/personal/expenses", response_model=List[schemas.SharedExpense])
+def get_personal_expenses(
+    month: str | None = Query(None, pattern=MONTH_PATTERN, description="YYYY-MM; defaults to the current month"),
+    primary_category: str | None = Query(None, description="Only this primary category ('Uncategorised' for none)"),
+    db: Session = Depends(get_db),
+    current_user: models.DimUser = Depends(get_current_user),
+):
+    """My personal expenses for one São Paulo month, newest first, shaped like /analytics/shared/expenses."""
+    if month is None:
+        month = datetime.now(SAO_PAULO).strftime("%Y-%m")
+
+    fact = models.FactExpenditure
+    category = models.DimCategory
+    method = models.DimPaymentMethod
+    local_month = func.to_char(func.timezone("America/Sao_Paulo", fact.transaction_timestamp), "YYYY-MM")
+    primary = func.coalesce(category.primary_category, "Uncategorised")
+
+    query = (
+        db.query(
+            fact.expenditure_id,
+            fact.transaction_timestamp,
+            primary.label("primary_category"),
+            func.coalesce(category.sub_category, "Uncategorised").label("sub_category"),
+            func.coalesce(category.cost_type, "Unknown").label("cost_type"),
+            method.method_name.label("payment_method"),
+            method.institution,
+            fact.price,
+            fact.current_installment,
+            fact.total_installments,
+            fact.nature,
+        )
+        .outerjoin(category, category.category_id == fact.category_id)
+        .outerjoin(method, method.payment_method_id == fact.payment_method_id)
+        .filter(personal_to(current_user), local_month == month)
+    )
+    if primary_category is not None:
+        query = query.filter(primary == primary_category)
+
+    rows = query.order_by(fact.transaction_timestamp.desc(), fact.expenditure_id.desc()).all()
+    return [
+        schemas.SharedExpense(**r._mapping, paid_by=current_user.full_name, mine=r.price, share_pct=Decimal("1"))
+        for r in rows
+    ]

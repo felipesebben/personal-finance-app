@@ -23,7 +23,7 @@ def answering(extra: dict):
         for fragment, payload in extra.items():
             if fragment in url:
                 return response(payload)
-        if "/analytics/shared" in url:
+        if "/analytics/shared" in url or "/analytics/personal" in url:
             month = parse_qs(urlparse(url).query).get("month", [None])[0]
             return response(empty_payload(month))
         return fake_get(url)
@@ -87,7 +87,7 @@ def test_my_expenses_month_and_entries(api):
     api[0].side_effect = answering({"/summary/": SUMMARY, "/expenditures": [EXPENDITURE]})
     at = open_page(MINE)
     assert not at.exception
-    assert [t.label for t in at.tabs] == ["This month", "My share over time", "My entries"]
+    assert [t.label for t in at.tabs] == ["This month", "Over time", "My entries"]
     # This month: what I spent, split into my share of shared and my personal spending.
     assert [m.label for m in at.metric] == ["You spent", "Your share of shared", "Personal"]
     assert at.metric[0].value == "R$ 1.234,50"
@@ -115,3 +115,32 @@ def test_my_entries_marks_a_treat(api):
     at = open_page(MINE)
     assert not at.exception
     assert list(at.dataframe[-1].value["Type"]) == ["Shared · treat"]
+
+
+def test_home_briefs_the_month_after_login(api):
+    from conftest import sample_payload
+    api[0].side_effect = answering({
+        "/analytics/shared": sample_payload("2026-10"),
+        "/balances/": BALANCES,
+        "/joint/status": [dict(JOINT_STATUS, runs_out_on="2026-10-20", month="2026-10")],
+    })
+    app = AppTest.from_file("Home.py", default_timeout=30)
+    app.session_state["access_token"] = "x"
+    app.session_state["user_email"] = ME
+    at = app.run()
+    assert not at.exception
+    text = " ".join(m.value for m in at.markdown)
+    assert "This month so far" in text
+    assert "Shared: R\$ 2.370,00" in text and "Biggest: Housing" in text
+    assert "Settle up: Her owes you R\$ 666,67" in text
+    assert "Joint account: R\$ 500,00 left." in text
+
+
+def test_home_briefing_says_nothing_without_data(api):
+    api[0].side_effect = answering({})
+    app = AppTest.from_file("Home.py", default_timeout=30)
+    app.session_state["access_token"] = "x"
+    app.session_state["user_email"] = ME
+    at = app.run()
+    assert not at.exception
+    assert not at.error

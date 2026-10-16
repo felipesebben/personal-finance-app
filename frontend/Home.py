@@ -3,6 +3,7 @@ import requests
 
 from config import API_BASE_URL
 import ui
+from sections import briefing
 
 ui.setup("Home")
 
@@ -215,6 +216,8 @@ else:
             logout_user()
 
     ui.page_header(ui.APP_NAME, "What would you like to do?")
+
+    briefing.render(st.session_state["access_token"])
 
     cards = [
         ("Add expense", "Record a purchase in a few taps.", "pages/1_Add_expense.py", ":material/edit_note:"),
