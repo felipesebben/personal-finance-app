@@ -23,7 +23,7 @@ def answering(extra: dict):
         for fragment, payload in extra.items():
             if fragment in url:
                 return response(payload)
-        if "/analytics/shared" in url:
+        if "/analytics/shared" in url or "/analytics/personal" in url:
             month = parse_qs(urlparse(url).query).get("month", [None])[0]
             return response(empty_payload(month))
         return fake_get(url)
@@ -87,7 +87,7 @@ def test_my_expenses_month_and_entries(api):
     api[0].side_effect = answering({"/summary/": SUMMARY, "/expenditures": [EXPENDITURE]})
     at = open_page(MINE)
     assert not at.exception
-    assert [t.label for t in at.tabs] == ["This month", "My share over time", "My entries"]
+    assert [t.label for t in at.tabs] == ["This month", "Over time", "My entries"]
     # This month: what I spent, split into my share of shared and my personal spending.
     assert [m.label for m in at.metric] == ["You spent", "Your share of shared", "Personal"]
     assert at.metric[0].value == "R$ 1.234,50"

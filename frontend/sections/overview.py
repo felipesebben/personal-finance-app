@@ -1,9 +1,12 @@
 """
-Shared expenses over time: KPIs against earlier months, the monthly trend,
-categories, a heatmap, a drill-down and fixed vs variable. One lens per
-call: "Household" (full prices, on Our expenses) or "My share" (the
-caller's part, on My expenses). Data shaping lives in analytics_shaping,
-the Altair specs in analytics_charts.
+Spending over time: KPIs against earlier months, the monthly trend,
+categories, a heatmap, a drill-down and fixed vs variable.
+
+`scope` picks the expenses: "shared" (/analytics/shared), "personal"
+(/analytics/personal, only the caller's own) or "all" (both, i.e. my share
+of shared plus my personal spending). `lens` picks the amount: "Household"
+(full prices, on Our expenses) or "My share" (the caller's part). Data
+shaping lives in analytics_shaping, the Altair specs in analytics_charts.
 """
 from __future__ import annotations
 
@@ -20,7 +23,13 @@ from common import SAO_PAULO, auth_headers
 from config import API_BASE_URL
 from money import format_brl
 
-BASIS = "Shared expenses only · purchase month · São Paulo time."
+# scope -> (endpoints, what the rows are called)
+SCOPES = {
+    "shared": (["analytics/shared"], "shared expenses"),
+    "personal": (["analytics/personal"], "personal expenses"),
+    "all": (["analytics/shared", "analytics/personal"], "expenses"),
+}
+BASIS = "Purchase month · São Paulo time."
 
 
 @st.cache_data(ttl=60)
@@ -66,8 +75,28 @@ def changes_table(comparison: pd.DataFrame, by: str, label: str, previous_title:
     })
 
 
-def render(token: str, lens: str, key: str) -> None:
-    """The whole overview for one lens. `key` prefixes widget keys so each page keeps its own picks."""
+def fetch_window(endpoints: list[str], selected: str, token: str):
+    """One /analytics payload, or several merged (same window, rows added together); None on failure."""
+    payloads = [fetch(f"{e}?{urlencode({'month': selected, 'months': 12})}", token) for e in endpoints]
+    if any(p is None for p in payloads):
+        return None
+    merged = dict(payloads[0])
+    merged["rows"] = [row for p in payloads for row in p["rows"]]
+    return merged
+
+
+def fetch_items(endpoints: list[str], selected: str, category: str, token: str):
+    """The expenses behind one category and month, newest first across every endpoint; None on failure."""
+    lists = [fetch(f"{e}/expenses?{urlencode({'month': selected, 'primary_category': category})}", token)
+             for e in endpoints]
+    if any(items is None for items in lists):
+        return None
+    return sorted((i for items in lists for i in items), key=lambda i: i["transaction_timestamp"], reverse=True)
+
+
+def render(token: str, lens: str, key: str, scope: str = "shared") -> None:
+    """The whole overview for one lens and scope. `key` prefixes widget keys so each page keeps its own picks."""
+    endpoints, noun = SCOPES[scope]
     current_month = datetime.datetime.now(SAO_PAULO).strftime("%Y-%m")
 
     # Defaults go through session state (not `default=`) so a test can
@@ -84,7 +113,7 @@ def render(token: str, lens: str, key: str) -> None:
     ) or 12
 
     # Always fetch 12 months: the 6-month view and the 3-month average both fit inside.
-    data = fetch(f"analytics/shared?{urlencode({'month': selected, 'months': 12})}", token)
+    data = fetch_window(endpoints, selected, token)
     if data is None:
         return
 
@@ -97,15 +126,21 @@ def render(token: str, lens: str, key: str) -> None:
     previous_title = f"{shape.month_label(previous, short=True)} (days 1–{as_of_day})" if is_partial else shape.month_label(previous, short=True)
     to_date = " to date" if is_partial else ""
     household = lens == "Household"
+    explains = {
+        "shared": ("Full price of each shared expense, whoever paid." if household
+                   else "Your share of each shared expense."),
+        "personal": "Your personal expenses, only ever shown to you.",
+        "all": "Your share of shared expenses plus your personal ones.",
+    }
+    headline = {"shared": "Shared total" if household else "My share", "personal": "Personal", "all": "I spent"}[scope]
 
     st.caption(
-        f"{BASIS} "
-        + ("Full price of each shared expense, whoever paid." if household else "Your share of each shared expense.")
+        f"{BASIS} {explains[scope]}"
         + (f" {selected_label} is in progress, so it's compared with days 1–{as_of_day} of other months." if is_partial else "")
     )
 
     if df.empty:
-        st.info(f"No shared expenses in the 12 months up to {selected_label}. Log one to see this overview.")
+        st.info(f"No {noun} in the 12 months up to {selected_label}. Log one to see this overview.")
         st.page_link("pages/1_Add_expense.py", label="Add an expense", icon=":material/edit_note:")
         return
 
@@ -118,13 +153,13 @@ def render(token: str, lens: str, key: str) -> None:
     k1, k2, k3, k4 = st.columns(4)
     delta, colour = metric_delta(total["change"], total["pct"])
     k1.metric(
-        f"{'Shared total' if household else 'My share'} · {shape.month_label(selected, short=True)}{to_date}",
+        f"{headline} · {shape.month_label(selected, short=True)}{to_date}",
         format_brl(total["current"]), delta=delta, delta_color=colour, border=True,
         help=f"Against {format_brl(total['previous'])} in {previous_title}.",
     )
     if average is None:
         k2.metric("vs 3-month average", "—", border=True,
-                  help="Needs three full months of shared expenses before this month.")
+                  help=f"Needs three full months of {noun} before this month.")
     else:
         change = round(total["current"] - average, 2)
         delta, colour = metric_delta(change, change / average if average else float("nan"))
@@ -133,7 +168,7 @@ def render(token: str, lens: str, key: str) -> None:
             delta=delta, delta_color=colour, border=True,
             help="Average of the three months before this one" + (f", days 1–{as_of_day} only." if is_partial else "."),
         )
-    k3.metric(f"Shared expenses{to_date}", shape.expense_count(df, selected), border=True,
+    k3.metric(f"{noun.capitalize()}{to_date}", shape.expense_count(df, selected), border=True,
               help=f"{shape.expense_count(df, previous)} in all of {shape.month_label(previous)}.")
     if rising is None:
         k4.metric("Biggest increase", "—", border=True, help=f"No category rose against {previous_title}.")
@@ -155,10 +190,11 @@ def render(token: str, lens: str, key: str) -> None:
     )
 
     # --- Where is it going ---
-    st.subheader("Where we're spending more" if household else "Where my share is going")
+    st.subheader("Where we're spending more" if household
+                 else "Where my share is going" if scope == "shared" else "Where my money is going")
     st.caption(f"{selected_label}{to_date} by category, largest first. Grey tick: {previous_title}.")
     if comparison.empty:
-        st.info(f"No shared expenses in {selected_label} or {shape.month_label(previous)}.")
+        st.info(f"No {noun} in {selected_label} or {shape.month_label(previous)}.")
     else:
         left, right = st.columns([3, 2])
         left.altair_chart(charts.comparison_bars(comparison, "primary_category", previous_title), use_container_width=True)
@@ -182,7 +218,7 @@ def render(token: str, lens: str, key: str) -> None:
         sub = shape.compare(df, selected, is_partial, lens, by="sub_category", where={"primary_category": category})
         st.altair_chart(charts.comparison_bars(sub, "sub_category", previous_title), use_container_width=True)
 
-        items = fetch(f"analytics/shared/expenses?{urlencode({'month': selected, 'primary_category': category})}", token)
+        items = fetch_items(endpoints, selected, category, token)
         if items:
             exp = pd.DataFrame(items)
             exp["date"] = pd.to_datetime(exp["transaction_timestamp"], utc=True).dt.tz_convert(SAO_PAULO).dt.strftime("%d/%m/%Y")
@@ -195,13 +231,13 @@ def render(token: str, lens: str, key: str) -> None:
             order = ["date", "sub_category", *amounts, "payment", "paid_by"]
             st.dataframe(exp[order].rename(columns=names), hide_index=True)
         elif items is not None:
-            st.caption(f"No shared {category} expenses in {selected_label}.")
+            st.caption(f"No {category} {noun} in {selected_label}.")
 
     # --- Fixed vs variable ---
     st.subheader("Fixed vs variable")
     split = shape.cost_type_split(df, selected, is_partial, lens)
     if split.empty:
-        st.info(f"No shared expenses in {selected_label} or {shape.month_label(previous)}.")
+        st.info(f"No {noun} in {selected_label} or {shape.month_label(previous)}.")
     else:
         this_title = f"{shape.month_label(selected, short=True)}{to_date}"
         left, right = st.columns([3, 2])
