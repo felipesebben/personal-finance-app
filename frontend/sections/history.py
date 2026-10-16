@@ -38,6 +38,8 @@ def render(token: str) -> None:
 
     def kind(row) -> str:
         text = "Shared" if row.get("is_shared") else "Personal"
+        if row.get("is_treat") is True:
+            text += " · treat"
         total = row.get("total_installments")
         return f"{text} · {int(total)}x" if pd.notna(total) and int(total) > 1 else text
 

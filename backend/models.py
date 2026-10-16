@@ -79,6 +79,9 @@ class FactExpenditure(Base):
     # Only for a for_pets category: the pet it was for, or NULL for all of
     # them ("Both"). Always NULL for any other category.
     pet_id = Column(Integer, ForeignKey("dim_pet.pet_id", name="fk_fact_expenditures_pet_id"), nullable=True)
+    # "It's on me": shared and split as usual, so it counts in everyone's
+    # share, but the payer treated, so nobody owes them for it.
+    is_treat = Column(Boolean, nullable=False, server_default="false", default=False)
 
     # Define the relationships
     user = relationship("DimUser", back_populates="expenditures")

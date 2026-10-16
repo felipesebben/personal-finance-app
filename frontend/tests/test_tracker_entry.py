@@ -200,6 +200,33 @@ def test_method_with_banks_offers_them_and_no_bank(at, api):
     assert post.call_args.kwargs["json"]["payment_method_id"] == 13
 
 
+def test_its_on_me_is_sent_with_a_shared_expense(at, api):
+    _, post = api
+    at.selectbox(key="entry_payment_0_primary").select("Pix").run()
+    treat = at.checkbox(key="entry_treat_0")
+    assert treat.label == "It's on me: Her doesn't pay their share back"
+    treat.check().run()
+    fill_rest_and_submit(at)
+    assert not at.exception
+    sent = post.call_args.kwargs["json"]
+    assert sent["is_shared"] is True and sent["is_treat"] is True
+
+
+def test_its_on_me_is_off_by_default_and_gone_for_personal(at, api):
+    _, post = api
+    at.selectbox(key="entry_payment_0_primary").select("Pix").run()
+    at.toggle(key="entry_shared_0").set_value(False).run()
+    assert not [c for c in at.checkbox if c.key == "entry_treat_0"]
+    fill_rest_and_submit(at)
+    assert post.call_args.kwargs["json"]["is_treat"] is False
+
+
+def test_joint_account_offers_no_its_on_me(at):
+    at.selectbox(key="entry_payment_0_primary").select("Debit Card").run()
+    at.selectbox(key="entry_payment_0_secondary_Debit Card").select("Nubank Conjunta").run()
+    assert not [c for c in at.checkbox if c.key == "entry_treat_0"]
+
+
 def test_joint_account_is_shared_and_says_nobody_owes(at, api):
     _, post = api
     at.selectbox(key="entry_payment_0_primary").select("Debit Card").run()

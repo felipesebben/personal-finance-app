@@ -509,14 +509,15 @@ def get_balances(
         shared_ids = shared_ids.filter(local_month == month)
     shared_ids = shared_ids.distinct().subquery()
 
-    # Paid from a joint account, everyone has already put in their part, so
-    # each person counts as having paid exactly their own share and the
-    # expense nets to zero. Otherwise the person who logged it paid it all.
+    # Some shared expenses never make anyone owe: paid from a joint account
+    # (everyone has already put in their part) or "on me" (the payer
+    # treated). Each person counts as having paid exactly their own share,
+    # so the expense nets to zero. Otherwise the person who logged it paid it all.
     method = models.DimPaymentMethod
     joint_ids = (
         select(fact.expenditure_id)
-        .join(method, method.payment_method_id == fact.payment_method_id)
-        .where(method.is_joint)
+        .outerjoin(method, method.payment_method_id == fact.payment_method_id)
+        .where(or_(method.is_joint, fact.is_treat))
     )
     paid: dict[int, Decimal] = dict(
         db.query(fact.user_id, func.sum(fact.price))
@@ -1142,7 +1143,11 @@ def get_shared_expenses(
             method.method_name.label("payment_method"),
             method.institution,
             # Nobody in particular paid what came out of the joint account.
-            case((method.is_joint, "Joint account"), else_=payer.full_name).label("paid_by"),
+            case(
+                (method.is_joint, "Joint account"),
+                (fact.is_treat, payer.full_name + " (treat)"),
+                else_=payer.full_name,
+            ).label("paid_by"),
             fact.price,
             func.coalesce(mine.share_amount, 0).label("mine"),
             func.coalesce(mine.share_pct, 0).label("share_pct"),
