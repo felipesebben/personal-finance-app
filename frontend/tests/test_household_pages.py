@@ -107,3 +107,11 @@ def test_household_pages_never_show_the_lens_switch(api, page):
     at = open_page(page)
     assert not at.exception
     assert "Lens" not in [b.label for b in at.button_group]
+
+
+def test_my_entries_marks_a_treat(api):
+    treat = {**EXPENDITURE, "is_treat": True, "total_installments": 1}
+    api[0].side_effect = answering({"/expenditures": [treat]})
+    at = open_page(MINE)
+    assert not at.exception
+    assert list(at.dataframe[-1].value["Type"]) == ["Shared · treat"]
