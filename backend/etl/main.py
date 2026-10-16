@@ -46,6 +46,7 @@ def extract_data(engine=None):
         pm.method_name,
         pm.institution,
         COALESCE(pm.is_joint, false) AS paid_from_joint,
+        f.is_treat,
         -- The pet a pet-category expense was for; 'Both' when it was for all of them.
         CASE WHEN c.for_pets THEN COALESCE(pet.name, 'Both') END AS pet
     FROM fact_expenditures f
@@ -98,6 +99,7 @@ SELECT
     pm.method_name,
     pm.institution,
     COALESCE(pm.is_joint, false) AS paid_from_joint,
+    f.is_treat,
     pm.is_credit,
     CASE WHEN c.for_pets THEN COALESCE(pet.name, 'Both') END AS pet
 FROM fact_expenditure_split s
@@ -159,6 +161,7 @@ WITH alloc AS (
         f.category_id,
         f.payment_method_id,
         f.pet_id,
+        f.is_treat,
         date_trunc('month', f.transaction_timestamp AT TIME ZONE 'America/Sao_Paulo')::date AS purchase_month,
         (f.transaction_timestamp AT TIME ZONE 'America/Sao_Paulo')::date AS transaction_date,
         GREATEST(COALESCE(f.total_installments, 1), 1) AS n,
@@ -192,6 +195,7 @@ SELECT
     pm.method_name,
     pm.institution,
     COALESCE(pm.is_joint, false) AS paid_from_joint,
+    a.is_treat,
     pm.is_credit,
     CASE WHEN c.for_pets THEN COALESCE(pet.name, 'Both') END AS pet
 FROM alloc a

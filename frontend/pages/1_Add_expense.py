@@ -200,6 +200,7 @@ def expense_entry_form():
 
     # 5. Who bears it. The joint account only pays for shared things, and
     # since you both fund it, nobody owes the other for what it paid.
+    is_treat = False
     if is_joint_method(selected_method_name, selected_institution):
         is_shared = st.toggle("Shared Household Expense?", value=True, disabled=True, key=k("shared_joint"))
         st.caption("Paid from the joint account, so nobody owes anything for this. "
@@ -207,6 +208,18 @@ def expense_entry_form():
     else:
         is_shared = st.toggle("Shared Household Expense?", value=True, key=k("shared"),
                               help="Leave ON if split between couple.")
+        # "It's on me": still shared and split (it counts in both shares),
+        # but nobody owes you for it.
+        if is_shared:
+            others = [m["user"].get("full_name") or m["user"]["email"]
+                      for m in household_data or [] if m["user_id"] != my_user_id]
+            who = " and ".join(others) or "Your partner"
+            is_treat = st.checkbox(
+                f"It's on me: {who} doesn't pay their share back",
+                key=k("treat"),
+                help="Still a shared expense, split as usual, so it counts in both your shares. "
+                     "It just never shows up in Settle up.",
+            )
 
     # Optional per-expense override of the household ratio, sent as "shares".
     custom_shares = None
@@ -291,6 +304,7 @@ def expense_entry_form():
             "payment_method_id": int(payment_method_id),
             "nature": nature_option,
             "is_shared": is_shared,
+            "is_treat": bool(is_shared and is_treat),
             "user_id": 0, # Backend handles this via token
             "current_installment": current_inst,
             "total_installments": total_inst

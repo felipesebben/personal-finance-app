@@ -142,8 +142,18 @@ class ExpenditureCreate(BaseModel):
     # pet category means all of them ("Both").
     pet_id: int | None = None
 
+    # "It's on me": still shared and split, but the payer treated, so it
+    # never makes anyone owe them. Only for a shared expense.
+    is_treat: bool = False
+
     class Config:
         from_attributes = True # Changed from orm_mode
+
+    @model_validator(mode="after")
+    def treat_is_shared(self):
+        if self.is_treat and not self.is_shared:
+            raise ValueError("Only a shared expense can be on you (is_treat needs is_shared true)")
+        return self
 
     @model_validator(mode="after")
     def installment_within_total(self):
@@ -179,6 +189,8 @@ class ExpenditureRead(BaseModel):
     # The logged-in user's part of this expense (their share_amount; 0 if they
     # hold no share, e.g. one they paid but put entirely on their partner).
     my_share: Decimal = Decimal("0.00")
+    # The payer treated: nobody owes them for it.
+    is_treat: bool = False
 
     # Nest the other schemas to show full objects
     user: User
