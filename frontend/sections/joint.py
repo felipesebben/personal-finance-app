@@ -10,7 +10,7 @@ import streamlit as st
 import analytics_charts
 import joint_shaping
 import ui
-from common import SAO_PAULO, auth_headers, get_data, md, saved, today_brl
+from common import SAO_PAULO, auth_headers, check, get_data, md, saved, today_brl
 from config import API_BASE_URL
 from money import format_brl, format_brl_delta, parse_brl
 
@@ -44,7 +44,7 @@ def render(token: str) -> None:
             "entry_at": datetime.datetime.combine(on_day, now_brl.time(), tzinfo=SAO_PAULO).isoformat(),
             "note": note or None,
         }
-        res = requests.post(f"{API_BASE_URL}/joint/entries", json=payload, headers=auth_headers(token))
+        res = check(requests.post(f"{API_BASE_URL}/joint/entries", json=payload, headers=auth_headers(token)))
         if res.status_code == 200:
             saved(f"{'Deposit recorded' if kind == 'deposit' else 'Balance updated'}: {format_brl(amount)}")
         else:
@@ -117,7 +117,7 @@ def render(token: str) -> None:
             }
             pick = st.selectbox("Entry", list(by_label), index=None, key="joint_remove_pick")
             if st.button("Remove", disabled=pick is None, key="joint_remove"):
-                res = requests.delete(f"{API_BASE_URL}/joint/entries/{by_label[pick]}", headers=auth_headers(token))
+                res = check(requests.delete(f"{API_BASE_URL}/joint/entries/{by_label[pick]}", headers=auth_headers(token)))
                 if res.status_code == 200:
                     saved("Entry removed")
                 else:

@@ -38,7 +38,8 @@ class Settings(BaseSettings):
 
     # --- Auth ---
     secret_key: SecretStr
-    access_token_expire_minutes: int = Field(30, gt=0)
+    # Inactivity timeout: the frontend renews the token while you use the app.
+    access_token_expire_minutes: int = Field(60, gt=0)
     # Comma-separated emails allowed to sign up. Empty = anyone may sign up.
     # Stored lowercased, so the check is case-insensitive.
     allowed_signup_emails: Annotated[frozenset[str], NoDecode] = frozenset()

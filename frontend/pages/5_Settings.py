@@ -2,20 +2,14 @@ import pandas as pd
 import requests
 import streamlit as st
 
+from common import end_session, get_data as common_get, require_login
 from config import API_BASE_URL
 import settings_logic as logic
 import ui
 
 ui.setup("Settings")
 
-# --- Authentication Check ---
-# If the user lands here without logging in, stop them.
-if "access_token" not in st.session_state or st.session_state["access_token"] is None:
-    st.error("You are not logged in.")
-    st.info("Please go to the **Home** page to log in.", icon=":material/info:")
-    st.stop()
-
-token = st.session_state["access_token"]
+token = require_login()
 auth_headers = {"Authorization": f"Bearer {token}"}
 me = (st.session_state.get("user_email") or "").lower()
 
@@ -27,18 +21,9 @@ if "settings_toast" in st.session_state:
 
 # --- Helper Functions ---
 
-@st.cache_data
 def get_data(endpoint: str, token: str) -> list:
     """GET /<endpoint>/ with the session's token; an empty list on any failure."""
-    try:
-        response = requests.get(f"{API_BASE_URL}/{endpoint}/", headers={"Authorization": f"Bearer {token}"})
-        if response.status_code == 200:
-            return response.json()
-        if response.status_code == 401:
-            st.warning("Session expired. Data could not be loaded.")
-    except requests.exceptions.RequestException:
-        st.error("Connection Error: Could not connect to the API.")
-    return []
+    return common_get(f"{endpoint}/", token)
 
 
 def call(method: str, path: str, payload=None) -> str | None:
@@ -50,7 +35,7 @@ def call(method: str, path: str, payload=None) -> str | None:
     if response.status_code == 200:
         return None
     if response.status_code == 401:
-        return "Session expired. Please log in again."
+        end_session()
     try:
         detail = response.json().get("detail", response.text)
     except ValueError:
@@ -253,7 +238,7 @@ if st.button("Run ETL Pipeline"):
                 st.success("ETL Finished Successfully!")
                 st.json(response.json())
             elif response.status_code == 401:
-                st.error("Session Expired. Please log in again.")
+                end_session()
             else:
                 st.error(f"Server Error: ({response.status_code})")
                 st.code(response.text)
