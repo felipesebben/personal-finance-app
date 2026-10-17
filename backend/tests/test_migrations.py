@@ -25,7 +25,7 @@ def fact_columns():
 def test_drop_is_shared_downgrade_rebuilds_the_flag_from_split_rows(client, household):
     def create(who, is_shared):
         resp = client.post("/expenditures/", headers=household[who],
-                           json=expenditure_payload(household, is_shared=is_shared))
+                           json=expenditure_payload(household, is_shared=is_shared, allow_duplicate=True))
         assert resp.status_code == 200, resp.text
 
     create("a", True)    # shared: B holds a split row

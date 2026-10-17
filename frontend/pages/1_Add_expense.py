@@ -9,6 +9,7 @@ from common import (
     require_login, show_toast,
 )
 from config import API_BASE_URL
+import entry_checks
 from money import entry_preview, format_brl, parse_brl
 import ui
 
@@ -263,6 +264,44 @@ def expense_entry_form():
             preview_shares = [(m["user_id"], Decimal(str(m["share_pct"]))) for m in household_data or []]
         price_slot.caption(md(entry_preview(price, total_inst, preview_shares, my_user_id)))
 
+    def send(payload: dict) -> None:
+        """POST it; on success reset the form, on a likely duplicate ask first."""
+        try:
+            response = check(requests.post(f"{API_BASE_URL}/expenditures/", json=payload,
+                                           headers=headers_for(st.session_state["access_token"])))
+        except requests.exceptions.RequestException as e:
+            st.error(f"Error processing request: {e}")
+            return
+        if response.status_code == 409:
+            # Already logged (by you, or a shared one by your partner): ask before saving.
+            st.session_state[k("duplicate")] = {"payload": payload, "duplicates": response.json()["detail"]["duplicates"]}
+            st.rerun()
+        if response.status_code != 200:
+            st.error(f"Error: {response.status_code} – {response.text}")
+            return
+        # Fresh widgets next time, a toast after the rerun, and the overview
+        # below refetched with the new expense in it.
+        st.session_state.pop(k("duplicate"), None)
+        st.session_state["entry_nonce"] = nonce + 1
+        st.session_state["tracker_toast"] = f"Expense saved: {format_brl(Decimal(payload['price']))}"
+        st.cache_data.clear()
+        st.rerun(scope="app")
+
+    # --- A likely duplicate, waiting for a decision ---
+    pending = st.session_state.get(k("duplicate"))
+    if pending:
+        with st.container(border=True):
+            st.warning("This looks like an expense that's already logged.", icon=":material/content_copy:")
+            for line in entry_checks.duplicate_lines(pending["duplicates"], SAO_PAULO):
+                st.markdown(f"- {md(line)}")
+            keep, drop = st.columns(2)
+            if keep.button("Save anyway", key=k("save_anyway"), width="stretch"):
+                send({**pending["payload"], "allow_duplicate": True})
+            if drop.button("Don't save", key=k("drop_duplicate"), type="primary", width="stretch"):
+                st.session_state.pop(k("duplicate"), None)
+                st.rerun()
+        return
+
     # --- Submit button ---
     if not st.button("Submit Expenditure", type="primary", key=k("submit")):
         return
@@ -319,24 +358,11 @@ def expense_entry_form():
             payload["shares"] = [
                 {"user_id": uid, "share_pct": f"{pct / 100:.2f}"} for uid, pct in custom_shares if pct > 0
             ]
-
-        # 4. Request
-        response = check(requests.post(f"{API_BASE_URL}/expenditures/", json=payload,
-                                       headers=headers_for(st.session_state["access_token"])))
     except Exception as e:
         st.error(f"Error processing request: {e}")
         return
 
-    if response.status_code != 200:
-        st.error(f"Error: {response.status_code} – {response.text}")
-        return
-
-    # Fresh widgets next time, a toast after the rerun, and the overview
-    # below refetched with the new expense in it.
-    st.session_state["entry_nonce"] = nonce + 1
-    st.session_state["tracker_toast"] = f"Expense saved: {format_brl(price)}"
-    st.cache_data.clear()
-    st.rerun(scope="app")
+    send(payload)
 
 
 # -- Main Page UI --
@@ -359,6 +385,9 @@ ui.lede(
      else " Shared expenses are split between you by the household ratio; ")
     + "personal ones stay private to you.",
 )
+# Where logging has got to, to see where backfilling stopped.
+for line in entry_checks.backfill_lines(get_data("expenditures", token), my_user_id, SAO_PAULO):
+    st.caption(md(line))
 if categories_df.empty or payment_methods_df.empty:
     st.warning("Add at least one category and one payment method on the **Settings** page first.")
     st.page_link("pages/5_Settings.py", label="Open Settings", icon=":material/settings:")
