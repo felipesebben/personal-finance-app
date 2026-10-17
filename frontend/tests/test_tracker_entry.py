@@ -337,3 +337,60 @@ EXPENDITURE = {
     "user": {"user_id": 1, "full_name": "Me", "email": ME},
     "category": CATEGORIES[1], "payment_method": PAYMENT_METHODS[0],
 }
+
+
+DUPLICATE = {"detail": {"message": "This looks like an expense that's already logged.", "duplicates": [
+    {"expenditure_id": 3, "logged_by": "Her", "logged_by_me": False, "transaction_timestamp": "2026-09-05T15:30:00+00:00",
+     "price": "50.00", "category": "Food › Groceries", "payment_method": "Credit Card · Nubank"},
+]}}
+
+
+def submit_pix_groceries(at):
+    at.selectbox(key="entry_payment_0_primary").select("Pix").run()
+    fill_rest_and_submit(at)
+
+
+def test_a_likely_duplicate_asks_before_saving_and_can_be_saved_anyway(at, api):
+    _, post = api
+    post.side_effect = [response(DUPLICATE, 409), response({"expenditure_id": 9})]
+    submit_pix_groceries(at)
+    assert not at.exception
+    assert any("already logged" in w.value for w in at.warning)
+    assert any("Her already logged a matching shared expense on 05/09/2026" in m.value for m in at.markdown)
+    assert not [b for b in at.button if b.key == "entry_submit_0"]  # decide first
+
+    at.button(key="entry_save_anyway_0").click().run()
+    assert not at.exception
+    assert post.call_count == 2
+    assert post.call_args.kwargs["json"]["allow_duplicate"] is True
+    assert at.session_state["entry_nonce"] == 1  # saved: a fresh form
+
+
+def test_dont_save_drops_it(at, api):
+    _, post = api
+    post.side_effect = [response(DUPLICATE, 409)]
+    submit_pix_groceries(at)
+    at.button(key="entry_drop_duplicate_0").click().run()
+    assert not at.exception
+    assert post.call_count == 1
+    assert not at.warning
+    assert [b for b in at.button if b.key == "entry_submit_0"]
+
+
+def test_the_page_says_where_backfilling_has_got_to(api):
+    get, _ = api
+    mine = {"expenditure_id": 1, "transaction_timestamp": "2026-08-03T15:00:00+00:00", "price": "85.00",
+            "is_shared": True, "user": {"user_id": 1, "full_name": "Me", "email": ME}, "category": CATEGORIES[0]}
+
+    def with_expenses(url, *args, **kwargs):
+        return response([mine]) if url.endswith("/expenditures") else fake_get(url)
+
+    get.side_effect = with_expenses
+    app = AppTest.from_file("Home.py", default_timeout=30)
+    app.session_state["access_token"] = "x"
+    app.session_state["user_email"] = ME
+    app.run()
+    app.switch_page(PAGE)
+    at = app.run()
+    assert not at.exception
+    assert any(c.startswith("Shared: one so far, 3 August 2026") and "logged by you" in c for c in captions(at))

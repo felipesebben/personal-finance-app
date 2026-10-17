@@ -97,6 +97,43 @@ def visible_to(user: models.DimUser):
 
 
 # Create a POST endpoint at the URL /expenditures/.
+def possible_duplicates(db: Session, user: models.DimUser, e: schemas.ExpenditureCreate) -> list:
+    """
+    Expenses the caller can see that this one would probably duplicate: on
+    the same São Paulo day (the time is ignored, since a backfilled expense
+    gets whatever time it was typed), at the same price, in the same
+    category, and either
+
+    - logged by the caller with every other field the same too (payment
+      method, nature, installments, pet, shared or not, "on me"), or
+    - a shared expense logged by someone else, when this one is shared:
+      the partner probably logged the same bill, maybe with their own card.
+    """
+    fact = models.FactExpenditure
+    when = e.transaction_timestamp if e.transaction_timestamp.tzinfo else e.transaction_timestamp.replace(tzinfo=SAO_PAULO)
+    local_day = func.date(func.timezone("America/Sao_Paulo", fact.transaction_timestamp))
+    candidates = (
+        db.query(fact)
+        .options(joinedload(fact.user), joinedload(fact.category), joinedload(fact.payment_method))
+        .filter(
+            visible_to(user),
+            local_day == when.astimezone(SAO_PAULO).date(),
+            fact.price == e.price,
+            fact.category_id == e.category_id,
+        )
+        .order_by(fact.transaction_timestamp)
+        .all()
+    )
+    mine = (e.payment_method_id, e.nature, e.current_installment, e.total_installments, e.pet_id, e.is_treat, e.is_shared)
+    return [
+        f for f in candidates
+        if (f.user_id == user.user_id
+            and (f.payment_method_id, f.nature, f.current_installment, f.total_installments,
+                 f.pet_id, f.is_treat, f.has_other_share) == mine)
+        or (f.user_id != user.user_id and f.has_other_share and e.is_shared)
+    ]
+
+
 @app.post("/expenditures/", response_model=schemas.ExpenditureCreate)
 def create_expenditure(
     expenditure: schemas.ExpenditureCreate, 
@@ -109,7 +146,7 @@ def create_expenditure(
     # Remove user_id from the request JSON for fraud prevention, and
     # is_shared and shares, which are instructions for the split below
     # rather than stored columns.
-    expenditure_data = expenditure.model_dump(exclude={"user_id", "is_shared", "shares"})
+    expenditure_data = expenditure.model_dump(exclude={"user_id", "is_shared", "shares", "allow_duplicate"})
     if expenditure.pet_id is not None:
         category = db.get(models.DimCategory, expenditure.category_id)
         if not category or not category.for_pets:
@@ -117,6 +154,28 @@ def create_expenditure(
         if not db.get(models.DimPet, expenditure.pet_id):
             raise HTTPException(status_code=400, detail="Unknown pet.")
     shares = [(s.user_id, s.share_pct) for s in expenditure.shares] if expenditure.shares else None
+
+    if not expenditure.allow_duplicate:
+        duplicates = possible_duplicates(db, current_user, expenditure)
+        if duplicates:
+            raise HTTPException(status_code=409, detail={
+                "message": "This looks like an expense that's already logged.",
+                "duplicates": [
+                    {
+                        "expenditure_id": d.expenditure_id,
+                        "logged_by": d.user.full_name,
+                        "logged_by_me": d.user_id == current_user.user_id,
+                        "transaction_timestamp": d.transaction_timestamp.isoformat(),
+                        "price": str(d.price),
+                        "category": f"{d.category.primary_category} › {d.category.sub_category}" if d.category else None,
+                        "payment_method": (
+                            f"{d.payment_method.method_name}"
+                            + (f" · {d.payment_method.institution}" if d.payment_method.institution else "")
+                        ) if d.payment_method else None,
+                    }
+                    for d in duplicates
+                ],
+            })
 
     # The request's is_shared means "split this by the household ratio";
     # the allocation rows written by add_expenditure are what make it shared.
