@@ -20,7 +20,7 @@ This is a learning project. The owner wants to be walked through changes and und
 
 ## Commands
 
-Docker is the primary workflow — both app containers bind-mount their source, so code edits hot-reload without a rebuild.
+Docker is the primary workflow — both app containers bind-mount their source, so code edits hot-reload without a rebuild. `db`, `backend` and `frontend` have `restart: unless-stopped`, so the app comes back by itself whenever Docker Desktop starts (after a reboot or a crash); `docker compose stop` still stops them for good, and pgAdmin stays manual. It's reached from phones over Tailscale at `http://felipesebben:8501` (the PC's tailnet name), which is also `FRONTEND_BASE_URL`.
 
 ```powershell
 docker compose up --build          # full stack: API :8000, UI :8501, pgAdmin :5050, Postgres on $DB_PORT

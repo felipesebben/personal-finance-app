@@ -5,6 +5,7 @@ services:
   db:
     image: postgres:15-alpine
     container_name: personal_finance_db
+    restart: unless-stopped # come back after a reboot or crash; `docker compose stop` still stops it
     environment:
       - POSTGRES_USER=${DB_USER}
       - POSTGRES_PASSWORD=${DB_PASSWORD}
@@ -25,6 +26,7 @@ services:
   backend:
     build: ./backend  # Tells Docker to build the image from the ./backend folder
     container_name: personal_finance_api
+    restart: unless-stopped # come back after a reboot or crash; `docker compose stop` still stops it
     command: sh -c "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
     ports:
       - 8000:8000 # Open port 8000 so that we can test the API in the browser
@@ -55,6 +57,7 @@ services:
   frontend:
     build: ./frontend
     container_name: personal_finance_frontend
+    restart: unless-stopped # come back after a reboot or crash; `docker compose stop` still stops it
     ports:
       - "8501:8501"
     volumes:
