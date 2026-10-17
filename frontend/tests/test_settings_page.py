@@ -49,9 +49,11 @@ def run(users=USERS, household=()):
     at = AppTest.from_file("Home.py", default_timeout=30)
     at.session_state["access_token"] = "x"
     at.session_state["user_email"] = ME
-    at.run()
-    at.switch_page(PAGE)
+    # Home's briefing calls the API too, so mock it there as well: an
+    # unmocked call could reach a real backend, whose 401 logs the test out.
     with patch("requests.get", side_effect=fake_get(users, list(household))):
+        at.run()
+        at.switch_page(PAGE)
         at.run()
     return at
 

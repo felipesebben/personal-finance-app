@@ -9,7 +9,7 @@ import requests
 import streamlit as st
 
 import ui
-from common import SAO_PAULO, auth_headers, get_data, md, month_options, period_label, saved, today_brl
+from common import SAO_PAULO, auth_headers, check, get_data, md, month_options, period_label, saved, today_brl
 from config import API_BASE_URL
 from money import format_brl, parse_brl
 
@@ -75,7 +75,7 @@ def render(token: str) -> None:
             "month": month_value,
             "note": note or None,
         }
-        res = requests.post(f"{API_BASE_URL}/settlements/", json=payload, headers=auth_headers(token))
+        res = check(requests.post(f"{API_BASE_URL}/settlements/", json=payload, headers=auth_headers(token)))
         if res.status_code == 200:
             saved(f"Payment recorded: {format_brl(amount)}")
         else:
@@ -151,7 +151,7 @@ def render(token: str) -> None:
             target = st.selectbox("Remove a payment entered by mistake:", options=list(labels),
                                   format_func=labels.get, index=None)
             if st.button("Delete payment") and target:
-                res = requests.delete(f"{API_BASE_URL}/settlements/{target}", headers=auth_headers(token))
+                res = check(requests.delete(f"{API_BASE_URL}/settlements/{target}", headers=auth_headers(token)))
                 if res.status_code == 200:
                     saved("Payment removed.")
                 else:

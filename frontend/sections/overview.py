@@ -14,13 +14,11 @@ import datetime
 from urllib.parse import urlencode
 
 import pandas as pd
-import requests
 import streamlit as st
 
 import analytics_charts as charts
 import analytics_shaping as shape
-from common import SAO_PAULO, auth_headers
-from config import API_BASE_URL
+from common import SAO_PAULO, get_data
 from money import format_brl
 
 # scope -> (endpoints, what the rows are called)
@@ -32,21 +30,13 @@ SCOPES = {
 BASIS = "Purchase month · São Paulo time."
 
 
-@st.cache_data(ttl=60)
+_FAILED = object()
+
+
 def fetch(endpoint: str, token: str):
-    """GET from the API; None (with a message) on failure."""
-    try:
-        response = requests.get(f"{API_BASE_URL}/{endpoint}", headers=auth_headers(token))
-    except requests.exceptions.ConnectionError:
-        st.error("Connection Error: Could not connect to the API.")
-        return None
-    if response.status_code == 200:
-        return response.json()
-    if response.status_code == 401:
-        st.error("Session Expired. Please log in again.")
-    else:
-        st.error(f"Failed to fetch {endpoint.split('?')[0]}. Status code: {response.status_code}")
-    return None
+    """GET from the API (cached); None, with a message, on failure."""
+    result = get_data(endpoint, token, default=_FAILED)
+    return None if result is _FAILED else result
 
 
 def metric_delta(change: float, pct: float):

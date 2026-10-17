@@ -35,7 +35,7 @@ def env(monkeypatch):
 
 def test_defaults(env):
     s = env()
-    assert s.access_token_expire_minutes == 30
+    assert s.access_token_expire_minutes == 60
     assert s.tableau_project_name == "Finance App 2026"
     assert s.db_port == 5432
 
