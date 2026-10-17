@@ -146,6 +146,10 @@ class ExpenditureCreate(BaseModel):
     # never makes anyone owe them. Only for a shared expense.
     is_treat: bool = False
 
+    # The request is refused (409) when it looks like an expense already
+    # logged; send true to save it anyway.
+    allow_duplicate: bool = False
+
     class Config:
         from_attributes = True # Changed from orm_mode
 

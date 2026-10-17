@@ -14,7 +14,8 @@ def test_lists_report_how_many_expenses_use_each_row(client, household):
         "primary_category": "Pets", "sub_category": "Vet", "cost_type": "Variable",
     }).json()["category_id"]
     for _ in range(2):
-        assert client.post("/expenditures/", headers=h, json=expenditure_payload(household)).status_code == 200
+        # The same expense twice on purpose, so the duplicate check is told to allow it.
+        assert client.post("/expenditures/", headers=h, json=expenditure_payload(household, allow_duplicate=True)).status_code == 200
 
     categories = client.get("/categories/", headers=h).json()
     assert by_id(categories, "category_id", household["category_id"])["expense_count"] == 2
