@@ -6,6 +6,7 @@ from conftest import expenditure_payload, signup_and_login
 PROTECTED_ROUTES = [
     ("get", "/users/"),
     ("get", "/categories/"),
+    ("post", "/token/refresh"),
     ("post", "/joint/entries"),
     ("get", "/joint/entries"),
     ("delete", "/joint/entries/1"),
@@ -157,3 +158,30 @@ def test_allowlist_is_case_insensitive(client, allowlist):
     allowlist(" Alice@Example.com ,bob@example.com")
     assert signup(client, "ALICE@example.COM").status_code == 200
     assert signup(client, "bob@example.com").status_code == 200
+
+
+# --- renewing a session ------------------------------------------------------
+
+def test_refresh_swaps_a_valid_token_for_a_later_one(client):
+    from datetime import timedelta
+    from jose import jwt
+    from auth import ALGORITHM, SECRET_KEY, create_access_token
+
+    signup_and_login(client, "alice")
+    # A token close to expiring, as if issued 55 minutes ago.
+    old = create_access_token({"sub": "alice@example.com"}, expires_delta=timedelta(minutes=5))
+    resp = client.post("/token/refresh", headers={"Authorization": f"Bearer {old}"})
+    assert resp.status_code == 200, resp.text
+    new = resp.json()["access_token"]
+    exp = lambda t: jwt.decode(t, SECRET_KEY, algorithms=[ALGORITHM])["exp"]
+    assert exp(new) > exp(old)
+    assert client.get("/users/", headers={"Authorization": f"Bearer {new}"}).status_code == 200
+
+
+def test_an_expired_session_cannot_be_renewed(client):
+    from datetime import timedelta
+    from auth import create_access_token
+
+    signup_and_login(client, "alice")
+    expired = create_access_token({"sub": "alice@example.com"}, expires_delta=timedelta(minutes=-1))
+    assert client.post("/token/refresh", headers={"Authorization": f"Bearer {expired}"}).status_code == 401

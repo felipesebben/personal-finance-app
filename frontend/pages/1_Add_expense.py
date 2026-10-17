@@ -5,7 +5,8 @@ from decimal import Decimal
 import pandas as pd
 
 from common import (
-    SAO_PAULO, auth_headers as headers_for, get_data, md, my_user_id as find_my_user_id, require_login, show_toast,
+    SAO_PAULO, auth_headers as headers_for, check, get_data, keep_alive, md, my_user_id as find_my_user_id,
+    require_login, show_toast,
 )
 from config import API_BASE_URL
 from money import entry_preview, format_brl, parse_brl
@@ -112,6 +113,8 @@ def expense_entry_form():
     fresh, empty widgets.
     """
     nonce = st.session_state.setdefault("entry_nonce", 0)
+    # Typing reruns only this fragment, so renew the session here too.
+    keep_alive()
 
     def k(name):
         return f"entry_{name}_{nonce}"
@@ -318,7 +321,8 @@ def expense_entry_form():
             ]
 
         # 4. Request
-        response = requests.post(f"{API_BASE_URL}/expenditures/", json=payload, headers=auth_headers)
+        response = check(requests.post(f"{API_BASE_URL}/expenditures/", json=payload,
+                                       headers=headers_for(st.session_state["access_token"])))
     except Exception as e:
         st.error(f"Error processing request: {e}")
         return

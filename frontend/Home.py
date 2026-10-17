@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 
+from common import LOGOUT_MESSAGE_KEY, keep_alive, start_session
 from config import API_BASE_URL
 import ui
 from sections import briefing
@@ -154,6 +155,8 @@ if st.session_state["access_token"] is None:
     ui.page_header(ui.APP_NAME, "Your household's shared spending, split fairly by income. Log in, or create an account if you're new.")
     if st.session_state.pop("password_reset_done", False):
         st.success("Password updated. You can now log in with the new one.")
+    if logout_message := st.session_state.pop(LOGOUT_MESSAGE_KEY, None):
+        st.info(logout_message, icon=":material/schedule:")
 
     # Create two tabs: one for Login, one for Sign Up
     tab1, tab2 = st.tabs(["Log In", "Sign Up"])
@@ -169,14 +172,7 @@ if st.session_state["access_token"] is None:
                 if email_input and password_input:
                     token_data = login_user(email_input, password_input)
                     if token_data:
-                        new_token = token_data["access_token"]
-
-                        st.session_state.clear()
-
-                        st.session_state["access_token"] = new_token
-                        st.session_state["user_email"] = email_input
-
-                        st.success("Login Successful!")
+                        start_session(token_data["access_token"], email_input)
                         st.rerun()
                 else:
                     st.warning("Please enter both email and password.")
@@ -210,14 +206,16 @@ if st.session_state["access_token"] is None:
 
 # Case B: User is logged in (Show Welcome Screen)
 else:
+    # Both of these can find the session expired and send you to the login
+    # form, so they run before anything that says you're logged in.
+    keep_alive()
+    ui.page_header(ui.APP_NAME, "What would you like to do?")
+    briefing.render(st.session_state["access_token"])
+
     with st.sidebar:
         st.write(f"Logged in as: **{st.session_state.get('user_email', 'User')}**")
         if st.button("Log Out", key="sidebar_logout"):
             logout_user()
-
-    ui.page_header(ui.APP_NAME, "What would you like to do?")
-
-    briefing.render(st.session_state["access_token"])
 
     cards = [
         ("Add expense", "Record a purchase in a few taps.", "pages/1_Add_expense.py", ":material/edit_note:"),

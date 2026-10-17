@@ -207,6 +207,20 @@ def login_for_access_token(db: Session = Depends(get_db), form_data: OAuth2Passw
     return {"access_token": access_token, "token_type": "bearer"}
 
 
+@app.post("/token/refresh", response_model=schemas.Token)
+def refresh_access_token(current_user: models.DimUser = Depends(get_current_user)):
+    """
+    Swaps a still-valid token for a fresh one. The frontend calls it while
+    you use the app, so ACCESS_TOKEN_EXPIRE_MINUTES works as an inactivity
+    timeout: an expired token is refused like any other, so nothing renews
+    a session that has already ended.
+    """
+    access_token = create_access_token(
+        data={"sub": current_user.email}, expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
+
+
 # --- Password reset (both routes are public: the user can't log in) ---
 
 RESET_REQUESTED = "If that account exists, we've sent a reset link."

@@ -6,7 +6,7 @@ import requests
 import streamlit as st
 
 import ui
-from common import SAO_PAULO, auth_headers, get_data, saved
+from common import SAO_PAULO, auth_headers, check, get_data, saved
 from config import API_BASE_URL
 from money import format_brl
 
@@ -72,7 +72,7 @@ def render(token: str) -> None:
 
         if st.button("Confirm delete", type="primary") and target_id:
             try:
-                res = requests.delete(f"{API_BASE_URL}/expenditures/{target_id}", headers=auth_headers(token))
+                res = check(requests.delete(f"{API_BASE_URL}/expenditures/{target_id}", headers=auth_headers(token)))
             except Exception as e:
                 st.error(f"Connection error: {e}")
                 return
