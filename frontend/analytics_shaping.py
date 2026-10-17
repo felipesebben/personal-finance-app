@@ -22,7 +22,7 @@ from money import format_brl
 
 LENSES = {"Household": "household", "My share": "mine"}
 AMOUNT_COLUMNS = ["household", "mine", "household_to_day", "mine_to_day"]
-ROW_COLUMNS = ["month", "primary_category", "sub_category", "cost_type", *AMOUNT_COLUMNS, "count"]
+ROW_COLUMNS = ["month", "primary_category", "sub_category", "cost_type", "nature", *AMOUNT_COLUMNS, "count", "source"]
 MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
 # Vega expression for a money axis: 1234 -> "R$ 1.234" (Brazilian grouping).
@@ -54,10 +54,29 @@ def to_frame(payload: dict | None) -> pd.DataFrame:
     """The response's rows as a DataFrame with float amounts (empty but typed when there are none)."""
     rows = (payload or {}).get("rows") or []
     df = pd.DataFrame(rows, columns=ROW_COLUMNS)
+    df["nature"] = df["nature"].fillna("Normal")
+    df["source"] = df["source"].fillna("")
     for col in AMOUNT_COLUMNS:
         df[col] = pd.to_numeric(df[col]).astype(float)
     df["count"] = pd.to_numeric(df["count"]).fillna(0).astype(int)
     return df
+
+
+def merge_payloads(by_source: dict[str, dict]) -> dict:
+    """
+    Several /analytics (or /analytics/.../daily) payloads for the same
+    window as one, each row tagged with its `source` (e.g. "shared",
+    "personal") so a view can keep some of them.
+    """
+    payloads = {source: p for source, p in by_source.items() if isinstance(p, dict)}  # anything else: no rows
+    merged = dict(next(iter(payloads.values()), {}))
+    merged["rows"] = [{**row, "source": source} for source, p in payloads.items() for row in p.get("rows") or []]
+    return merged
+
+
+def keep_sources(df: pd.DataFrame, sources: list[str] | None) -> pd.DataFrame:
+    """The rows from these sources (all of them for None)."""
+    return df if sources is None or df.empty else df[df["source"].isin(sources)]
 
 
 def lens_column(lens: str, to_day: bool = False) -> str:

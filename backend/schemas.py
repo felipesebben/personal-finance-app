@@ -344,6 +344,7 @@ class SharedAnalyticsRow(BaseModel):
     primary_category: str
     sub_category: str
     cost_type: str
+    nature: str              # Normal / Recurring / Annual / Extraordinary
     household: Decimal       # sum of full prices
     mine: Decimal            # sum of my share_amount
     count: int               # number of shared expenses
@@ -356,6 +357,24 @@ class SharedAnalytics(BaseModel):
     is_partial: bool         # true when `month` is the current São Paulo month
     as_of_day: int           # today's São Paulo day if partial, else the month's length
     rows: List[SharedAnalyticsRow]  # only non-empty month/category combinations
+
+class DailyRow(BaseModel):
+    date: date               # a São Paulo calendar day
+    primary_category: str
+    sub_category: str
+    cost_type: str           # Fixed / Variable ("Unknown" without a category)
+    nature: str              # Normal / Recurring / Annual / Extraordinary
+    household: Decimal       # sum of full prices
+    mine: Decimal            # sum of my share
+    count: int               # expenses
+
+class DailyAnalytics(BaseModel):
+    month: str               # the selected (last) month of the window, "YYYY-MM"
+    months: List[str]        # the whole window, oldest first
+    is_partial: bool         # true when `month` is the current São Paulo month
+    as_of_day: int           # today's São Paulo day if partial, else the month's length
+    today: date              # today in São Paulo
+    rows: List[DailyRow]     # day x category x cost type x nature, only where something was spent
 
 class SharedExpense(BaseModel):
     expenditure_id: int

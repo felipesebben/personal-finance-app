@@ -60,7 +60,7 @@ def labels(elements):
 def test_renders_with_data():
     at = run_page(fake_api(lambda month: sample_payload(month)))
     assert not at.exception
-    assert [t.label for t in at.tabs] == ["Overview", "Settle up"]
+    assert [t.label for t in at.tabs] == ["This month", "Month by month", "Settle up"]
     assert len(at.metric) == 4
     assert any("to date" in label for label in labels(at.metric))
     assert at.metric[3].value == "Food"  # biggest increase
@@ -100,6 +100,7 @@ def test_my_spending_views_and_everything_adds_both_halves():
 
 
 def test_personal_view_asks_only_the_personal_endpoints():
+    # Both tabs (This month and Over time) set to Personal only.
     calls = []
     inner = fake_api(lambda month: sample_payload(month))
 
@@ -107,7 +108,7 @@ def test_personal_view_asks_only_the_personal_endpoints():
         calls.append(urlparse(url).path)
         return inner(url, *args, **kwargs)
 
-    at = run_page(get, page=MINE, mine_view="personal")
+    at = run_page(get, page=MINE, mine_view="personal", mine_daily_view="personal")
     assert not at.exception
     analytics_calls = [c for c in calls if "/analytics/" in c]
     assert analytics_calls and all("/analytics/personal" in c for c in analytics_calls)
@@ -135,3 +136,16 @@ def test_api_error_is_shown_not_raised():
     at = run_page(fake_api(lambda month: {}, status=500))
     assert not at.exception
     assert at.error
+
+
+def test_month_by_month_counts_only_what_the_filters_keep():
+    everything = run_page(fake_api(lambda month: sample_payload(month)))
+    assert everything.metric[0].value == "R$ 2.370,00"  # rent + groceries + restaurants
+    st.cache_data.clear()
+    day_to_day = run_page(fake_api(lambda month: sample_payload(month)), our_focus="Day-to-day")
+    assert not day_to_day.exception
+    assert day_to_day.metric[0].value == "R$ 370,00"  # no rent
+    assert any("Counting day-to-day costs only." in c.value for c in day_to_day.caption)
+    st.cache_data.clear()
+    housing = run_page(fake_api(lambda month: sample_payload(month)), our_categories=["Housing"])
+    assert housing.metric[0].value == "R$ 2.000,00"

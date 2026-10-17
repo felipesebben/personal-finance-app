@@ -2,11 +2,15 @@
 Spending over time: KPIs against earlier months, the monthly trend,
 categories, a heatmap, a drill-down and fixed vs variable.
 
-`scope` picks the expenses: "shared" (/analytics/shared), "personal"
-(/analytics/personal, only the caller's own) or "all" (both, i.e. my share
-of shared plus my personal spending). `lens` picks the amount: "Household"
-(full prices, on Our expenses) or "My share" (the caller's part). Data
-shaping lives in analytics_shaping, the Altair specs in analytics_charts.
+It opens with the same filter row as This month (sections/filters.py:
+what to count, categories, one-offs); with show_view (My expenses) the row
+starts with "Show", which picks the expenses: "shared" (/analytics/shared),
+"personal" (/analytics/personal, only the caller's own) or "all" (both,
+i.e. my share of shared plus my personal spending). On Our expenses it's
+always "shared". `lens` picks the amount: "Household" (full prices, on Our
+expenses) or "My share" (the caller's part). Each section is a card with
+its question as the title. Data shaping lives in analytics_shaping (and
+filtering), the Altair specs in analytics_charts.
 """
 from __future__ import annotations
 
@@ -18,8 +22,11 @@ import streamlit as st
 
 import analytics_charts as charts
 import analytics_shaping as shape
+import filtering
+import ui
 from common import SAO_PAULO, get_data
 from money import format_brl
+from sections.filters import FilterRow
 
 # scope -> (endpoints, what the rows are called)
 SCOPES = {
@@ -67,12 +74,10 @@ def changes_table(comparison: pd.DataFrame, by: str, label: str, previous_title:
 
 def fetch_window(endpoints: list[str], selected: str, token: str):
     """One /analytics payload, or several merged (same window, rows added together); None on failure."""
-    payloads = [fetch(f"{e}?{urlencode({'month': selected, 'months': 12})}", token) for e in endpoints]
-    if any(p is None for p in payloads):
+    payloads = {e: fetch(f"{e}?{urlencode({'month': selected, 'months': 12})}", token) for e in endpoints}
+    if any(p is None for p in payloads.values()):
         return None
-    merged = dict(payloads[0])
-    merged["rows"] = [row for p in payloads for row in p["rows"]]
-    return merged
+    return shape.merge_payloads(payloads)
 
 
 def fetch_items(endpoints: list[str], selected: str, category: str, token: str):
@@ -84,9 +89,8 @@ def fetch_items(endpoints: list[str], selected: str, category: str, token: str):
     return sorted((i for items in lists for i in items), key=lambda i: i["transaction_timestamp"], reverse=True)
 
 
-def render(token: str, lens: str, key: str, scope: str = "shared") -> None:
-    """The whole overview for one lens and scope. `key` prefixes widget keys so each page keeps its own picks."""
-    endpoints, noun = SCOPES[scope]
+def render(token: str, lens: str, key: str, show_view: bool = False) -> None:
+    """The whole overview for one lens. `key` prefixes widget keys so each page keeps its own picks."""
     current_month = datetime.datetime.now(SAO_PAULO).strftime("%Y-%m")
 
     # Defaults go through session state (not `default=`) so a test can
@@ -101,13 +105,19 @@ def render(token: str, lens: str, key: str, scope: str = "shared") -> None:
         "Trend window", [6, 12], key=f"{key}_window",
         format_func=lambda n: f"{n} months",
     ) or 12
+    row = FilterRow(key, show_view=show_view)
+    scope = row.view() or "shared"
+    endpoints, noun = SCOPES[scope]
 
     # Always fetch 12 months: the 6-month view and the 3-month average both fit inside.
     data = fetch_window(endpoints, selected, token)
     if data is None:
         return
 
-    df = shape.to_frame(data)
+    everything = shape.to_frame(data)
+    filters = row.filters(sorted(everything["primary_category"].unique()))
+    df = filtering.filter_rows(everything, filters)
+    counted = filtering.note(filters)
     months = data["months"]
     is_partial = data["is_partial"]
     as_of_day = data["as_of_day"]
@@ -126,12 +136,16 @@ def render(token: str, lens: str, key: str, scope: str = "shared") -> None:
 
     st.caption(
         f"{BASIS} {explains[scope]}"
+        + (f" Counting {counted} only." if counted else "")
         + (f" {selected_label} is in progress, so it's compared with days 1–{as_of_day} of other months." if is_partial else "")
     )
 
-    if df.empty:
+    if everything.empty:
         st.info(f"No {noun} in the 12 months up to {selected_label}. Log one to see this overview.")
         st.page_link("pages/1_Add_expense.py", label="Add an expense", icon=":material/edit_note:")
+        return
+    if df.empty:
+        st.info("Nothing matches these filters in the 12 months. Widen them to see more.")
         return
 
     # --- KPIs ---
@@ -168,37 +182,52 @@ def render(token: str, lens: str, key: str, scope: str = "shared") -> None:
                   delta_color="inverse", border=True, help=f"Against {previous_title}.")
 
     # --- Trend ---
-    st.subheader("Monthly trend")
     trend_months = months[-window:]
-    totals = shape.monthly_totals(df, trend_months, lens)
-    trend_average = shape.previous_full_average(df, months, selected, lens)
-    st.altair_chart(charts.trend_chart(totals, selected, is_partial, trend_average), use_container_width=True)
-    st.caption(
-        ("Faded bar: month in progress, no projection. " if is_partial else "")
-        + ("Dashed line: average of the three full months before the selected one." if trend_average is not None
-           else "The 3-month average line appears once three full months of history exist.")
-    )
+    with ui.card(f"{key}_trend"):
+        st.subheader("How does each month compare?")
+        totals = shape.monthly_totals(df, trend_months, lens)
+        trend_average = shape.previous_full_average(df, months, selected, lens)
+        st.altair_chart(charts.trend_chart(totals, selected, is_partial, trend_average), use_container_width=True)
+        st.caption(
+            ("Faded bar: month in progress, no projection. " if is_partial else "")
+            + ("Dashed line: average of the three full months before the selected one." if trend_average is not None
+               else "The 3-month average line appears once three full months of history exist.")
+        )
 
     # --- Where is it going ---
-    st.subheader("Where we're spending more" if household
-                 else "Where my share is going" if scope == "shared" else "Where my money is going")
-    st.caption(f"{selected_label}{to_date} by category, largest first. Grey tick: {previous_title}.")
-    if comparison.empty:
-        st.info(f"No {noun} in {selected_label} or {shape.month_label(previous)}.")
-    else:
-        left, right = st.columns([3, 2])
-        left.altair_chart(charts.comparison_bars(comparison, "primary_category", previous_title), use_container_width=True)
-        with right:
-            st.markdown("**Biggest changes**")
-            st.dataframe(changes_table(comparison, "primary_category", "Category", previous_title), hide_index=True)
+    with ui.card(f"{key}_categories_card"):
+        st.subheader("Where are we spending more?" if household
+                     else "Where is my share going?" if scope == "shared" else "Where is my money going?")
+        st.caption(f"{selected_label}{to_date} by category, largest first. Grey tick: {previous_title}.")
+        if comparison.empty:
+            st.info(f"No {noun} in {selected_label} or {shape.month_label(previous)}.")
+        else:
+            left, right = st.columns([3, 2], gap="medium")
+            left.altair_chart(charts.comparison_bars(comparison, "primary_category", previous_title),
+                              use_container_width=True)
+            with right:
+                st.markdown("**Biggest changes**")
+                st.dataframe(changes_table(comparison, "primary_category", "Category", previous_title),
+                             hide_index=True)
 
     # --- Heatmap ---
-    st.subheader("Category by month")
-    st.caption("Darker cells are bigger months for that category.")
-    st.altair_chart(charts.heatmap_chart(shape.heatmap_frame(df, trend_months, lens), trend_months), use_container_width=True)
+    with ui.card(f"{key}_heatmap"):
+        st.subheader("Which categories are growing over the months?")
+        st.caption("Each row is a category, each column a month: darker cells are bigger months for that category.")
+        st.altair_chart(charts.heatmap_chart(shape.heatmap_frame(df, trend_months, lens), trend_months),
+                        use_container_width=True)
 
-    # --- Drill-down ---
-    st.subheader("Drill down")
+    with ui.card(f"{key}_drill"):
+        _drill_down(df, comparison, rising, selected, selected_label, is_partial, previous_title, lens, household,
+                    endpoints, noun, filters, key, token)
+
+    with ui.card(f"{key}_fixed"):
+        _fixed_vs_variable(df, selected, is_partial, lens, previous, previous_title, to_date, noun, selected_label)
+
+
+def _drill_down(df, comparison, rising, selected, selected_label, is_partial, previous_title, lens, household,
+                endpoints, noun, filters, key, token) -> None:
+    st.subheader("What's inside a category?")
     categories = list(comparison["primary_category"])
     if not categories:
         st.info(f"Nothing to drill into for {selected_label}.")
@@ -209,6 +238,8 @@ def render(token: str, lens: str, key: str, scope: str = "shared") -> None:
         st.altair_chart(charts.comparison_bars(sub, "sub_category", previous_title), use_container_width=True)
 
         items = fetch_items(endpoints, selected, category, token)
+        if items:
+            items = filtering.filter_rows(pd.DataFrame(items), filters).to_dict("records")
         if items:
             exp = pd.DataFrame(items)
             exp["date"] = pd.to_datetime(exp["transaction_timestamp"], utc=True).dt.tz_convert(SAO_PAULO).dt.strftime("%d/%m/%Y")
@@ -223,8 +254,9 @@ def render(token: str, lens: str, key: str, scope: str = "shared") -> None:
         elif items is not None:
             st.caption(f"No {category} {noun} in {selected_label}.")
 
-    # --- Fixed vs variable ---
-    st.subheader("Fixed vs variable")
+
+def _fixed_vs_variable(df, selected, is_partial, lens, previous, previous_title, to_date, noun, selected_label) -> None:
+    st.subheader("How much is fixed, how much is day-to-day?")
     split = shape.cost_type_split(df, selected, is_partial, lens)
     if split.empty:
         st.info(f"No {noun} in {selected_label} or {shape.month_label(previous)}.")
