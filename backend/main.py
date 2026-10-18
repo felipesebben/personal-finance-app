@@ -532,6 +532,34 @@ def update_household_settings(payload: schemas.HouseholdSettingsUpdate, db: Sess
         .all()
     )
 
+@app.get("/category_targets/", response_model=List[schemas.CategoryTargetItem],
+         dependencies=[Depends(get_current_user)])
+def get_category_targets(db: Session = Depends(get_db)):
+    """Every primary category's monthly target, by name."""
+    return db.query(models.CategoryTarget).order_by(models.CategoryTarget.primary_category).all()
+
+
+@app.put("/category_targets/", response_model=List[schemas.CategoryTargetItem],
+         dependencies=[Depends(get_current_user)])
+def update_category_targets(payload: schemas.CategoryTargetsUpdate, db: Session = Depends(get_db)):
+    """
+    Replaces the whole set of targets in one transaction (a category left
+    out has none). Each must name an existing primary category, once.
+    """
+    names = [t.primary_category for t in payload.targets]
+    if len(set(names)) != len(names):
+        raise HTTPException(status_code=400, detail="A category appears twice.")
+    known = {c for (c,) in db.query(models.DimCategory.primary_category).distinct()}
+    unknown = sorted(set(names) - known)
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"Unknown category: {', '.join(unknown)}")
+    db.query(models.CategoryTarget).delete()
+    for t in payload.targets:
+        db.add(models.CategoryTarget(primary_category=t.primary_category, amount=t.amount))
+    db.commit()
+    return db.query(models.CategoryTarget).order_by(models.CategoryTarget.primary_category).all()
+
+
 # Everything ExpenditureRead nests, loaded up front.
 EXPENDITURE_READ_LOADS = (
     joinedload(models.FactExpenditure.user),

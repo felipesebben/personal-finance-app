@@ -105,3 +105,10 @@ def test_bullet_bars_and_a_partly_logged_line_compile():
 
 SAMPLE_BULLET = payload([row("2026-09-28", "300.00"), row("2026-10-02", "50.00", "Pets", "Vet")],
                         months=("2026-09", "2026-10"))
+
+
+def test_a_target_tick_compiles():
+    rows = daily.rows_frame(SAMPLE_BULLET)
+    mix = daily.ranked(rows, "Household", "primary_category", month="2026-10")
+    mix = mix.assign(target=[300.0] + [0.0] * (len(mix) - 1))
+    compiles(analytics_charts.ranked_bars(mix, picked=mix["name"].iloc[0], target="target"))

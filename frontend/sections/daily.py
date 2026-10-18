@@ -143,6 +143,14 @@ def _cards(p: dict, cards: list[dict], hist, this_cal, last_cal) -> None:
                 st.altair_chart(chart, use_container_width=True)
 
 
+def _targets(token: str, lens: str) -> dict[str, float]:
+    """The household's monthly targets by category; only for the Household lens (they're for shared spending)."""
+    if lens != "Household":
+        return {}
+    rows = get_data("category_targets/", token, default=[])
+    return {t["primary_category"]: float(t["amount"]) for t in rows or [] if isinstance(t, dict)}
+
+
 def _still_to_come(token: str, month: str, view: str, lens: str, filters: filtering.Filters) -> None:
     """
     What's still to come this month: recurring bills not logged yet, and
@@ -175,7 +183,7 @@ def _still_to_come(token: str, month: str, view: str, lens: str, filters: filter
                 st.altair_chart(analytics_charts.ranked_bars(cards, room=1.7), use_container_width=True)
 
 
-def _where(picked, lens: str, month: str, p: dict, key: str) -> None:
+def _where(picked, lens: str, month: str, p: dict, key: str, targets: dict[str, float]) -> None:
     """Where is the money going? The categories, then what's inside the picked one, each against last month."""
     st.subheader(f"Where is the money going in {daily.month_name(month)}?")
     mix = daily.ranked(picked, lens, "primary_category", month=month)
@@ -184,16 +192,23 @@ def _where(picked, lens: str, month: str, p: dict, key: str) -> None:
         return
     # Last month by the same day as a grey tick, once it was logged in full (a partial month would mislead).
     tick = "previous" if p["has_last"] else None
+    notes = []
     if tick:
         by = f" by the {daily.ordinal(p['day'])}" if p["is_partial"] else ""
-        st.caption(f"Grey tick: {daily.month_name(p['previous'])}{by}.")
+        notes.append(f"Grey tick: {daily.month_name(p['previous'])}{by}.")
         mix = daily.against_last_month(mix, picked, lens, "primary_category", month, p["day"])
+    # The household's monthly targets (Settings), as a dark tick: for the whole month.
+    mix = mix.assign(target=[targets.get(n, 0.0) for n in mix["name"]])
+    if mix["target"].gt(0).any():
+        notes.append("Dark tick: the monthly target.")
+    if notes:
+        st.caption(" ".join(notes))
     left, right = st.columns([1, 1], gap="medium")
     with right:
         category = st.pills("Look inside", list(mix["name"]), default=mix["name"].iloc[0],
                             key=f"{key}_daily_inside") or mix["name"].iloc[0]
     with left:
-        st.altair_chart(analytics_charts.ranked_bars(mix, picked=category, previous=tick),
+        st.altair_chart(analytics_charts.ranked_bars(mix, picked=category, previous=tick, target="target"),
                         use_container_width=True)
     with right:
         rows = picked[picked["primary_category"] == category]
@@ -281,7 +296,7 @@ def render(token: str, lens: str, key: str, show_view: bool = False) -> None:
         )
 
     with ui.card("where"):
-        _where(picked, lens, month, p, key)
+        _where(picked, lens, month, p, key, _targets(token, lens))
 
     # --- Where the difference comes from ---
     if p["has_last"]:
