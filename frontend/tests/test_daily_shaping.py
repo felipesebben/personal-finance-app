@@ -288,3 +288,48 @@ def test_calendar_scale_ignores_one_huge_day():
     assert daily.calendar_scale_max(big) == 50.0  # the 90th percentile of spending days, not the 1.900
     assert daily.calendar_scale_max(cal.assign(amount=0.0)) == 1.0
 
+
+
+# --- a partly logged last month: shown for context, never a verdict -----------
+
+PARTLY = payload([row("2026-09-28", "300.00"), row("2026-09-30", "100.00"),
+                  row("2026-10-02", "50.00"), row("2026-10-05", "70.00")], months=("2026-09", "2026-10"))
+
+
+def test_partly_logged_from_only_for_a_month_logging_began_late_in():
+    started = datetime.date(2026, 9, 28)
+    assert daily.partly_logged_from("2026-09", "2026-10", started) == 28
+    assert daily.partly_logged_from("2026-09", "2026-09", datetime.date(2026, 9, 3)) is None  # logged in full
+    assert daily.partly_logged_from("2026-08", "2026-10", started) is None  # before logging began
+
+
+def test_a_partly_logged_last_month_is_drawn_and_named_but_not_compared():
+    rows = daily.rows_frame(PARTLY)
+    df, since, started = daily.by_day(rows), daily.tracked_since(rows), daily.logging_started(rows)
+    p = daily.pace(df, PARTLY, "Household", since=since, started=started)
+    assert (p["has_last"], p["last_partly_from"], p["last_total"]) == (False, 28, 400.0)
+    head = daily.headline(p, started=started)
+    texts = [t for t, _ in head["lines"]]
+    assert texts[0] == "September: R$ 400,00, logged from the 28th only"
+    assert texts[1] == "Comparisons start in November, against October."
+    assert all(tone is None for _, tone in head["lines"])  # no ▲/▼ against a partial month
+    last = next(c for c in daily.cards(p) if c["key"] == "last")
+    assert last["value"] == "R$ 400,00" and "Logged only from the 28th" in last["lines"][0][0]
+    # The running total draws it, named for what it is.
+    order = daily.series_order(PARTLY, p["last_partly_from"])
+    frame = daily.running_frame(df, PARTLY, "Household", since=since, started=started)
+    assert order[1] == "September (from the 28th)"
+    assert frame[frame["series"] == order[1]]["amount"].max() == 400.0
+    # Without `started` it stays out, as before.
+    assert order[1] not in set(daily.running_frame(df, PARTLY, "Household", since=since)["series"])
+
+
+def test_against_last_month_adds_a_tick_by_the_same_day():
+    rows = daily.rows_frame(SAMPLE)
+    mix = daily.ranked(rows, "Household", "primary_category", month="2026-10")
+    bullet = daily.against_last_month(mix, rows, "Household", "primary_category", "2026-10", 10)
+    # By the 10th of September: groceries on the 3rd (150); the rent on the 15th isn't counted yet.
+    assert dict(zip(bullet["name"], bullet["previous"])) == {"Pets": 0.0, "Food": 150.0}
+    assert bullet.loc[bullet["name"] == "Food", "previous_brl"].iloc[0] == "R$ 150,00"
+    # With the tick there, the tip says the change: Food 80 against 150, Pets new.
+    assert list(bullet["text"]) == ["R$ 220 · new", "R$ 80 · ▼ 47%"]

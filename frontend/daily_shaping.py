@@ -116,6 +116,18 @@ def logging_started(rows: pd.DataFrame) -> datetime.date | None:
     return None if rows.empty else rows["date"].min().date()
 
 
+def partly_logged_from(month: str, since: str | None, started: datetime.date | None) -> int | None:
+    """
+    The day logging started in `month` when the month was logged only in
+    part (it began after the TRACKED_BY_DAY-th), else None: a month logged
+    in full, or one before logging began. Such a month is shown for context
+    (its line, its total) but never used for a ▲/▼ verdict.
+    """
+    if started is None or started.strftime("%Y-%m") != month or (since is not None and since <= month):
+        return None
+    return started.day
+
+
 def daily_amounts(df: pd.DataFrame, month: str, lens: str) -> pd.Series:
     """Spending on each day 1..n of `month`, zero where nothing was spent."""
     days = pd.RangeIndex(1, days_in(month) + 1, name="day")
@@ -190,14 +202,16 @@ def history(df: pd.DataFrame, data: dict, lens: str, since: str | None = None) -
     return out
 
 
-def pace(df: pd.DataFrame, data: dict, lens: str, since: str | None = None) -> dict:
+def pace(df: pd.DataFrame, data: dict, lens: str, since: str | None = None,
+         started: datetime.date | None = None) -> dict:
     """
     The numbers behind the headline and the cards: spent so far (to `day`),
     the same days of last month and of the usual month, whole-month and
     per-day figures, and what's left to spend per day to stay within the
     usual month (or last month, before there's a usual month). `since` is
     the first tracked month (rows before filtering); the data's own first
-    month otherwise.
+    month otherwise. `started` (logging_started) tells when last month was
+    logged only in part (`last_partly_from`, the day logging began).
     """
     month, day = data["month"], data["as_of_day"]
     since = since or (None if df.empty else df["month"].min())
@@ -234,6 +248,7 @@ def pace(df: pd.DataFrame, data: dict, lens: str, since: str | None = None) -> d
         "last_total": last_total,
         "last_usual": last_usual,
         "has_last": has_last,
+        "last_partly_from": partly_logged_from(previous, since, started),
         "usual_by_day": usual_by_day,
         "usual_total": usual_total,
         "usual_of": sorted(usual_of),
@@ -281,11 +296,16 @@ def headline(p: dict, focus: str = "", started: datetime.date | None = None) -> 
         lines.append(_versus(p["so_far"] - p["usual_by_day"], p["usual_by_day"], f"usual{by}"))
     if p["heading_for"] is not None:
         lines.append((f"Heading for about {format_brl(p['heading_for'])} if the rest of {name} goes as usual", None))
-    if not lines:
+    if not lines and p.get("last_partly_from"):
+        lines.append((f"{previous}: {format_brl(p['last_total'])}, logged from the "
+                      f"{ordinal(p['last_partly_from'])} only", None))
+    if not p["has_last"] and p["usual_by_day"] is None:
         start = f"Logging started on {started.day} {started:%B}, so c" if started else "C"
         first = (f"in {month_name(shape.shift_month(p['since'], 1))}, against {month_name(p['since'])}"
                  if p.get("since") else "once a whole month has been logged")
-        lines.append((f"Nothing to compare with yet. {start}omparisons start {first}.", None))
+        # After the partly logged month's line, just when comparisons start.
+        lines.append((f"Comparisons start {first}." if lines
+                      else f"Nothing to compare with yet. {start}omparisons start {first}.", None))
     return {"label": label, "amount": format_brl(p["so_far"]), "lines": lines}
 
 
@@ -318,8 +338,11 @@ def cards(p: dict) -> list[dict]:
             lines.append((f"{format_brl(p['last_by_day'])} of it {by}", None))
         if p["last_usual"] is not None:
             lines.append(_versus(p["last_total"] - p["last_usual"], p["last_usual"], "its usual"))
+    partly = p.get("last_partly_from")
+    if not p["has_last"] and partly:
+        lines = [(f"Logged only from the {ordinal(partly)}, so not compared.", None)]
     out.append({"key": "last", "label": f"Last month · {previous}",
-                "value": format_brl(p["last_total"]) if p["has_last"] else "—",
+                "value": format_brl(p["last_total"]) if p["has_last"] or partly else "—",
                 "lines": lines or [("Not logged in full, so not compared.", None)],
                 "help": f"All of {previous}, finished. \"Its usual\" is the average of the three months before it. "
                         "The bars are each month's total."})
@@ -422,20 +445,22 @@ def change_summary(changes: pd.DataFrame, against: str, n: int = 3) -> str:
 # --- the running total and the calendars --------------------------------------
 
 def running_frame(df: pd.DataFrame, data: dict, lens: str, since: str | None = None,
-                  with_usual: bool = True) -> pd.DataFrame:
+                  with_usual: bool = True, started: datetime.date | None = None) -> pd.DataFrame:
     """
     The running-total chart's long frame (day, series, amount, amount_brl):
-    this month up to today, last month in full, and the usual month when
-    there's enough history (and `with_usual`).
+    this month up to today, last month in full (also when it was logged
+    only in part, from `started`: series_order names it so), and the usual
+    month when there's enough history (and `with_usual`).
     """
     month, day = data["month"], data["as_of_day"]
     since = since or (None if df.empty else df["month"].min())
     previous = shape.shift_month(month, -1)
-    this_label, last_label, _ = series_order(data)
+    partly = partly_logged_from(previous, since, started)
+    this_label, last_label, _ = series_order(data, partly)
     rows = []
     this = daily_amounts(df, month, lens).cumsum().loc[:day]
     rows += [(d, this_label, v) for d, v in this.items()]
-    if since is not None and since <= previous:
+    if (since is not None and since <= previous) or partly:
         last = daily_amounts(df, previous, lens).cumsum()
         rows += [(d, last_label, v) for d, v in last.items()]
     usual = usual_cumulative(df, data, lens, since=since) if with_usual else None
@@ -447,11 +472,13 @@ def running_frame(df: pd.DataFrame, data: dict, lens: str, since: str | None = N
     return out
 
 
-def series_order(data: dict) -> list[str]:
-    """Legend and colour order: this month, last month, usual."""
+def series_order(data: dict, last_partly_from: int | None = None) -> list[str]:
+    """Legend and colour order: this month, last month ("September (from the 28th)" if partly logged), usual."""
     month = data["month"]
-    return [f"{month_name(month)}{' (so far)' if data['is_partial'] else ''}",
-            month_name(shape.shift_month(month, -1)), USUAL]
+    last = month_name(shape.shift_month(month, -1))
+    if last_partly_from:
+        last += f" (from the {ordinal(last_partly_from)})"
+    return [f"{month_name(month)}{' (so far)' if data['is_partial'] else ''}", last, USUAL]
 
 
 def calendar_scale_max(*calendars: pd.DataFrame, quantile: float = 0.9) -> float:
@@ -557,6 +584,33 @@ def ranked(rows: pd.DataFrame, lens: str, by: str, month: str | None = None,
     out["amount_brl"] = out["amount"].map(format_brl)
     out["text"] = [tip_text(a, s) for a, s in zip(out["amount"], out["share"])]
     return out[RANKED_COLUMNS]
+
+
+def against_last_month(frame: pd.DataFrame, rows: pd.DataFrame, lens: str, by: str, month: str,
+                       day: int) -> pd.DataFrame:
+    """
+    `frame` (from ranked) with `previous`/`previous_brl`: what each name
+    cost last month by the same `day`, for a grey tick on its bar (a bullet
+    chart). Names that cost nothing last month get 0, which draws no tick.
+    With the tick there, the tip says the change: "R$ 1,2 mil · ▲ 33%"
+    ("· new" when there was nothing before, "· same" when unchanged).
+    """
+    previous = shape.shift_month(month, -1)
+    col = shape.lens_column(lens)
+    then = rows[(rows["month"] == previous) & (rows["day"] <= min(day, days_in(previous)))] \
+        if not rows.empty else rows
+    sums = then.groupby(by)[col].sum() if not then.empty else pd.Series(dtype=float)
+    out = frame.assign(previous=[round(float(sums.get(n, 0.0)), 2) for n in frame["name"]])
+    out["previous_brl"] = out["previous"].map(format_brl)
+
+    def move(now: float, then: float) -> str:
+        if then <= 0:
+            return "new"
+        change = (now - then) / then
+        return "same" if abs(change) < 0.005 else f"{'▲' if change > 0 else '▼'} {abs(change):.0%}"
+
+    out["text"] = [f"{shape.short_brl(a)} · {move(a, b)}" for a, b in zip(out["amount"], out["previous"])]
+    return out
 
 
 def biggest_days(df: pd.DataFrame, month: str, lens: str, n: int = 8) -> pd.DataFrame:
