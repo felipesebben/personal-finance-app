@@ -429,6 +429,10 @@ class SharedAnalytics(BaseModel):
     is_partial: bool         # true when `month` is the current São Paulo month
     as_of_day: int           # today's São Paulo day if partial, else the month's length
     rows: List[SharedAnalyticsRow]  # only non-empty month/category combinations
+    # The São Paulo day of the first expense in scope, ever (not just in the
+    # window), or None without any: tells the client when logging began, so a
+    # month logged only in part isn't compared as if it were cheap.
+    first_date: date | None = None
 
 class DailyRow(BaseModel):
     date: date               # a São Paulo calendar day

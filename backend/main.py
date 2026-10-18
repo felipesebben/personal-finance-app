@@ -1265,12 +1265,20 @@ def get_shared_analytics(
         .all()
     )
 
+    first_date = (
+        db.query(func.min(func.date(local_ts)))
+        .outerjoin(mine, (mine.expenditure_id == fact.expenditure_id) & (mine.user_id == current_user.user_id))
+        .filter(fact.has_other_share, or_(mine.user_id.isnot(None), fact.user_id == current_user.user_id))
+        .scalar()
+    )
+
     cents = Decimal("0.01")
     return schemas.SharedAnalytics(
         month=month,
         months=window,
         is_partial=is_partial,
         as_of_day=as_of_day,
+        first_date=first_date,
         rows=[
             schemas.SharedAnalyticsRow(
                 month=r.month,
@@ -1413,7 +1421,9 @@ def get_personal_analytics(
             cost_type=r.cost_type, nature=r.nature, household=amount, mine=amount, count=r.count,
             household_to_day=to_day, mine_to_day=to_day,
         ))
-    return schemas.SharedAnalytics(month=month, months=window, is_partial=is_partial, as_of_day=as_of_day, rows=out)
+    first_date = db.query(func.min(func.date(local_ts))).filter(personal_to(current_user)).scalar()
+    return schemas.SharedAnalytics(month=month, months=window, is_partial=is_partial, as_of_day=as_of_day,
+                                   rows=out, first_date=first_date)
 
 
 @app.get("/analytics/personal/expenses", response_model=List[schemas.SharedExpense])

@@ -56,17 +56,21 @@ def finish(chart, height: int | None = None):
     )
 
 
-def trend_chart(totals: pd.Series, selected: str, is_partial: bool, average: float | None) -> alt.LayerChart:
+def trend_chart(totals: pd.Series, selected: str, is_partial: bool, average: float | None,
+                partly_month: str | None = None) -> alt.LayerChart:
     """
     Columns per month, the selected month in the accent colour. A month in
     progress is drawn faded with a dashed outline and labelled "to date" —
     no projection. A dashed rule marks the average of the last 3 full months.
+    `partly_month`, a month logged only in part, gets an asterisk (the
+    page's caption explains it).
     """
     data = pd.DataFrame({"month": totals.index, "amount": totals.values})
     data["partial"] = is_partial & (data["month"] == selected)
     data["selected"] = data["month"] == selected
     data["label"] = [
-        month_label(m, short=True) + (" (to date)" if p else "") for m, p in zip(data["month"], data["partial"])
+        month_label(m, short=True) + ("*" if m == partly_month else "") + (" (to date)" if p else "")
+        for m, p in zip(data["month"], data["partial"])
     ]
     data["value_label"] = data["amount"].map(short_brl)
     data["amount_brl"] = data["amount"].map(format_brl)
