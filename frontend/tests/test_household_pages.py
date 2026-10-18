@@ -225,3 +225,30 @@ def test_the_biggest_category_and_day_open_without_a_tap(api):
     assert at.selectbox(key="our_daily_day").value == f"{month}-01"
     # That day's purchases were fetched for its chart.
     assert any(f"day={month}-01" in str(c.args[0]) for c in api[0].call_args_list)
+
+
+def test_this_month_says_what_is_still_to_come(api):
+    import datetime
+    from zoneinfo import ZoneInfo
+    from analytics_shaping import shift_month
+    last_month = shift_month(datetime.datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m"), -1)
+    power = {**EXPENDITURE, "expenditure_id": 9, "transaction_timestamp": f"{last_month}-10T15:00:00+00:00",
+             "price": "180.00", "my_share": "108.00", "nature": "Recurring", "total_installments": 1,
+             "category": {"category_id": 4, "primary_category": "Housing", "sub_category": "Electricity",
+                          "cost_type": "Fixed"}}
+    inner = daily_get()
+
+    def get(url, *args, **kwargs):
+        if "/expenditures" in url and "/analytics/" not in url:
+            return response([power])
+        if "/analytics/shared/daily" in url:  # a month in progress: the card is only for one
+            month = parse_qs(urlparse(url).query)["month"][0]
+            return response({**daily_payload(month), "is_partial": True, "as_of_day": 10})
+        return inner(url)
+
+    api[0].side_effect = get
+    at = open_page(OURS)
+    assert not at.exception
+    assert any("What's still to come this month?" in s.value for s in at.subheader)
+    assert any("Bills not logged yet" in m.value for m in at.markdown)
+    assert any("about R\$ 180,00 in bills not logged yet" in c.value for c in at.caption)
