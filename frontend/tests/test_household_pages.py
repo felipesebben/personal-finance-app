@@ -100,17 +100,12 @@ def test_my_expenses_month_and_entries(api):
     api[0].side_effect = get
     at = open_page(MINE)
     assert not at.exception
-    assert [t.label for t in at.tabs] == ["This month", "Over time", "My entries"]
+    assert [t.label for t in at.tabs] == ["This month", "Over time"]  # entries have their own page
     # This month: the daily view of my share, shared and personal added together by default.
     html = kpi_text(at)
     # Both endpoints answer the same two rows a month, my share R$ 60 each: 4 x 60.
     assert "Spent in" in html and "R$ 240,00" in html
     assert at.session_state["mine_daily_view"] == "all"
-    # My entries: full price and the viewer's part, with the type spelled out.
-    recent = at.dataframe[-1].value
-    assert list(recent["Price"]) == ["R$ 1.666,67"]
-    assert list(recent["Your part"]) == ["R$ 1.000,00"]
-    assert list(recent["Type"]) == ["Shared · 10x"]
 
 
 @pytest.mark.parametrize("page", [OURS, MINE])
@@ -120,14 +115,6 @@ def test_household_pages_never_show_the_lens_switch(api, page):
     at = open_page(page)
     assert not at.exception
     assert "Lens" not in [b.label for b in at.button_group]
-
-
-def test_my_entries_marks_a_treat(api):
-    treat = {**EXPENDITURE, "is_treat": True, "total_installments": 1}
-    api[0].side_effect = answering({"/expenditures": [treat]})
-    at = open_page(MINE)
-    assert not at.exception
-    assert list(at.dataframe[-1].value["Type"]) == ["Shared · treat"]
 
 
 def test_home_briefs_the_month_after_login(api):

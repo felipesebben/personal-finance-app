@@ -51,7 +51,8 @@ def test_an_expired_session_on_home_shows_the_login_form_once():
     assert at.session_state["access_token"] is None
 
 
-@pytest.mark.parametrize("page", ["pages/2_Our_expenses.py", "pages/3_My_expenses.py", "pages/5_Settings.py"])
+@pytest.mark.parametrize("page", ["pages/2_Our_expenses.py", "pages/3_My_expenses.py", "pages/4_Entries.py",
+                                  "pages/6_Settings.py"])
 def test_an_expired_session_on_any_page_goes_back_to_login(page):
     at = logged_in()
     with patch("requests.get", return_value=response([])), patch("requests.post"):

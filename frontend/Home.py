@@ -223,8 +223,10 @@ else:
                          "the joint account, and who owes whom.", "pages/2_Our_expenses.py", ":material/home:"),
         ("My expenses", "How your own spending is doing: your part of what you share, plus what's only yours.",
          "pages/3_My_expenses.py", ":material/person:"),
+        ("Entries", "Everything logged, to check it and fix a mistake.", "pages/4_Entries.py",
+         ":material/fact_check:"),
         ("Settings", "Categories, payment methods, pets, and the household split between you.",
-         "pages/5_Settings.py", ":material/settings:"),
+         "pages/6_Settings.py", ":material/settings:"),
     ]
     for col, (title, text, page, icon) in zip(st.columns(len(cards)), cards):
         with col:

@@ -1,16 +1,17 @@
 from fastapi import BackgroundTasks, FastAPI, Depends, HTTPException, Query
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from datetime import date, datetime, timedelta
+from contextlib import contextmanager
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from jose import JWTError , jwt
-from sqlalchemy.orm import Session, aliased, joinedload
+from sqlalchemy.orm import Session, aliased, joinedload, selectinload
 from sqlalchemy import exists, or_, func, select
 from sqlalchemy.exc import IntegrityError
 from typing import List
 from decimal import Decimal
 from split_logic import settle
 import joint_logic
-from ledger import HouseholdNotConfigured, InvalidSplit, PayerNotInHousehold, add_expenditure
+from ledger import HouseholdNotConfigured, InvalidSplit, PayerNotInHousehold, add_expenditure, replace_splits
 
 from config import settings
 from auth import verify_password, create_access_token, get_password_hash, hash_reset_token, new_reset_token, SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
@@ -96,6 +97,29 @@ def visible_to(user: models.DimUser):
     )
 
 
+@contextmanager
+def split_errors(db: Session):
+    """The ledger's split errors as 400s, rolling back what was flushed (nothing is committed yet)."""
+    try:
+        yield
+    except HouseholdNotConfigured:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="Household split ratio is not configured. Set it on the Manage Settings page first.",
+        )
+    except PayerNotInHousehold:
+        db.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="You're not in the household split yet, so this can't be shared. "
+                   "Add yourself under Settings → Household, or save it as personal.",
+        )
+    except InvalidSplit as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Invalid split: {e}")
+
+
 # Create a POST endpoint at the URL /expenditures/.
 def possible_duplicates(db: Session, user: models.DimUser, e: schemas.ExpenditureCreate) -> list:
     """
@@ -179,28 +203,11 @@ def create_expenditure(
 
     # The request's is_shared means "split this by the household ratio";
     # the allocation rows written by add_expenditure are what make it shared.
-    try:
+    with split_errors(db):
         db_expenditure = add_expenditure(
             db, current_user.user_id,  # force the logged-in user as payer
             expenditure_data, shared=expenditure.is_shared, shares=shares,
         )
-    except HouseholdNotConfigured:
-        # Nothing committed yet, so the flushed expenditure is rolled back too.
-        db.rollback()
-        raise HTTPException(
-            status_code=400,
-            detail="Household split ratio is not configured. Set it on the Manage Settings page first.",
-        )
-    except PayerNotInHousehold:
-        db.rollback()
-        raise HTTPException(
-            status_code=400,
-            detail="You're not in the household split yet, so this can't be shared. "
-                   "Add yourself under Settings → Household, or save it as personal.",
-        )
-    except InvalidSplit as e:
-        db.rollback()
-        raise HTTPException(status_code=400, detail=f"Invalid split: {e}")
 
     # One commit, covering the expenditure and its allocation row(s) together.
     db.commit()
@@ -525,6 +532,17 @@ def update_household_settings(payload: schemas.HouseholdSettingsUpdate, db: Sess
         .all()
     )
 
+# Everything ExpenditureRead nests, loaded up front.
+EXPENDITURE_READ_LOADS = (
+    joinedload(models.FactExpenditure.user),
+    joinedload(models.FactExpenditure.category),
+    joinedload(models.FactExpenditure.payment_method),
+    joinedload(models.FactExpenditure.pet),
+    joinedload(models.FactExpenditure.updated_by),
+    selectinload(models.FactExpenditure.splits),
+)
+
+
 @app.get("/expenditures/", response_model=List[schemas.ExpenditureRead])
 def get_expenditures(db: Session = Depends(get_db),
                      current_user: models.DimUser = Depends(get_current_user)):
@@ -535,12 +553,7 @@ def get_expenditures(db: Session = Depends(get_db),
     expenditures = (
         db.query(models.FactExpenditure)
         .filter(visible_to(current_user))
-        .options(
-            joinedload(models.FactExpenditure.user),
-            joinedload(models.FactExpenditure.category),
-            joinedload(models.FactExpenditure.payment_method),
-            joinedload(models.FactExpenditure.pet),
-        )
+        .options(*EXPENDITURE_READ_LOADS)
         .all()
     )
     split = models.FactExpenditureSplit
@@ -1038,6 +1051,90 @@ def delete_payment_method(payment_method_id: int, db: Session = Depends(get_db))
         raise HTTPException(status_code=400, detail="Cannot delete: this payment method is used in existing records")
     
     return {"message": "Payment Method deleted successfully"}
+
+# The columns PATCH /expenditures/{id} may change (the split is handled apart).
+EDITABLE = ("transaction_timestamp", "price", "category_id", "payment_method_id", "nature",
+            "current_installment", "total_installments", "pet_id", "is_treat")
+
+
+@app.patch("/expenditures/{expenditure_id}", response_model=schemas.ExpenditureRead)
+def update_expenditure(
+    expenditure_id: int,
+    changes: schemas.ExpenditureUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.DimUser = Depends(get_current_user)):
+    """
+    Edit an expenditure the current user paid or holds a share of (see
+    visible_to), the same people who may delete it. Only the fields sent
+    change; the rules of a new expense apply to the result, and its split
+    is rewritten as ExpenditureUpdate describes, in the same commit. An
+    edit that changes something stamps updated_at and updated_by; one that
+    changes nothing leaves the expense as it was. No duplicate check: the
+    expense is already logged.
+    """
+    fact = models.FactExpenditure
+    exp = db.query(fact).filter(fact.expenditure_id == expenditure_id).filter(visible_to(current_user)).first()
+    if not exp:
+        raise HTTPException(status_code=404, detail="Expenditure not found (or you don't have permission)")
+
+    sent = changes.model_fields_set
+    def stored(f):
+        value = getattr(exp, f)
+        return (value or 1) if f in ("current_installment", "total_installments") else value  # NULL reads as 1
+
+    new = {f: getattr(changes, f) if f in sent else stored(f) for f in EDITABLE}
+    if new["transaction_timestamp"].tzinfo is None:
+        new["transaction_timestamp"] = new["transaction_timestamp"].replace(tzinfo=SAO_PAULO)
+    was_shared = exp.has_other_share
+    shared = changes.is_shared if "is_shared" in sent else was_shared
+
+    if new["current_installment"] > new["total_installments"]:
+        raise HTTPException(status_code=422, detail="current_installment cannot be greater than total_installments")
+    if new["is_treat"] and not shared:
+        raise HTTPException(status_code=422, detail="Only a shared expense can be on you.")
+    if changes.shares and not shared:
+        raise HTTPException(status_code=422, detail="shares can only be given for a shared expense")
+    category = db.get(models.DimCategory, new["category_id"])
+    if not category:
+        raise HTTPException(status_code=400, detail="Unknown category.")
+    if not db.get(models.DimPaymentMethod, new["payment_method_id"]):
+        raise HTTPException(status_code=400, detail="Unknown payment method.")
+    if not category.for_pets:
+        if "pet_id" in sent and changes.pet_id is not None:
+            raise HTTPException(status_code=400, detail="A pet can only be given for a pet category.")
+        new["pet_id"] = None  # moved out of a pet category: no pet any more
+    elif new["pet_id"] is not None and not db.get(models.DimPet, new["pet_id"]):
+        raise HTTPException(status_code=400, detail="Unknown pet.")
+
+    def split_rows():
+        return sorted((s.user_id, s.share_pct, s.share_amount, s.split_source)
+                      for s in db.query(models.FactExpenditureSplit).filter_by(expenditure_id=exp.expenditure_id))
+
+    before = split_rows()
+    changed = [f for f in EDITABLE if stored(f) != new[f]]
+    for f in changed:
+        setattr(exp, f, new[f])
+    db.flush()
+
+    shares = [(s.user_id, s.share_pct) for s in changes.shares] if changes.shares else None
+    # A shared expense keeps the ratio it was logged with unless told otherwise.
+    keep = ([(uid, pct, source) for uid, pct, _, source in before]
+            if shared and was_shared and not shares and not changes.reset_split else None)
+    with split_errors(db):
+        replace_splits(db, exp, shared, shares=shares, keep=keep)
+        db.flush()
+    if not changed and split_rows() == before:
+        db.rollback()  # nothing to change, so no trace either
+    else:
+        exp.updated_at = datetime.now(timezone.utc)
+        exp.updated_by_user_id = current_user.user_id
+        db.commit()
+
+    db.expire_all()
+    exp = db.query(fact).options(*EXPENDITURE_READ_LOADS).filter(fact.expenditure_id == expenditure_id).one()
+    exp.my_share = next((s.share_amount for s in exp.splits if s.user_id == current_user.user_id), Decimal("0.00"))
+    return exp
+
 
 @app.delete("/expenditures/{expenditure_id}")
 def delete_expenditure(

@@ -11,7 +11,7 @@ def test_home_shows_the_login_form():
 
 @pytest.mark.parametrize("page", [
     "pages/1_Add_expense.py", "pages/2_Our_expenses.py", "pages/3_My_expenses.py",
-    "pages/4_Tableau.py", "pages/5_Settings.py",
+    "pages/4_Entries.py", "pages/5_Tableau.py", "pages/6_Settings.py",
 ])
 def test_pages_ask_for_login(page):
     at = AppTest.from_file(page, default_timeout=30).run()
