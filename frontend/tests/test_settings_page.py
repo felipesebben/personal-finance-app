@@ -5,7 +5,7 @@ import pytest
 import streamlit as st
 from streamlit.testing.v1 import AppTest
 
-PAGE = "pages/5_Settings.py"
+PAGE = "pages/6_Settings.py"
 ME = "me@example.com"
 
 USERS = [

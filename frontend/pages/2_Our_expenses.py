@@ -1,13 +1,13 @@
 """
-Our expenses: how the household's shared spending is doing. The overview
-against earlier months, the joint account (when there is one) and who
-owes whom.
+Our expenses: how the household's shared spending is doing. This month
+day by day against earlier months, month by month, the joint account
+(when there is one) and who owes whom.
 """
 import streamlit as st
 
 import ui
 from common import get_data, my_user_id, require_login, show_toast
-from sections import joint, overview, settle
+from sections import daily, joint, overview, settle
 
 ui.setup("Our expenses")
 token = require_login()
@@ -19,10 +19,12 @@ payment_methods = get_data("payment_methods", token)
 household = get_data("household_settings", token)
 has_joint = joint.available(payment_methods, household, my_user_id(household))
 
-names = ["Overview", *(["Joint account"] if has_joint else []), "Settle up"]
+names = ["This month", "Month by month", *(["Joint account"] if has_joint else []), "Settle up"]
 tabs = dict(zip(names, st.tabs(names)))
 
-with tabs["Overview"]:
+with tabs["This month"]:
+    daily.render(token, lens="Household", key="our")
+with tabs["Month by month"]:
     overview.render(token, lens="Household", key="our")
 if has_joint:
     with tabs["Joint account"]:

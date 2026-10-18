@@ -12,6 +12,8 @@ PROTECTED_ROUTES = [
     ("delete", "/joint/entries/1"),
     ("get", "/joint/status"),
     ("get", "/analytics/personal"),
+    ("get", "/analytics/shared/daily"),
+    ("get", "/analytics/personal/daily"),
     ("get", "/analytics/personal/expenses"),
     ("post", "/categories/"),
     ("patch", "/categories/1"),
@@ -36,6 +38,7 @@ PROTECTED_ROUTES = [
     ("delete", "/settlements/1"),
     ("get", "/expenditures/"),
     ("post", "/expenditures/"),
+    ("patch", "/expenditures/1"),
     ("delete", "/expenditures/1"),
     ("post", "/refresh"),
 ]

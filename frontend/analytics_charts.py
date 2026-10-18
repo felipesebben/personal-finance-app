@@ -20,6 +20,40 @@ ACCENT = "#1f6f5c"
 GREY = "#c3c9c3"
 MUTED = "#6f7a74"  # readable on the light theme background
 HEAT_RANGE = ["#eef5f2", "#1f6f5c"]  # light to brand green, for magnitude
+INK = "#17201c"
+AXIS = "#aab2ac"  # the axis line: present but quiet, so a chart sits on something instead of floating
+GRID = "#e9ece8"  # hairline gridlines, one step off the background
+
+
+def x_title(text: str) -> dict:
+    """Axis settings for an x title at the end of the axis (bottom right), where the eye finishes reading it."""
+    return {"title": text, "titleAnchor": "end", "titleAlign": "right", "titlePadding": 6}
+
+
+def y_title(text: str) -> dict:
+    """Axis settings for a y title at the top of the axis, horizontal, so it reads without tilting your head."""
+    return {"title": text, "titleAnchor": "end", "titleAngle": 0, "titleAlign": "left", "titleBaseline": "bottom",
+            "titleX": 0, "titleY": -10}
+
+
+def finish(chart, height: int | None = None):
+    """
+    Every chart's shared anatomy, applied last (it adds top-level config):
+    no background or frame, a quiet axis line, hairline grid, muted labels
+    and titles.
+    Charts that want no axis line (heatmaps, calendars) still say so on the axis.
+    """
+    if height is not None:
+        chart = chart.properties(height=height)
+    return (
+        # No background of its own: a chart sits on its card's white, not on a grey box.
+        chart.configure(background="transparent", padding={"top": 12, "right": 10, "bottom": 4, "left": 4})
+        .configure_view(strokeWidth=0)
+        .configure_axis(domainColor=AXIS, domainWidth=1, tickColor=AXIS, tickSize=4, gridColor=GRID, gridWidth=1,
+                        labelColor=MUTED, labelFontSize=11, titleColor=MUTED, titleFontSize=11,
+                        titleFontWeight="normal", labelPadding=4)
+        .configure_legend(labelColor=INK, labelFontSize=12, symbolStrokeWidth=3)
+    )
 
 
 def trend_chart(totals: pd.Series, selected: str, is_partial: bool, average: float | None) -> alt.LayerChart:
@@ -38,12 +72,13 @@ def trend_chart(totals: pd.Series, selected: str, is_partial: bool, average: flo
     data["amount_brl"] = data["amount"].map(format_brl)
     order = list(data["label"])
 
-    x = alt.X("label:N", sort=order, title=None, axis=alt.Axis(labelAngle=0, labelOverlap=True))
-    y = alt.Y("amount:Q", title=None, axis=alt.Axis(labelExpr=BRL_AXIS_EXPR, tickCount=4))
+    x = alt.X("label:N", sort=order, axis=alt.Axis(labelAngle=0, labelOverlap=True, ticks=False, title=None))
+    y = alt.Y("amount:Q", axis=alt.Axis(labelExpr=BRL_AXIS_EXPR, tickCount=4, domain=False, ticks=False,
+                                        **y_title("Spent in the month")))
     tooltip = [alt.Tooltip("label:N", title="Month"), alt.Tooltip("amount_brl:N", title="Total")]
 
     base = alt.Chart(data)
-    bars = base.mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3).encode(
+    bars = base.mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4, size=24).encode(
         x=x, y=y, tooltip=tooltip,
         color=alt.condition(alt.datum.selected, alt.value(ACCENT), alt.value(GREY)),
         opacity=alt.condition(alt.datum.partial, alt.value(0.45), alt.value(1.0)),
@@ -62,41 +97,7 @@ def trend_chart(totals: pd.Series, selected: str, is_partial: bool, average: flo
         )
         layers += [rule, note]
 
-    return alt.layer(*layers).properties(height=280)
-
-
-def comparison_bars(comparison: pd.DataFrame, by: str, previous_title: str) -> alt.LayerChart:
-    """
-    Horizontal bars for the selected month, largest first, with a tick at
-    the previous period and a label carrying the R$ and % change.
-    """
-    data = comparison.copy()
-    data["current_brl"] = data["current"].map(format_brl)
-    data["previous_brl"] = data["previous"].map(format_brl)
-    data["text"] = [
-        f"{short_brl(c)}  {signed_brl(ch)} ({pct_text(p)})"
-        for c, ch, p in zip(data["current"], data["change"], data["pct"])
-    ]
-    data["label_x"] = data[["current", "previous"]].max(axis=1)
-    order = list(data[by])
-    top = float(data["label_x"].max()) if not data.empty else 0.0
-
-    y = alt.Y(f"{by}:N", sort=order, title=None, axis=alt.Axis(labelLimit=160))
-    scale = alt.Scale(domain=[0, max(top * 1.6, 1.0)])
-    tooltip = [
-        alt.Tooltip(f"{by}:N", title="Category"),
-        alt.Tooltip("current_brl:N", title="This month"),
-        alt.Tooltip("previous_brl:N", title=previous_title),
-    ]
-
-    base = alt.Chart(data)
-    bars = base.mark_bar(color=ACCENT, cornerRadiusTopRight=3, cornerRadiusBottomRight=3).encode(
-        y=y, tooltip=tooltip,
-        x=alt.X("current:Q", title=None, scale=scale, axis=alt.Axis(labelExpr=BRL_AXIS_EXPR, tickCount=4)),
-    )
-    ticks = base.mark_tick(color=MUTED, thickness=2.5, size=22).encode(y=y, x="previous:Q", tooltip=tooltip)
-    text = base.mark_text(align="left", dx=6, fontSize=11).encode(y=y, x="label_x:Q", text="text:N")
-    return alt.layer(bars, ticks, text).properties(height=max(36 * len(data), 80))
+    return finish(alt.layer(*layers), 320)
 
 
 def heatmap_chart(long: pd.DataFrame, months: list[str]) -> alt.LayerChart:
@@ -109,8 +110,8 @@ def heatmap_chart(long: pd.DataFrame, months: list[str]) -> alt.LayerChart:
     data["dark"] = data["amount"] > peak * 0.55
     categories = list(dict.fromkeys(data["primary_category"]))
     x = alt.X("month_label:N", sort=[month_label(m, short=True) for m in months], title=None,
-              axis=alt.Axis(labelAngle=0, orient="top", labelOverlap=True))
-    y = alt.Y("primary_category:N", sort=categories, title=None, axis=alt.Axis(labelLimit=160))
+              axis=alt.Axis(labelAngle=0, orient="top", labelOverlap=True, domain=False, ticks=False))
+    y = alt.Y("primary_category:N", sort=categories, axis=name_axis(names_width(categories)))
 
     base = alt.Chart(data)
     cells = base.mark_rect(cornerRadius=2, stroke="white", strokeWidth=1).encode(
@@ -126,7 +127,7 @@ def heatmap_chart(long: pd.DataFrame, months: list[str]) -> alt.LayerChart:
         x=x, y=y, text="text:N",
         color=alt.condition(alt.datum.dark, alt.value("white"), alt.value("#17201c")),
     )
-    return alt.layer(cells, text).properties(height=max(30 * len(categories), 80))
+    return finish(alt.layer(cells, text), 34 * max(len(categories), 1) + 30)
 
 
 def cost_type_chart(split: pd.DataFrame, current_title: str, previous_title: str) -> alt.Chart:
@@ -136,14 +137,20 @@ def cost_type_chart(split: pd.DataFrame, current_title: str, previous_title: str
         rows.append({"period": current_title, "cost_type": r["cost_type"], "amount": r["current"], "share": r["current_share"]})
         rows.append({"period": previous_title, "cost_type": r["cost_type"], "amount": r["previous"], "share": r["previous_share"]})
     data = pd.DataFrame(rows, columns=["period", "cost_type", "amount", "share"])
+    # A period with nothing in it would only be an empty row squeezing the other.
+    spent = data.groupby("period")["amount"].transform("sum")
+    data = data[spent > 0]
+    periods = [p for p in (current_title, previous_title) if p in set(data["period"])]
+    data = data.assign(cost_type=data["cost_type"].replace({"Variable": "Day-to-day"}))
     data["amount_brl"] = data["amount"].map(format_brl)
-    types = sorted(data["cost_type"].unique(), key=lambda t: (t != "Fixed", t != "Variable", t))
-    palette = [ACCENT if t == "Fixed" else GREY if t == "Variable" else "#e3e7e2" for t in types]
-    return alt.Chart(data).mark_bar().encode(
-        y=alt.Y("period:N", sort=[current_title, previous_title], title=None),
-        x=alt.X("amount:Q", stack="normalize", title=None, axis=alt.Axis(format="%", tickCount=4)),
+    types = sorted(data["cost_type"].unique(), key=lambda t: (t != "Fixed", t != "Day-to-day", t))
+    palette = [ACCENT if t == "Fixed" else GREY if t == "Day-to-day" else "#e3e7e2" for t in types]
+    chart = alt.Chart(data).mark_bar(size=24).encode(
+        y=alt.Y("period:N", sort=periods, axis=name_axis(names_width(periods))),
+        x=alt.X("amount:Q", stack="normalize", axis=alt.Axis(format="%", tickCount=4, domain=False,
+                                                              **x_title("Share of spending"))),
         color=alt.Color("cost_type:N", sort=types, scale=alt.Scale(domain=types, range=palette),
-                        legend=alt.Legend(title=None, orient="bottom")),
+                        legend=alt.Legend(title=None, orient="top")),
         order=alt.Order("cost_type_order:Q"),
         tooltip=[
             alt.Tooltip("period:N", title="Period"),
@@ -153,7 +160,8 @@ def cost_type_chart(split: pd.DataFrame, current_title: str, previous_title: str
         ],
     ).transform_calculate(
         cost_type_order=f"indexof({types!r}, datum.cost_type)",
-    ).properties(height=110)
+    )
+    return finish(chart, BAR_ROW * max(len(periods), 1) + X_AXIS + 36)
 
 
 def joint_pace_chart(data: pd.DataFrame, this_month: str, usual: str, days_in_month: int) -> alt.Chart:
@@ -161,17 +169,88 @@ def joint_pace_chart(data: pd.DataFrame, this_month: str, usual: str, days_in_mo
     Cumulative spending through the month: this month as a solid accent line
     (it stops at today), the usual month as a dashed grey line across all days.
     """
-    return alt.Chart(data).mark_line(point=False, strokeWidth=2.5).encode(
-        x=alt.X("day:Q", title="Day of the month", scale=alt.Scale(domain=[1, days_in_month]),
-                axis=alt.Axis(tickMinStep=1, format="d")),
-        y=alt.Y("amount:Q", title=None, axis=alt.Axis(labelExpr=BRL_AXIS_EXPR, tickCount=4)),
-        color=alt.Color("series:N", scale=alt.Scale(domain=[this_month, usual], range=[ACCENT, MUTED]),
-                        legend=alt.Legend(title=None, orient="bottom")),
-        strokeDash=alt.StrokeDash("series:N", scale=alt.Scale(domain=[this_month, usual], range=[[1, 0], [6, 4]]),
+    present = [s for s in (this_month, usual) if s in set(data["series"])]
+    colours = {this_month: ACCENT, usual: MUTED}
+    dashes = {this_month: [1, 0], usual: [6, 4]}
+    chart = alt.Chart(data).mark_line(point=False, strokeWidth=2.5).encode(
+        x=alt.X("day:Q", scale=alt.Scale(domain=[1, days_in_month], nice=False),
+                axis=alt.Axis(tickMinStep=1, format="d", grid=False, **x_title("Day of the month"))),
+        y=alt.Y("amount:Q", axis=alt.Axis(labelExpr=BRL_AXIS_EXPR, tickCount=4, domain=False, ticks=False,
+                                          **y_title("Spent so far"))),
+        color=alt.Color("series:N", scale=alt.Scale(domain=present, range=[colours[s] for s in present]),
+                        legend=alt.Legend(title=None, orient="top", direction="horizontal", offset=26)),
+        strokeDash=alt.StrokeDash("series:N", scale=alt.Scale(domain=present, range=[dashes[s] for s in present]),
                                   legend=None),
         tooltip=[
             alt.Tooltip("series:N", title=" "),
             alt.Tooltip("day:Q", title="Day"),
             alt.Tooltip("amount_brl:N", title="Spent by then"),
         ],
-    ).properties(height=260)
+    )
+    return finish(chart, 320)
+
+
+# --- ranked bars and small multiples, shared by every analysis view ------------
+
+SOFT = "#a8cfc1"   # the other bars of a ranked chart: the same green, lighter, so one bar can lead
+NAME_WIDTH = 150   # px of left-aligned names beside horizontal bars, at most
+BAR_ROW = 36       # px per bar, so bars and their labels breathe
+X_AXIS = 46        # px the x axis (labels and title) takes: Streamlit counts it inside a chart's height
+
+
+def names_width(names) -> int:
+    """Just enough room for the longest name (12px Roboto), so short names sit close to their bars."""
+    longest = max((len(str(n)) for n in names), default=4)
+    return max(48, min(NAME_WIDTH + 40, int(longest * 6.9) + 16))
+
+
+def name_axis(width: int = NAME_WIDTH, **extra) -> alt.Axis:
+    """A y axis of names, left-aligned in a fixed column, so they read like a list."""
+    return alt.Axis(title=None, ticks=False, domain=False, labelAlign="left", labelPadding=width,
+                    labelLimit=width - 10, labelColor=INK, labelFontSize=12, **extra)
+
+
+def ranked_bars(frame: pd.DataFrame, picked: str | None = None, previous: str | None = None,
+                x_label: str = "Spent", width: int | None = None, room: float = 1.6) -> alt.LayerChart:
+    """
+    Horizontal bars, biggest on top, from a frame with `name`, `amount`,
+    `amount_brl` and `text` (what's written at the bar's tip, e.g.
+    "R$ 4.135 · 59%"). The bar named `picked` is brand green and the rest a
+    lighter green; without `picked`, all are brand green. `previous` names a
+    column drawn as a grey tick (e.g. last month), its text in `previous_brl`.
+    The value sits at the tip, with `room` (x the longest bar) left for
+    it; the axis keeps light gridlines as rulers. The names' column is as
+    wide as the longest name needs (`names_width`) unless `width` is given.
+    The height counts the x axis, as Streamlit does.
+    """
+    order = list(frame["name"])
+    width = width or names_width(order)
+    top = float(frame[["amount", previous]].max(axis=1).max() if previous else frame["amount"].max()) \
+        if not frame.empty else 1.0
+    data = frame.assign(is_picked=frame["name"].eq(picked) if picked is not None else True,
+                        tip=frame[["amount", previous]].max(axis=1) if previous else frame["amount"])
+    y = alt.Y("name:N", sort=order, axis=name_axis(width))
+    # Room past the longest bar for its label.
+    x = alt.X("amount:Q", scale=alt.Scale(domain=[0, max(top, 1.0) * room], nice=False),
+              axis=alt.Axis(labelExpr=BRL_AXIS_EXPR, tickCount=4, domain=False, ticks=False, labelFlush=True,
+                            **x_title(x_label)))
+    tooltip = [alt.Tooltip("name:N", title="What"), alt.Tooltip("amount_brl:N", title="Spent")]
+    if previous:
+        tooltip.append(alt.Tooltip("previous_brl:N", title="Before"))
+    if "detail" in frame:
+        tooltip.append(alt.Tooltip("detail:N", title="Paid with"))
+    base = alt.Chart(data)
+    bars = base.mark_bar(cornerRadiusTopRight=4, cornerRadiusBottomRight=4, height=18).encode(
+        x=x, y=y, tooltip=tooltip,
+        color=alt.condition("datum.is_picked", alt.value(ACCENT), alt.value(SOFT)))
+    layers = [bars]
+    if previous:
+        # No tick where there was nothing before: a row of ticks at zero is only clutter.
+        layers.append(base.transform_filter(f"datum['{previous}'] > 0").mark_tick(color=MUTED, thickness=2.5,
+                                                                                  size=24).encode(
+            x=alt.X(f"{previous}:Q"), y=y, tooltip=tooltip))
+    layers.append(base.mark_text(align="left", dx=6, fontSize=12, color=INK).encode(
+        x=alt.X("tip:Q"), y=y, text="text:N"))
+    return finish(alt.layer(*layers), BAR_ROW * max(len(frame), 1) + X_AXIS)
+
+

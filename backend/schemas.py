@@ -171,15 +171,78 @@ class ExpenditureCreate(BaseModel):
             return self
         if not self.is_shared:
             raise ValueError("shares can only be given for a shared expense (is_shared true)")
-        if not self.shares:
-            raise ValueError("shares must not be empty; omit it to use the household ratio")
-        ids = [s.user_id for s in self.shares]
-        if len(set(ids)) != len(ids):
-            raise ValueError("shares must name each person at most once")
-        total = sum(s.share_pct for s in self.shares)
-        if abs(total - 1) > Decimal("0.0001"):
-            raise ValueError(f"share_pct values must sum to 1, got {total}")
+        check_shares(self.shares)
         return self
+
+
+def check_shares(shares: List[ShareItem]) -> None:
+    """A manual split: not empty, each person once, summing to 1."""
+    if not shares:
+        raise ValueError("shares must not be empty; omit it to use the household ratio")
+    ids = [s.user_id for s in shares]
+    if len(set(ids)) != len(ids):
+        raise ValueError("shares must name each person at most once")
+    total = sum(s.share_pct for s in shares)
+    if abs(total - 1) > Decimal("0.0001"):
+        raise ValueError(f"share_pct values must sum to 1, got {total}")
+
+
+class ExpenditureUpdate(BaseModel):
+    """
+    PATCH /expenditures/{id}: only the fields sent change. The payer
+    (user_id) can't: it's who logged it. The rules of a new expense apply
+    to the result (installment within total, a treat only when shared, a
+    pet only on a pet category).
+
+    The split: `is_shared` false makes it personal; `shares` sets a manual
+    split; `reset_split` true re-splits it by today's household ratio.
+    Otherwise a shared expense keeps the ratio it was logged with (a new
+    price is split by that same ratio), and one turned shared takes today's
+    household ratio.
+    """
+    transaction_timestamp: datetime | None = None
+    price: Decimal | None = Field(None, gt=0, max_digits=10, decimal_places=2)
+    category_id: int | None = None
+    payment_method_id: int | None = None
+    nature: str | None = None
+    is_shared: bool | None = None
+    shares: List[ShareItem] | None = None
+    reset_split: bool = False
+    current_installment: int | None = Field(None, ge=1)
+    total_installments: int | None = Field(None, ge=1)
+    pet_id: int | None = None  # sent as null: all the pets ("Both")
+    is_treat: bool | None = None
+
+    @model_validator(mode="after")
+    def no_null_for_required_fields(self):
+        required = ("transaction_timestamp", "price", "category_id", "payment_method_id", "nature",
+                    "is_shared", "current_installment", "total_installments", "is_treat")
+        nulls = [f for f in required if f in self.model_fields_set and getattr(self, f) is None]
+        if nulls:
+            raise ValueError(f"these can't be null: {', '.join(nulls)}")
+        return self
+
+    @model_validator(mode="after")
+    def shares_are_a_valid_split(self):
+        if self.shares is None:
+            return self
+        if self.is_shared is False:
+            raise ValueError("shares can only be given for a shared expense")
+        if self.reset_split:
+            raise ValueError("send shares or reset_split, not both")
+        check_shares(self.shares)
+        return self
+
+class SplitRead(BaseModel):
+    """One person's part of an expense, as stored."""
+    user_id: int
+    share_pct: Decimal
+    share_amount: Decimal
+    split_source: str  # household_default, manual or not_shared
+
+    class Config:
+        from_attributes = True
+
 
 class ExpenditureRead(BaseModel):
     expenditure_id: int
@@ -195,6 +258,8 @@ class ExpenditureRead(BaseModel):
     my_share: Decimal = Decimal("0.00")
     # The payer treated: nobody owes them for it.
     is_treat: bool = False
+    current_installment: int | None = None  # nullable columns; None reads as 1
+    total_installments: int | None = None
 
     # Nest the other schemas to show full objects
     user: User
@@ -202,6 +267,13 @@ class ExpenditureRead(BaseModel):
     payment_method: PaymentMethod
     # The pet it was for; None on a pet category means all of them.
     pet: Pet | None = None
+
+    # Who bears what: one row per person (a personal expense has one, at 100%).
+    splits: List[SplitRead] = []
+    # The trace of the last edit; both None when never edited. updated_by is
+    # None too when the editor's account has since been deleted.
+    updated_at: datetime | None = None
+    updated_by: User | None = None
 
     class Config:
         from_attributes = True
@@ -344,6 +416,7 @@ class SharedAnalyticsRow(BaseModel):
     primary_category: str
     sub_category: str
     cost_type: str
+    nature: str              # Normal / Recurring / Annual / Extraordinary
     household: Decimal       # sum of full prices
     mine: Decimal            # sum of my share_amount
     count: int               # number of shared expenses
@@ -356,6 +429,24 @@ class SharedAnalytics(BaseModel):
     is_partial: bool         # true when `month` is the current São Paulo month
     as_of_day: int           # today's São Paulo day if partial, else the month's length
     rows: List[SharedAnalyticsRow]  # only non-empty month/category combinations
+
+class DailyRow(BaseModel):
+    date: date               # a São Paulo calendar day
+    primary_category: str
+    sub_category: str
+    cost_type: str           # Fixed / Variable ("Unknown" without a category)
+    nature: str              # Normal / Recurring / Annual / Extraordinary
+    household: Decimal       # sum of full prices
+    mine: Decimal            # sum of my share
+    count: int               # expenses
+
+class DailyAnalytics(BaseModel):
+    month: str               # the selected (last) month of the window, "YYYY-MM"
+    months: List[str]        # the whole window, oldest first
+    is_partial: bool         # true when `month` is the current São Paulo month
+    as_of_day: int           # today's São Paulo day if partial, else the month's length
+    today: date              # today in São Paulo
+    rows: List[DailyRow]     # day x category x cost type x nature, only where something was spent
 
 class SharedExpense(BaseModel):
     expenditure_id: int
