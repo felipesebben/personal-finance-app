@@ -129,6 +129,32 @@ def summary(df: pd.DataFrame) -> str:
     return f"{n} {noun} · {format_brl(df['price_value'].sum())} · your part {format_brl(df['mine_value'].sum())}"
 
 
+def template_label(e: dict) -> str:
+    """What a recent expense is called in Add expense's "Log again" row: "Groceries · Debit Card · Nubank"."""
+    category = e.get("category") or {}
+    what = category.get("sub_category") or category.get("primary_category") or "—"
+    if category.get("for_pets") and e.get("pet"):
+        what += f" · {e['pet']['name']}"
+    text = f"{what} · {paid_with(e)}"
+    return text if e.get("is_shared") else f"{text} · just me"
+
+
+def recent_templates(expenses: list[dict] | None, my_user_id: int | None, n: int = 6) -> list[tuple[str, dict]]:
+    """
+    The last `n` different things I logged, newest first, as (label,
+    expense): what Add expense offers to log again. Different = a different
+    label (what, how it was paid, shared or just me); only my own entries.
+    """
+    mine = [e for e in expenses or [] if (e.get("user") or {}).get("user_id") == my_user_id]
+    mine.sort(key=lambda e: (e["transaction_timestamp"], e["expenditure_id"]), reverse=True)
+    out: dict[str, dict] = {}
+    for e in mine:
+        out.setdefault(template_label(e), e)
+        if len(out) == n:
+            break
+    return list(out.items())
+
+
 def form_values(e: dict, pets: list[dict] | None, tz, names: dict[int, str] | None = None) -> dict:
     """
     An expense from GET /expenditures/ as the edit form's starting values:

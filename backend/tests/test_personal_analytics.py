@@ -80,3 +80,11 @@ def test_expenses_drilldown_lists_mine_newest_first(client, household):
     ]
     assert client.get("/analytics/personal/expenses", headers=household["a"],
                       params={"month": "2026-10", "primary_category": "Home"}).json() == []
+
+
+def test_first_date_is_my_first_personal_expense(client, household):
+    spend(client, household, "a", "10.00", "2026-08-15T12:00:00-03:00")
+    spend(client, household, "a", "10.00", "2026-07-03T12:00:00-03:00", is_shared=True)  # shared: not here
+    spend(client, household, "b", "10.00", "2026-06-01T12:00:00-03:00")  # the partner's: not here
+    assert personal(client, household["a"], month="2026-10", months=1)["first_date"] == "2026-08-15"
+    assert personal(client, household["b"], month="2026-10", months=1)["first_date"] == "2026-06-01"

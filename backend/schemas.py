@@ -86,6 +86,20 @@ class PaymentMethod(BaseModel):
 # -- Household Setting Schema --
 # The household split ratio: one row per user, snapshotted onto each
 # expenditure's allocation rows at write time (see notes/02).
+class CategoryTargetItem(BaseModel):
+    """A primary category's monthly target (the household's shared spending, full price)."""
+    primary_category: str = Field(min_length=1)
+    amount: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
+
+    class Config:
+        from_attributes = True
+
+
+class CategoryTargetsUpdate(BaseModel):
+    """PUT /category_targets/: the whole set; a category left out has no target."""
+    targets: List[CategoryTargetItem]
+
+
 class HouseholdSettingRead(BaseModel):
     user_id: int
     share_pct: Decimal = Field(gt=0, le=1, max_digits=5, decimal_places=4)
@@ -429,6 +443,10 @@ class SharedAnalytics(BaseModel):
     is_partial: bool         # true when `month` is the current São Paulo month
     as_of_day: int           # today's São Paulo day if partial, else the month's length
     rows: List[SharedAnalyticsRow]  # only non-empty month/category combinations
+    # The São Paulo day of the first expense in scope, ever (not just in the
+    # window), or None without any: tells the client when logging began, so a
+    # month logged only in part isn't compared as if it were cheap.
+    first_date: date | None = None
 
 class DailyRow(BaseModel):
     date: date               # a São Paulo calendar day

@@ -39,6 +39,8 @@ PROTECTED_ROUTES = [
     ("get", "/expenditures/"),
     ("post", "/expenditures/"),
     ("patch", "/expenditures/1"),
+    ("get", "/category_targets/"),
+    ("put", "/category_targets/"),
     ("delete", "/expenditures/1"),
     ("post", "/refresh"),
 ]

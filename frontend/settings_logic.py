@@ -175,3 +175,43 @@ def household_payload(shares_pct: dict[int, float]) -> tuple[list[dict], str | N
     if abs(total - 100) >= 0.01:
         return [], f"Shares must add up to 100% (now {total:g}%)."
     return [{"user_id": uid, "share_pct": round(pct / 100, 4)} for uid, pct in members.items()], None
+
+
+# --- Monthly targets ------------------------------------------------------------
+
+def target_rows(categories: list[dict], targets: list[dict]) -> "pd.DataFrame":
+    """
+    One row per primary category, A–Z: `Category` and its `Target` as typed
+    text ("3.000,00"; blank = no target), for Settings' targets table.
+    """
+    import pandas as pd
+    from money import format_brl
+
+    current = {t["primary_category"]: t["amount"] for t in targets or []}
+    names = sorted({c["primary_category"] for c in categories or []}, key=str.lower)
+    return pd.DataFrame({"Category": names,
+                         "Target": [format_brl(current[n], symbol=False) if n in current else "" for n in names]})
+
+
+def targets_payload(edited: "pd.DataFrame") -> tuple[list[dict], list[str]]:
+    """
+    The edited targets table as PUT /category_targets/'s list (blank rows
+    left out: no target), and the errors that block saving, in words.
+    """
+    from money import parse_brl
+
+    targets, errors = [], []
+    for name, text in zip(edited["Category"], edited["Target"].fillna("")):
+        text = str(text).strip()
+        if not text:
+            continue
+        try:
+            amount = parse_brl(text)
+        except ValueError as e:
+            errors.append(f"{name}: {e}")
+            continue
+        if amount <= 0:
+            errors.append(f"{name}: a target must be more than zero (leave it blank for none).")
+            continue
+        targets.append({"primary_category": name, "amount": str(amount)})
+    return targets, errors

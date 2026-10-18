@@ -56,17 +56,21 @@ def finish(chart, height: int | None = None):
     )
 
 
-def trend_chart(totals: pd.Series, selected: str, is_partial: bool, average: float | None) -> alt.LayerChart:
+def trend_chart(totals: pd.Series, selected: str, is_partial: bool, average: float | None,
+                partly_month: str | None = None) -> alt.LayerChart:
     """
     Columns per month, the selected month in the accent colour. A month in
     progress is drawn faded with a dashed outline and labelled "to date" —
     no projection. A dashed rule marks the average of the last 3 full months.
+    `partly_month`, a month logged only in part, gets an asterisk (the
+    page's caption explains it).
     """
     data = pd.DataFrame({"month": totals.index, "amount": totals.values})
     data["partial"] = is_partial & (data["month"] == selected)
     data["selected"] = data["month"] == selected
     data["label"] = [
-        month_label(m, short=True) + (" (to date)" if p else "") for m, p in zip(data["month"], data["partial"])
+        month_label(m, short=True) + ("*" if m == partly_month else "") + (" (to date)" if p else "")
+        for m, p in zip(data["month"], data["partial"])
     ]
     data["value_label"] = data["amount"].map(short_brl)
     data["amount_brl"] = data["amount"].map(format_brl)
@@ -212,7 +216,8 @@ def name_axis(width: int = NAME_WIDTH, **extra) -> alt.Axis:
 
 def ranked_bars(frame: pd.DataFrame, picked: str | None = None, previous: str | None = None,
                 x_label: str = "Spent", width: int | None = None, room: float = 1.6,
-                reference: float | None = None, reference_label: str = "") -> alt.LayerChart:
+                reference: float | None = None, reference_label: str = "",
+                target: str | None = None) -> alt.LayerChart:
     """
     Horizontal bars, biggest on top, from a frame with `name`, `amount`,
     `amount_brl` and `text` (what's written at the bar's tip, e.g.
@@ -224,14 +229,20 @@ def ranked_bars(frame: pd.DataFrame, picked: str | None = None, previous: str | 
     wide as the longest name needs (`names_width`) unless `width` is given.
     The height counts the x axis, as Streamlit does. `reference` adds a
     dashed grey line at that amount, named at its top (`reference_label`),
-    e.g. the month's average day behind its biggest days.
+    e.g. the month's average day behind its biggest days. `target` names a
+    column drawn as a dark tick (the monthly target), in ink so it reads
+    apart from the grey one: a bullet chart.
     """
     order = list(frame["name"])
     width = width or names_width(order)
+    if target and target in frame:
+        frame = frame.assign(target_brl=frame[target].map(lambda v: format_brl(v) if v else "—"))
     top = float(frame[["amount", previous]].max(axis=1).max() if previous else frame["amount"].max()) \
         if not frame.empty else 1.0
+    marks = ["amount"] + [c for c in (previous, target) if c and c in frame]
+    top = max(top, float(frame[marks].max(axis=1).max()) if not frame.empty else 1.0)
     data = frame.assign(is_picked=frame["name"].eq(picked) if picked is not None else True,
-                        tip=frame[["amount", previous]].max(axis=1) if previous else frame["amount"])
+                        tip=frame[marks].max(axis=1))
     y = alt.Y("name:N", sort=order, axis=name_axis(width))
     # Room past the longest bar for its label.
     x = alt.X("amount:Q", scale=alt.Scale(domain=[0, max(top, 1.0) * room], nice=False),
@@ -242,6 +253,8 @@ def ranked_bars(frame: pd.DataFrame, picked: str | None = None, previous: str | 
         tooltip.append(alt.Tooltip("previous_brl:N", title="Before"))
     if "detail" in frame:
         tooltip.append(alt.Tooltip("detail:N", title="Paid with"))
+    if target and target in frame:
+        tooltip.append(alt.Tooltip("target_brl:N", title="Monthly target"))
     base = alt.Chart(data)
     bars = base.mark_bar(cornerRadiusTopRight=4, cornerRadiusBottomRight=4, height=18).encode(
         x=x, y=y, tooltip=tooltip,
@@ -252,6 +265,10 @@ def ranked_bars(frame: pd.DataFrame, picked: str | None = None, previous: str | 
         layers.append(base.transform_filter(f"datum['{previous}'] > 0").mark_tick(color=MUTED, thickness=2.5,
                                                                                   size=24).encode(
             x=alt.X(f"{previous}:Q"), y=y, tooltip=tooltip))
+    if target and target in frame:
+        layers.append(base.transform_filter(f"datum['{target}'] > 0").mark_tick(color=INK, thickness=2,
+                                                                                size=30).encode(
+            x=alt.X(f"{target}:Q"), y=y, tooltip=tooltip))
     layers.append(base.mark_text(align="left", dx=6, fontSize=12, color=INK).encode(
         x=alt.X("tip:Q"), y=y, text="text:N"))
     if reference is not None and reference > 0:

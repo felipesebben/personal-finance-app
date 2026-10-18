@@ -66,17 +66,31 @@ def _delta_line(change: float, pct: float, against: str) -> tuple[str, str | Non
     return f"{arrow} {shape.delta_text(change, pct)} vs {against}", "more" if change > 0 else "less"
 
 
-def _kpis(df, months, selected, is_partial, lens, headline, noun, previous_title, comparison, rising) -> None:
-    """Four equal cards, each a number, its comparison and its sparkbars over the last six months."""
+def _kpis(df, months, selected, is_partial, lens, headline, noun, previous_title, comparison, rising,
+          since, partly) -> None:
+    """
+    Four equal cards, each a number, its comparison and its sparkbars over
+    the last six months. A ▲/▼ only against a month logged in full: a
+    partly logged one (`partly`, the day logging began) is named instead.
+    """
+    previous = shape.shift_month(selected, -1)
+    comparable = since is not None and since <= previous
     total = shape.compare_total(df, selected, is_partial, lens)
-    average = shape.previous_full_average(df, months, selected, lens, to_day=is_partial)
+    average = shape.previous_full_average(df, months, selected, lens, to_day=is_partial, since=since)
     shown = months[-6:]
     totals = shape.monthly_totals(df, shown, lens)
     to_date = " so far" if is_partial else ""
     cards = []
 
-    cards.append((f"{headline}{to_date}", format_brl(total["current"]),
-                  [_delta_line(total["change"], total["pct"], previous_title)],
+    if comparable:
+        first_line = _delta_line(total["change"], total["pct"], previous_title)
+    elif partly:
+        whole = float(shape.monthly_totals(df, [previous], lens).iloc[0])
+        first_line = (f"{shape.month_label(previous, short=True)}: {format_brl(whole)}, logged from the "
+                      f"{shape.ordinal(partly)} only", None)
+    else:
+        first_line = ("Compared once a whole month has been logged", None)
+    cards.append((f"{headline}{to_date}", format_brl(total["current"]), [first_line],
                   daily_charts.spark_bars(shape.month_bars(totals, selected), "value", "Spent"),
                   "Everything counted in the month" + (", up to today." if is_partial else ".")))
     if average is None:
@@ -93,10 +107,14 @@ def _kpis(df, months, selected, is_partial, lens, headline, noun, previous_title
     counts = shape.monthly_counts(df, shown)
     before = int(counts.get(shape.shift_month(selected, -1), 0))
     cards.append((f"{noun.capitalize()}{to_date}", str(shape.expense_count(df, selected)),
-                  [(f"{before} in all of {shape.month_label(shape.shift_month(selected, -1))}", None)],
+                  [(f"{before} in all of {shape.month_label(previous)}"
+                    + (f" (from the {shape.ordinal(partly)})" if partly else ""), None)],
                   daily_charts.spark_bars(shape.month_bars(counts, selected, money=False), "value", "Expenses"),
                   "How many expenses were logged."))
-    if rising is None:
+    if not comparable:
+        cards.append(("Biggest increase", "—", [("Compared once a whole month has been logged.", None)], None,
+                      "The category that rose most in reais against last month."))
+    elif rising is None:
         cards.append(("Biggest increase", "—", [(f"Nothing rose against {previous_title}.", None)], None,
                       "The category that rose most in reais against last month."))
     else:
@@ -150,9 +168,17 @@ def render(token: str, lens: str, key: str, show_view: bool = False) -> None:
         st.info("Nothing matches these filters in the 12 months. Widen them to see more.")
         return
 
+    # A ▲/▼ only against a month logged in full; one logged in part is named, not compared.
+    first_date = data.get("first_date")
+    # Without first_date (an older API), the data's own first month, as This month does.
+    since = shape.tracked_since(first_date) or (everything["month"].min() if not everything.empty else None)
+    comparable = since is not None and since <= previous
+    partly = shape.partly_logged_from(previous, first_date)
+    partly_month = first_date[:7] if first_date and shape.partly_logged_from(first_date[:7], first_date) else None
+
     comparison = shape.compare(df, selected, is_partial, lens)
-    rising = shape.biggest_increase(comparison)
-    _kpis(df, months, selected, is_partial, lens, headline, noun, previous_title, comparison, rising)
+    rising = shape.biggest_increase(comparison) if comparable else None
+    _kpis(df, months, selected, is_partial, lens, headline, noun, previous_title, comparison, rising, since, partly)
 
     # --- Trend ---
     with ui.card(f"{key}_trend"):
@@ -163,16 +189,26 @@ def render(token: str, lens: str, key: str, show_view: bool = False) -> None:
                                            format_func=lambda n: f"{n} months") or 12
         trend_months = months[-window:]
         totals = shape.monthly_totals(df, trend_months, lens)
-        trend_average = shape.previous_full_average(df, months, selected, lens)
-        st.altair_chart(charts.trend_chart(totals, selected, is_partial, trend_average), use_container_width=True)
-        if is_partial:
-            st.caption("The faded month is still going: shown so far, never projected.")
+        trend_average = shape.previous_full_average(df, months, selected, lens, since=since)
+        st.altair_chart(charts.trend_chart(totals, selected, is_partial, trend_average,
+                                           partly_month if partly_month in trend_months else None),
+                        use_container_width=True)
+        notes = ["The faded month is still going: shown so far, never projected."] if is_partial else []
+        if partly_month in trend_months:
+            notes.append(f"* {shape.month_label(partly_month)} was logged from the "
+                         f"{shape.ordinal(int(first_date[8:10]))} only.")
+        if notes:
+            st.caption(" ".join(notes))
 
     with ui.card(f"{key}_where"):
-        _where(df, comparison, trend_months, selected, selected_label, previous_title, is_partial, lens, key)
+        targets = {}
+        if lens == "Household":  # targets are for the household's shared spending
+            rows = get_data("category_targets/", token, default=[])
+            targets = {t["primary_category"]: float(t["amount"]) for t in rows or [] if isinstance(t, dict)}
+        _where(df, comparison, selected, selected_label, previous_title, is_partial, lens, key, comparable, targets)
 
     changes = shape.as_changes(comparison, "primary_category")
-    if not changes.empty:
+    if comparable and not changes.empty:
         with ui.card(f"{key}_changes"):
             st.subheader("Where does the difference come from?")
             st.caption(f"Each category against {previous_title}.")
@@ -188,8 +224,13 @@ def render(token: str, lens: str, key: str, show_view: bool = False) -> None:
         _fixed_vs_variable(df, selected, is_partial, lens, previous, previous_title, noun, selected_label)
 
 
-def _where(df, comparison, trend_months, selected, selected_label, previous_title, is_partial, lens, key) -> None:
-    """Where is the money going? Categories against last month, and what's inside the picked one."""
+def _where(df, comparison, selected, selected_label, previous_title, is_partial, lens, key, comparable,
+           targets: dict[str, float]) -> None:
+    """
+    Where is the money going? Categories against last month (a grey tick
+    and the change at the tip, when last month was logged in full; shares
+    otherwise), and what's inside the picked one.
+    """
     st.subheader(f"Where is the money going in {selected_label}?")
     if comparison.empty:
         st.caption(f"Nothing in {selected_label} or the month before.")
@@ -198,20 +239,29 @@ def _where(df, comparison, trend_months, selected, selected_label, previous_titl
     if bars.empty:
         st.caption(f"Nothing in {selected_label} yet.")
         return
-    st.caption(f"Grey tick: {previous_title}.")
+    tick = "previous" if comparable else None
+    if not comparable:
+        bars = shape.with_share_text(bars)
+    # The household's monthly targets (Settings), as a dark tick: for the whole month.
+    bars = bars.assign(target=[targets.get(n, 0.0) for n in bars["name"]])
+    notes = ([f"Grey tick: {previous_title}."] if comparable else []) + (
+        ["Dark tick: the monthly target."] if bars["target"].gt(0).any() else [])
+    if notes:
+        st.caption(" ".join(notes))
     left, right = st.columns([1, 1], gap="medium")
     with right:
         category = st.pills("Look inside", list(bars["name"]), default=bars["name"].iloc[0],
                             key=f"{key}_inside") or bars["name"].iloc[0]
     with left:
-        st.altair_chart(charts.ranked_bars(bars, picked=category, previous="previous", room=1.7),
+        st.altair_chart(charts.ranked_bars(bars, picked=category, previous=tick, room=1.7, target="target"),
                         use_container_width=True)
     with right:
         sub = shape.compare(df, selected, is_partial, lens, by="sub_category", where={"primary_category": category})
         inside = shape.ranked_comparison(sub[sub["current"] > 0], "sub_category")
         if not inside.empty:
-            st.altair_chart(charts.ranked_bars(inside, previous="previous", room=1.7),
-                            use_container_width=True)
+            if not comparable:
+                inside = shape.with_share_text(inside)
+            st.altair_chart(charts.ranked_bars(inside, previous=tick, room=1.7), use_container_width=True)
 
 
 def _fixed_vs_variable(df, selected, is_partial, lens, previous, previous_title, noun, selected_label) -> None:

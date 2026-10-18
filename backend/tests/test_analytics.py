@@ -59,8 +59,17 @@ def test_empty_window(client, household):
     a = analytics(client, household["a"], month="2026-10", months=3)
     assert a == {
         "month": "2026-10", "months": ["2026-08", "2026-09", "2026-10"],
-        "is_partial": True, "as_of_day": 10, "rows": [],
+        "is_partial": True, "as_of_day": 10, "rows": [], "first_date": None,
     }
+
+
+def test_first_date_is_the_first_shared_expense_ever_in_sao_paulo(client, household):
+    spend(client, household, "a", "10.00", when="2026-09-27T22:30:00-03:00")  # the 28th in UTC, the 27th here
+    spend(client, household, "b", "10.00", when="2026-10-02T12:00:00-03:00")
+    spend(client, household, "a", "99.00", is_shared=False, when="2026-08-01T12:00:00-03:00")  # personal: not here
+    # Outside the window too: it says when logging began, not what the window holds.
+    assert analytics(client, household["a"], month="2026-10", months=1)["first_date"] == "2026-09-27"
+    assert analytics(client, household["b"], month="2026-10", months=1)["first_date"] == "2026-09-27"
 
 
 def test_totals_are_shared_prices_and_my_share_rows(client, household):

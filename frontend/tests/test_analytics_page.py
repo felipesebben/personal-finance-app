@@ -8,7 +8,7 @@ import pytest
 import streamlit as st
 from streamlit.testing.v1 import AppTest
 
-from conftest import empty_payload, sample_expenses, sample_payload
+from conftest import empty_payload, kpi_cards, sample_expenses, sample_payload
 
 PAGE = "pages/2_Our_expenses.py"
 MINE = "pages/3_My_expenses.py"
@@ -164,3 +164,30 @@ def test_month_by_month_counts_only_what_the_filters_keep():
     st.cache_data.clear()
     housing = run_page(fake_api(lambda month: sample_payload(month)), our_categories=["Housing"])
     assert overview(housing)[0][1] == "R$ 2.000,00"
+
+
+def test_a_partly_logged_last_month_is_named_not_compared():
+    # Logging began on 26 September: October can't be judged against it.
+    def payload(month):
+        return {**sample_payload(month), "first_date": "2026-09-26"}
+    at = run_page(fake_api(payload))
+    assert not at.exception
+    cards = kpi_cards(at)
+    assert cards["Shared total so far"]["lines"] == ["Sep 26: R$ 2.980,00, logged from the 26th only"]
+    assert cards["Biggest increase"]["value"] == "—"
+    assert not any("Where does the difference come from?" in s.value for s in at.subheader)
+    assert any("logged from the 26th only" in c.value for c in at.caption)  # the trend's footnote
+
+
+def test_monthly_targets_show_as_a_dark_tick_on_our_expenses():
+    inner = fake_api(lambda month: sample_payload(month))
+
+    def get(url, *args, **kwargs):
+        if "/category_targets" in url:
+            return MagicMock(status_code=200, json=MagicMock(return_value=[
+                {"primary_category": "Food", "amount": "500.00"}]))
+        return inner(url, *args, **kwargs)
+
+    at = run_page(get)
+    assert not at.exception
+    assert any("Dark tick: the monthly target." in c.value for c in at.caption)

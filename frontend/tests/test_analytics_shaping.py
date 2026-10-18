@@ -210,3 +210,33 @@ def test_month_bars_and_counts(df, months):
     assert list(counts.index) == months and counts.dtype.kind == "i"
 
 
+
+
+# --- months logged in full ----------------------------------------------------
+
+def test_tracked_since_and_partly_logged_from():
+    assert shape.tracked_since("2026-09-26") == "2026-10"  # began late in September
+    assert shape.tracked_since("2026-09-05") == "2026-09"  # early enough to count
+    assert shape.tracked_since(None) is None
+    assert shape.partly_logged_from("2026-09", "2026-09-26") == 26
+    assert shape.partly_logged_from("2026-09", "2026-09-05") is None
+    assert shape.partly_logged_from("2026-08", "2026-09-26") is None
+    assert [shape.ordinal(n) for n in (1, 2, 3, 11, 22, 26)] == ["1st", "2nd", "3rd", "11th", "22nd", "26th"]
+
+
+def test_merged_payloads_start_with_the_earliest_first_date():
+    a = {"month": "2026-10", "rows": [], "first_date": "2026-09-26"}
+    b = {"month": "2026-10", "rows": [], "first_date": "2026-08-02"}
+    assert shape.merge_payloads({"shared": a, "personal": b})["first_date"] == "2026-08-02"
+    assert shape.merge_payloads({"shared": {"month": "2026-10", "rows": []}})["first_date"] is None
+
+
+def test_the_three_month_average_waits_for_months_logged_in_full(df, months):
+    assert shape.previous_full_average(df, months, "2026-10", "Household") is not None
+    assert shape.previous_full_average(df, months, "2026-10", "Household", since="2026-08") is None
+
+
+def test_share_text_when_there_is_no_fair_comparison(df):
+    bars = shape.with_share_text(shape.ranked_comparison(shape.compare(df, "2026-10", True, "Household"),
+                                                         "primary_category"))
+    assert all("%" in t and "▲" not in t and "new" not in t for t in bars["text"])

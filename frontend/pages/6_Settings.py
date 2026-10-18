@@ -196,6 +196,33 @@ editable_table(
 
 st.divider()
 
+# --- Monthly targets ---
+st.subheader("Monthly targets")
+ui.lede("What you mean to spend a month, per category.",
+        " Our expenses draws it as a dark tick on each category's bar, next to last month's grey one. "
+        "For shared spending, at full price. Leave a category blank for no target.")
+target_table = logic.target_rows(categories, get_data("category_targets", token))
+if target_table.empty:
+    st.caption("Add a category first.")
+else:
+    edited_targets = st.data_editor(
+        target_table, hide_index=True, width="stretch", num_rows="fixed", key=f"targets_{nonce}",
+        column_config={"Category": st.column_config.TextColumn(disabled=True),
+                       "Target": st.column_config.TextColumn("Target (R$ a month)", help="e.g. 3.000,00")},
+    )
+    if st.button("Save targets", key=f"save_targets_{nonce}"):
+        targets, problems = logic.targets_payload(edited_targets)
+        if problems:
+            st.error("Not saved: " + " ".join(problems))
+        else:
+            error = call("PUT", "category_targets/", {"targets": targets})
+            if error:
+                st.error(error)
+            else:
+                done(f"Targets saved: {len(targets)} categor{'y' if len(targets) == 1 else 'ies'}.")
+
+st.divider()
+
 # --- Payment methods ---
 editable_table(
     "Payment methods", "payment_methods", payment_methods, logic.PAYMENT_METHODS,

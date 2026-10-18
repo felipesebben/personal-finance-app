@@ -97,3 +97,17 @@ def test_form_values_manual_split_pet_and_no_institution():
     assert v["institution"] == entries.NO_INSTITUTION
     # With one pet the form doesn't ask.
     assert entries.form_values(expense(category=VET), two_pets[:1], SP)["pet"] is None
+
+
+def test_recent_templates_are_my_last_different_expenses_newest_first():
+    logged = [
+        expense(1, when="2026-10-01T12:00:00+00:00"),                                    # groceries, card, shared
+        expense(2, when="2026-10-05T12:00:00+00:00", price="80.00"),                     # the same again: one entry
+        expense(3, when="2026-10-03T12:00:00+00:00", payment_method=PIX, is_shared=False),
+        expense(4, when="2026-10-06T12:00:00+00:00", user=HER),                          # hers: not offered
+    ]
+    templates = entries.recent_templates(logged, my_user_id=1)
+    assert [label for label, _ in templates] == ["Groceries · Credit Card · Nubank", "Groceries · Pix · just me"]
+    assert templates[0][1]["expenditure_id"] == 2  # the newest of the same kind
+    assert entries.recent_templates(logged, my_user_id=1, n=1) == templates[:1]
+    assert entries.recent_templates([], 1) == []
