@@ -7,6 +7,7 @@ from decimal import Decimal
 import streamlit as st
 
 from common import SAO_PAULO, get_data, md, require_login, show_toast
+import entries
 import entry_checks
 from sections import entry_form
 import ui
@@ -28,7 +29,7 @@ def expense_entry_form():
     installments and the price preview stay live (st.form would freeze them
     until submit).
     """
-    entry_form.render(token, data)
+    entry_form.render(token, data, templates=entries.recent_templates(get_data("expenditures", token), my_user_id))
 
 
 # -- Main Page UI --
