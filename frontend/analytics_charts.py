@@ -211,7 +211,8 @@ def name_axis(width: int = NAME_WIDTH, **extra) -> alt.Axis:
 
 
 def ranked_bars(frame: pd.DataFrame, picked: str | None = None, previous: str | None = None,
-                x_label: str = "Spent", width: int | None = None, room: float = 1.6) -> alt.LayerChart:
+                x_label: str = "Spent", width: int | None = None, room: float = 1.6,
+                reference: float | None = None, reference_label: str = "") -> alt.LayerChart:
     """
     Horizontal bars, biggest on top, from a frame with `name`, `amount`,
     `amount_brl` and `text` (what's written at the bar's tip, e.g.
@@ -221,7 +222,9 @@ def ranked_bars(frame: pd.DataFrame, picked: str | None = None, previous: str | 
     The value sits at the tip, with `room` (x the longest bar) left for
     it; the axis keeps light gridlines as rulers. The names' column is as
     wide as the longest name needs (`names_width`) unless `width` is given.
-    The height counts the x axis, as Streamlit does.
+    The height counts the x axis, as Streamlit does. `reference` adds a
+    dashed grey line at that amount, named at its top (`reference_label`),
+    e.g. the month's average day behind its biggest days.
     """
     order = list(frame["name"])
     width = width or names_width(order)
@@ -251,6 +254,13 @@ def ranked_bars(frame: pd.DataFrame, picked: str | None = None, previous: str | 
             x=alt.X(f"{previous}:Q"), y=y, tooltip=tooltip))
     layers.append(base.mark_text(align="left", dx=6, fontSize=12, color=INK).encode(
         x=alt.X("tip:Q"), y=y, text="text:N"))
+    if reference is not None and reference > 0:
+        ref = alt.Chart(pd.DataFrame({"ref": [reference], "label": [reference_label]}))
+        # Behind the bars and their labels, so it never crosses a number; named above the bars.
+        layers.insert(0, ref.mark_rule(color=MUTED, strokeDash=[4, 3], strokeWidth=1.2, opacity=0.7).encode(
+            x="ref:Q", tooltip=[alt.Tooltip("label:N", title=" ")]))
+        layers.append(ref.mark_text(align="left", baseline="bottom", dx=4, y=-2, fontSize=11, color=MUTED).encode(
+            x="ref:Q", text="label:N"))
     return finish(alt.layer(*layers), BAR_ROW * max(len(frame), 1) + X_AXIS)
 
 
