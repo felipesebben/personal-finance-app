@@ -9,6 +9,7 @@ __pycache__/
 
 # Database backups
 backup_*.sql
+backups/
 
 # Distribution / packaging
 .Python
