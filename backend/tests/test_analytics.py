@@ -182,6 +182,24 @@ def test_rows_split_by_category(client, household):
     }
 
 
+def test_rows_split_by_nature_so_one_offs_can_be_left_out(client, household):
+    ipva = add_category(client, household, "Transport", "IPVA", "Fixed")
+    spend(client, household, "a", "900.00", category_id=ipva, nature="Annual")
+    spend(client, household, "a", "100.00")
+    spend(client, household, "a", "50.00", nature="Extraordinary")
+    rows = analytics(client, household["a"], month="2026-10")["rows"]
+    assert sorted((r["sub_category"], r["nature"], D(r["household"])) for r in rows) == [
+        ("Groceries", "Extraordinary", D("50.00")),
+        ("Groceries", "Normal", D("100.00")),
+        ("IPVA", "Annual", D("900.00")),
+    ]
+    personal = client.get("/analytics/personal", headers=household["a"], params={"month": "2026-10"}).json()
+    assert personal["rows"] == []  # all three are shared
+    spend(client, household, "a", "20.00", is_shared=False, nature="Extraordinary")
+    personal = client.get("/analytics/personal", headers=household["a"], params={"month": "2026-10"}).json()
+    assert [(r["nature"], D(r["household"])) for r in personal["rows"]] == [("Extraordinary", D("20.00"))]
+
+
 def test_expenses_route_lists_and_filters_by_category(client, household):
     rent = add_category(client, household, "Housing", "Rent", "Fixed")
     spend(client, household, "b", "1000.00", category_id=rent, when="2026-10-05T12:00:00-03:00")

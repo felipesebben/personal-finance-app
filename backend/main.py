@@ -1088,6 +1088,14 @@ import calendar
 from sqlalchemy import case, extract
 
 
+def in_period(fact, month: str, day: date | None):
+    """The São Paulo day when given, else the São Paulo month."""
+    local_ts = func.timezone("America/Sao_Paulo", fact.transaction_timestamp)
+    if day is not None:
+        return func.date(local_ts) == day
+    return func.to_char(local_ts, "YYYY-MM") == month
+
+
 def shift_month(month: str, delta: int) -> str:
     """'2026-10', -1 -> '2026-09'; crosses year boundaries."""
     index = int(month[:4]) * 12 + int(month[5:]) - 1 + delta
@@ -1141,6 +1149,7 @@ def get_shared_analytics(
             func.coalesce(category.primary_category, "Uncategorised").label("primary_category"),
             func.coalesce(category.sub_category, "Uncategorised").label("sub_category"),
             func.coalesce(category.cost_type, "Unknown").label("cost_type"),
+            func.coalesce(fact.nature, "Normal").label("nature"),
             func.sum(fact.price).label("household"),
             func.sum(func.coalesce(mine.share_amount, 0)).label("mine"),
             func.count(fact.expenditure_id).label("count"),
@@ -1154,8 +1163,8 @@ def get_shared_analytics(
             fact.has_other_share, local_month.in_(window),
             or_(mine.user_id.isnot(None), fact.user_id == current_user.user_id),
         )
-        .group_by("month", "primary_category", "sub_category", "cost_type")
-        .order_by("month", "primary_category", "sub_category")
+        .group_by("month", "primary_category", "sub_category", "cost_type", "nature")
+        .order_by("month", "primary_category", "sub_category", "nature")
         .all()
     )
 
@@ -1171,6 +1180,7 @@ def get_shared_analytics(
                 primary_category=r.primary_category,
                 sub_category=r.sub_category,
                 cost_type=r.cost_type,
+                nature=r.nature,
                 household=Decimal(r.household).quantize(cents),
                 mine=Decimal(r.mine).quantize(cents),
                 count=r.count,
@@ -1185,6 +1195,7 @@ def get_shared_analytics(
 @app.get("/analytics/shared/expenses", response_model=List[schemas.SharedExpense])
 def get_shared_expenses(
     month: str | None = Query(None, pattern=MONTH_PATTERN, description="YYYY-MM; defaults to the current month"),
+    day: date | None = Query(None, description="One São Paulo day (YYYY-MM-DD) instead of a month"),
     primary_category: str | None = Query(None, description="Only this primary category ('Uncategorised' for none)"),
     db: Session = Depends(get_db),
     current_user: models.DimUser = Depends(get_current_user),
@@ -1233,7 +1244,7 @@ def get_shared_expenses(
         .outerjoin(category, category.category_id == fact.category_id)
         .outerjoin(method, method.payment_method_id == fact.payment_method_id)
         .filter(
-            fact.has_other_share, local_month == month,
+            fact.has_other_share, in_period(fact, month, day),
             or_(mine.user_id.isnot(None), fact.user_id == current_user.user_id),
         )
     )
@@ -1284,14 +1295,15 @@ def get_personal_analytics(
             func.coalesce(category.primary_category, "Uncategorised").label("primary_category"),
             func.coalesce(category.sub_category, "Uncategorised").label("sub_category"),
             func.coalesce(category.cost_type, "Unknown").label("cost_type"),
+            func.coalesce(fact.nature, "Normal").label("nature"),
             func.sum(fact.price).label("amount"),
             func.count(fact.expenditure_id).label("count"),
             func.sum(case((in_first_days, fact.price), else_=0)).label("amount_to_day"),
         )
         .outerjoin(category, category.category_id == fact.category_id)
         .filter(personal_to(current_user), local_month.in_(window))
-        .group_by("month", "primary_category", "sub_category", "cost_type")
-        .order_by("month", "primary_category", "sub_category")
+        .group_by("month", "primary_category", "sub_category", "cost_type", "nature")
+        .order_by("month", "primary_category", "sub_category", "nature")
         .all()
     )
 
@@ -1301,7 +1313,7 @@ def get_personal_analytics(
         amount, to_day = Decimal(r.amount).quantize(cents), Decimal(r.amount_to_day).quantize(cents)
         out.append(schemas.SharedAnalyticsRow(
             month=r.month, primary_category=r.primary_category, sub_category=r.sub_category,
-            cost_type=r.cost_type, household=amount, mine=amount, count=r.count,
+            cost_type=r.cost_type, nature=r.nature, household=amount, mine=amount, count=r.count,
             household_to_day=to_day, mine_to_day=to_day,
         ))
     return schemas.SharedAnalytics(month=month, months=window, is_partial=is_partial, as_of_day=as_of_day, rows=out)
@@ -1310,6 +1322,7 @@ def get_personal_analytics(
 @app.get("/analytics/personal/expenses", response_model=List[schemas.SharedExpense])
 def get_personal_expenses(
     month: str | None = Query(None, pattern=MONTH_PATTERN, description="YYYY-MM; defaults to the current month"),
+    day: date | None = Query(None, description="One São Paulo day (YYYY-MM-DD) instead of a month"),
     primary_category: str | None = Query(None, description="Only this primary category ('Uncategorised' for none)"),
     db: Session = Depends(get_db),
     current_user: models.DimUser = Depends(get_current_user),
@@ -1340,7 +1353,7 @@ def get_personal_expenses(
         )
         .outerjoin(category, category.category_id == fact.category_id)
         .outerjoin(method, method.payment_method_id == fact.payment_method_id)
-        .filter(personal_to(current_user), local_month == month)
+        .filter(personal_to(current_user), in_period(fact, month, day))
     )
     if primary_category is not None:
         query = query.filter(primary == primary_category)
@@ -1350,3 +1363,90 @@ def get_personal_expenses(
         schemas.SharedExpense(**r._mapping, paid_by=current_user.full_name, mine=r.price, share_pct=Decimal("1"))
         for r in rows
     ]
+
+
+# --- Daily analytics --------------------------------------------------------
+# Spending per São Paulo day over a window of months, for the "This month"
+# view: running totals against earlier months, and the calendar heatmap.
+# The same privacy rules as the monthly routes: /shared/daily counts shared
+# expenses the caller paid or holds a share of; /personal/daily only the
+# caller's own personal expenses.
+
+def daily_analytics(db: Session, user: models.DimUser, month: str | None, months: int, scope: str) -> schemas.DailyAnalytics:
+    today = datetime.now(SAO_PAULO)
+    current = today.strftime("%Y-%m")
+    if month is None:
+        month = current
+    window = [shift_month(month, -k) for k in range(months - 1, -1, -1)]
+    is_partial = month == current
+    as_of_day = today.day if is_partial else calendar.monthrange(int(month[:4]), int(month[5:]))[1]
+
+    fact = models.FactExpenditure
+    category = models.DimCategory
+    local_ts = func.timezone("America/Sao_Paulo", fact.transaction_timestamp)
+    # One row per day x category x cost type x nature, so the page can filter
+    # (day-to-day only, leave out one-offs) and say where a difference comes from.
+    dims = [
+        func.date(local_ts).label("day"),
+        func.coalesce(category.primary_category, "Uncategorised").label("primary_category"),
+        func.coalesce(category.sub_category, "Uncategorised").label("sub_category"),
+        func.coalesce(category.cost_type, "Unknown").label("cost_type"),
+        func.coalesce(fact.nature, "Normal").label("nature"),
+    ]
+
+    if scope == "shared":
+        mine = models.FactExpenditureSplit
+        query = (
+            db.query(*dims, func.sum(fact.price).label("household"),
+                     func.sum(func.coalesce(mine.share_amount, 0)).label("mine"),
+                     func.count(fact.expenditure_id).label("count"))
+            .outerjoin(mine, (mine.expenditure_id == fact.expenditure_id) & (mine.user_id == user.user_id))
+            .filter(fact.has_other_share, or_(mine.user_id.isnot(None), fact.user_id == user.user_id))
+        )
+    else:
+        query = (
+            db.query(*dims, func.sum(fact.price).label("household"), func.sum(fact.price).label("mine"),
+                     func.count(fact.expenditure_id).label("count"))
+            .filter(personal_to(user))
+        )
+    keys = ("day", "primary_category", "sub_category", "cost_type", "nature")
+    rows = (
+        query.outerjoin(category, category.category_id == fact.category_id)
+        .filter(func.to_char(local_ts, "YYYY-MM").in_(window))
+        .group_by(*keys)
+        .order_by(*keys)
+        .all()
+    )
+    cents = Decimal("0.01")
+    return schemas.DailyAnalytics(
+        month=month, months=window, is_partial=is_partial, as_of_day=as_of_day, today=today.date(),
+        rows=[
+            schemas.DailyRow(date=r.day, primary_category=r.primary_category, sub_category=r.sub_category,
+                             cost_type=r.cost_type, nature=r.nature,
+                             household=Decimal(r.household).quantize(cents), mine=Decimal(r.mine).quantize(cents),
+                             count=r.count)
+            for r in rows
+        ],
+    )
+
+
+@app.get("/analytics/shared/daily", response_model=schemas.DailyAnalytics)
+def get_shared_daily(
+    month: str | None = Query(None, pattern=MONTH_PATTERN, description="YYYY-MM, the last month of the window; defaults to the current month"),
+    months: int = Query(7, ge=1, le=13, description="How many months the window covers, ending at `month`"),
+    db: Session = Depends(get_db),
+    current_user: models.DimUser = Depends(get_current_user),
+):
+    """Shared spending per São Paulo day over a window of months."""
+    return daily_analytics(db, current_user, month, months, "shared")
+
+
+@app.get("/analytics/personal/daily", response_model=schemas.DailyAnalytics)
+def get_personal_daily(
+    month: str | None = Query(None, pattern=MONTH_PATTERN, description="YYYY-MM, the last month of the window; defaults to the current month"),
+    months: int = Query(7, ge=1, le=13, description="How many months the window covers, ending at `month`"),
+    db: Session = Depends(get_db),
+    current_user: models.DimUser = Depends(get_current_user),
+):
+    """My personal spending per São Paulo day over a window of months."""
+    return daily_analytics(db, current_user, month, months, "personal")

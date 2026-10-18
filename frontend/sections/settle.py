@@ -14,6 +14,24 @@ from config import API_BASE_URL
 from money import format_brl, parse_brl
 
 
+def net_text(net) -> str:
+    """'Is owed R$ 120,00', 'Owes R$ 120,00' or 'Square'."""
+    value = Decimal(str(net))
+    if value == 0:
+        return "Square"
+    return f"{'Is owed' if value > 0 else 'Owes'} {format_brl(abs(value))}"
+
+
+def person_lines(m: dict) -> list[tuple[str, None]]:
+    """What a person paid, their share, and any payments between you, as ui.kpi lines."""
+    lines = [(f"Paid {format_brl(m['paid'])}", None), (f"Their share {format_brl(m['borne'])}", None)]
+    if Decimal(str(m.get("settled_out") or 0)):
+        lines.append((f"Paid back {format_brl(m['settled_out'])}", None))
+    if Decimal(str(m.get("settled_in") or 0)):
+        lines.append((f"Received {format_brl(m['settled_in'])}", None))
+    return lines
+
+
 def render(token: str) -> None:
     ui.lede(
         "Who owes whom, and recording the payment.",
@@ -39,25 +57,15 @@ def render(token: str) -> None:
     else:
         ui.callout("All square", "", f"Nobody owes anything for {label}.")
 
-    balance_df = pd.DataFrame(balance_report["members"])
-    if not balance_df.empty:
+    people = balance_report["members"]
+    if people:
         st.subheader("How we got there")
-        st.caption(
-            "**Paid**: what went out of each person's account for shared expenses. "
-            "**Should have paid**: their share by the household ratio. "
-            "**Difference**: paid − should have paid + paid back − received; "
-            "positive means the others owe this person."
-        )
-        money_cols = {
-            "paid": "Paid", "borne": "Should have paid",
-            "settled_out": "Paid back", "settled_in": "Received", "net": "Difference",
-        }
-        for col in money_cols:
-            balance_df[col] = balance_df[col].map(format_brl)
-        st.dataframe(
-            balance_df[["full_name", *money_cols]].rename(columns={"full_name": "Person", **money_cols}),
-            width="stretch", hide_index=True,
-        )
+        for col, m in zip(st.columns(max(len(people), 2), gap="small"), people):
+            with col, ui.card(f"settle_{m['user_id']}"):
+                ui.kpi(m["full_name"] or "—", net_text(m["net"]), person_lines(m),
+                       help="Paid: what went out of their account for shared expenses. Their share: what the "
+                            "household ratio puts on them. The difference, after payments, is what they're owed "
+                            "(or owe).")
 
     members = {m["user_id"]: m["full_name"] for m in balance_report["members"]}
     suggestion = balance_report["transfers"][0] if balance_report["transfers"] else None

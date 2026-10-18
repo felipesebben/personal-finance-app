@@ -51,33 +51,35 @@ def render(token: str) -> None:
             st.error(f"Error: {res.status_code} – {res.json().get('detail', res.text)}")
 
     gap = joint_shaping.pace_gap(status)
-    j1, j2, j3 = st.columns(3)
-    with j1:
-        st.metric("Left in the account",
-                  format_brl(status["balance"]) if status["balance"] is not None else "–", border=True)
-        st.caption(md(joint_shaping.counted_from_text(status, SAO_PAULO)))
-    with j2:
-        st.metric("Spent this month", format_brl(status["spent_to_day"]),
-                  delta=f"{format_brl_delta(gap)} vs usual" if gap is not None else None,
-                  delta_color="inverse", border=True)
-        usual_total = status.get("usual_month_total")
-        st.caption(md(f"A usual month: {format_brl(usual_total)}." if usual_total is not None
-                      else "No usual month yet."))
-    with j3:
-        runs_out = status.get("runs_out_on")
-        st.metric("Runs out", datetime.date.fromisoformat(runs_out).strftime("%d/%m") if runs_out else "–",
-                  border=True)
-        st.caption(md(joint_shaping.run_out_text(status) or "Needs the balance first."))
+    runs_out = status.get("runs_out_on")
+    usual_total = status.get("usual_month_total")
+    spent_lines = []
+    if gap is not None:
+        spent_lines.append((f"{'▲' if gap > 0 else '▼'} {format_brl_delta(gap)} vs usual",
+                            "more" if gap > 0 else "less" if gap < 0 else None))
+    spent_lines.append((f"A usual month: {format_brl(usual_total)}" if usual_total is not None
+                        else "No usual month yet", None))
+    cards = [
+        ("Left in the account", format_brl(status["balance"]) if status["balance"] is not None else "–",
+         [(joint_shaping.counted_from_text(status, SAO_PAULO), None)]),
+        ("Spent this month", format_brl(status["spent_to_day"]), spent_lines),
+        ("Runs out", datetime.date.fromisoformat(runs_out).strftime("%d/%m") if runs_out else "–",
+         [(joint_shaping.run_out_text(status) or "Needs the balance first.", None)]),
+    ]
+    for col, (label, value, lines) in zip(st.columns(3, gap="small"), cards):
+        with col, ui.card(f"joint_{label[:8]}", height=170):
+            ui.kpi(label, value, lines)
 
-    st.subheader("Spending through the month")
-    st.caption(md(joint_shaping.pace_sentence(status)))
     frame = joint_shaping.pace_frame(status)
-    if not frame.empty:
-        st.altair_chart(
-            analytics_charts.joint_pace_chart(frame, joint_shaping.THIS_MONTH, joint_shaping.USUAL,
-                                              status["days_in_month"]),
-            use_container_width=True,
-        )
+    with ui.card("joint_pace"):
+        st.subheader("Spending through the month")
+        st.caption(md(joint_shaping.pace_sentence(status)))
+        if not frame.empty:
+            st.altair_chart(
+                analytics_charts.joint_pace_chart(frame, joint_shaping.THIS_MONTH, joint_shaping.USUAL,
+                                                  status["days_in_month"]),
+                use_container_width=True,
+            )
 
     st.subheader("Add money or correct the balance")
     with st.form("joint_entry_form", clear_on_submit=True, border=True):
