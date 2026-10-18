@@ -71,7 +71,47 @@ def merge_payloads(by_source: dict[str, dict]) -> dict:
     payloads = {source: p for source, p in by_source.items() if isinstance(p, dict)}  # anything else: no rows
     merged = dict(next(iter(payloads.values()), {}))
     merged["rows"] = [{**row, "source": source} for source, p in payloads.items() for row in p.get("rows") or []]
+    # Logging began with the first expense of any of them.
+    firsts = [p["first_date"] for p in payloads.values() if p.get("first_date")]
+    merged["first_date"] = min(firsts) if firsts else None
     return merged
+
+
+# --- months logged in full ----------------------------------------------------
+
+TRACKED_BY_DAY = 7  # a month counts as logged in full when logging had begun by its 7th (as daily_shaping)
+
+
+def tracked_since(first_date: str | None) -> str | None:
+    """
+    The first month logged in full, from the payload's `first_date` (when
+    logging began): that month if it began by the 7th, else the month after.
+    Earlier months are never used for a ▲/▼ verdict.
+    """
+    if not first_date:
+        return None
+    month = first_date[:7]
+    return month if int(first_date[8:10]) <= TRACKED_BY_DAY else shift_month(month, 1)
+
+
+def partly_logged_from(month: str, first_date: str | None) -> int | None:
+    """The day logging began in `month` when it began there after the 7th (a month logged in part), else None."""
+    if not first_date or first_date[:7] != month or int(first_date[8:10]) <= TRACKED_BY_DAY:
+        return None
+    return int(first_date[8:10])
+
+
+def ordinal(n: int) -> str:
+    """1 -> '1st', 26 -> '26th'."""
+    suffix = "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
+def with_share_text(frame: pd.DataFrame) -> pd.DataFrame:
+    """ranked_comparison() bars when there's no fair comparison: the tip says the share, "R$ 4,1 mil · 59%"."""
+    total = frame["amount"].sum()
+    return frame.assign(text=[f"{short_brl(a)} · {a / total:.0%}" if total else short_brl(a)
+                              for a in frame["amount"]])
 
 
 def keep_sources(df: pd.DataFrame, sources: list[str] | None) -> pd.DataFrame:
@@ -138,15 +178,18 @@ def compare_total(df: pd.DataFrame, selected: str, is_partial: bool, lens: str) 
 
 
 def previous_full_average(df: pd.DataFrame, months: list[str], selected: str, lens: str,
-                          n: int = 3, to_day: bool = False) -> float | None:
+                          n: int = 3, to_day: bool = False, since: str | None = None) -> float | None:
     """
     Average of the n complete months just before `selected` (zero months
     count as zero), or None until n such months exist: all inside the
-    window and none before the first month with any shared expense.
+    window, none before the first month with any shared expense, and none
+    before `since` (the first month logged in full, tracked_since).
     With to_day, averages only the same days of each month.
     """
     wanted = [shift_month(selected, -k) for k in range(1, n + 1)]
     if df.empty or any(m not in months for m in wanted) or min(wanted) < df["month"].min():
+        return None
+    if since is not None and min(wanted) < since:
         return None
     totals = monthly_totals(df, months, lens, to_day)
     return round(float(totals[wanted].mean()), 2)
