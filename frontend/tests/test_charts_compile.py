@@ -48,7 +48,8 @@ def daily_charts_for(partial: bool):
         daily_charts.weekday_chart(daily.weekday_profile(df, p, "Household", today)),
         daily_charts.changes_chart(daily.category_changes(rows, p, "Household")),
         analytics_charts.ranked_bars(mix, picked=mix["name"].iloc[0]),
-        analytics_charts.ranked_bars(days, picked=days["name"].iloc[0], room=1.7),
+        analytics_charts.ranked_bars(days, picked=days["name"].iloc[0], room=1.7, reference=40.0,
+                                     reference_label="average day R$ 40"),
         analytics_charts.ranked_bars(daily.day_items(items, "Household", ZoneInfo("America/Sao_Paulo"))),
     ]
 
@@ -87,3 +88,20 @@ def test_a_broken_spec_is_caught():
                        alt.Chart(frame).mark_line().encode(x=alt.X("x:Q", axis=None), y=alt.Y("y:Q", axis=None)))
     with pytest.raises(Exception):
         compiles(broken)
+
+
+def test_bullet_bars_and_a_partly_logged_line_compile():
+    rows = daily.rows_frame(SAMPLE_BULLET)
+    mix = daily.against_last_month(daily.ranked(rows, "Household", "primary_category", month="2026-10"), rows,
+                                   "Household", "primary_category", "2026-10", 10)
+    compiles(analytics_charts.ranked_bars(mix, picked=mix["name"].iloc[0], previous="previous"))
+    started = daily.logging_started(rows)
+    since = daily.tracked_since(rows)
+    frame = daily.running_frame(daily.by_day(rows), SAMPLE_BULLET, "Household", since=since, started=started)
+    order = daily.series_order(SAMPLE_BULLET, daily.partly_logged_from("2026-09", since, started))
+    compiles(daily_charts.running_total_chart(frame, order, 31, 10, "t"))
+    compiles(daily_charts.spark_running(frame, order, 31))
+
+
+SAMPLE_BULLET = payload([row("2026-09-28", "300.00"), row("2026-10-02", "50.00", "Pets", "Vet")],
+                        months=("2026-09", "2026-10"))

@@ -67,10 +67,12 @@ def _fetch(sources: list[str], month: str, token: str):
     return shape.merge_payloads(payloads)
 
 
-def _card_chart(card: dict, p: dict, hist: pd.DataFrame, this_cal: pd.DataFrame):
+def _card_chart(card: dict, p: dict, hist: pd.DataFrame, this_cal: pd.DataFrame, last_cal: pd.DataFrame):
     """The sparkline under each card, or None (the card then holds the space with a note)."""
     if card["key"] == "per_day" and len(hist) > 1:
         return charts.spark_bars(hist, "per_day", "Per day, same days", reference=p["usual_per_day"])
+    if card["key"] == "last" and not p["has_last"] and p["last_partly_from"]:
+        return charts.spark_days(last_cal)
     if card["key"] == "last" and p["has_last"]:
         past = hist[hist["month"] != p["month"]].assign(is_selected=lambda d: d["month"] == p["previous"])
         return charts.spark_bars(past, "total", "Whole month") if not past.empty else None
@@ -107,16 +109,16 @@ def _items(sources: list[str], day: str, token: str, filters: filtering.Filters)
     return filtering.filter_rows(pd.DataFrame(items), filters).to_dict("records") if items else []
 
 
-def _top(p: dict, hero: dict, df, data, lens: str, since, this_cal, month: str) -> None:
+def _top(p: dict, hero: dict, df, data, lens: str, since, started, this_cal, month: str) -> None:
     """The answer first: the hero card beside this month's calendar, then four equal KPI cards."""
     left, right = st.columns(2, gap="small")
     with left, ui.card("hero", min_height=TOP_HEIGHT):
         ui.kpi(hero["label"], hero["amount"], hero["lines"], hero=True,
                help="Everything counted so far this month. The line is this month's running total (green) "
                     "over last month's (grey).")
-        frame = daily.running_frame(df, data, lens, since=since, with_usual=False)
-        st.altair_chart(charts.spark_running(frame, daily.series_order(data), daily.days_in(month), HERO_SPARK),
-                        use_container_width=True)
+        frame = daily.running_frame(df, data, lens, since=since, with_usual=False, started=started)
+        st.altair_chart(charts.spark_running(frame, daily.series_order(data, p["last_partly_from"]),
+                                             daily.days_in(month), HERO_SPARK), use_container_width=True)
     with right, ui.card("calendar", min_height=TOP_HEIGHT):
         st.markdown("**Which days cost the most?**", help="Each day shaded by what was spent; hover a day for the "
                     "amount and its biggest category. The darkest green is a typical big day, so one large "
@@ -129,37 +131,46 @@ def _top(p: dict, hero: dict, df, data, lens: str, since, this_cal, month: str) 
         _calendar_legend(top)
 
 
-def _cards(p: dict, cards: list[dict], hist, this_cal) -> None:
+def _cards(p: dict, cards: list[dict], hist, this_cal, last_cal) -> None:
     for col, card in zip(st.columns(4, gap="small"), cards):
         with col, ui.card(card["key"], height=CARD_HEIGHT):
             ui.kpi(card["label"], card["value"], card["lines"], help=card["help"])
-            chart = _card_chart(card, p, hist, this_cal)
+            chart = _card_chart(card, p, hist, this_cal, last_cal)
             if chart is None:
                 ui.empty_chart(EMPTY.get(card["key"], "Nothing to draw yet."), charts.SPARK_HEIGHT)
             else:
                 st.altair_chart(chart, use_container_width=True)
 
 
-def _where(picked, lens: str, month: str, key: str) -> None:
-    """Where is the money going? The categories, then what's inside the picked one."""
+def _where(picked, lens: str, month: str, p: dict, key: str) -> None:
+    """Where is the money going? The categories, then what's inside the picked one, each against last month."""
     st.subheader(f"Where is the money going in {daily.month_name(month)}?")
     mix = daily.ranked(picked, lens, "primary_category", month=month)
     if mix.empty:
         st.caption("Nothing spent yet this month.")
         return
+    # Last month by the same day as a grey tick, once it was logged in full (a partial month would mislead).
+    tick = "previous" if p["has_last"] else None
+    if tick:
+        by = f" by the {daily.ordinal(p['day'])}" if p["is_partial"] else ""
+        st.caption(f"Grey tick: {daily.month_name(p['previous'])}{by}.")
+        mix = daily.against_last_month(mix, picked, lens, "primary_category", month, p["day"])
     left, right = st.columns([1, 1], gap="medium")
     with right:
         category = st.pills("Look inside", list(mix["name"]), default=mix["name"].iloc[0],
                             key=f"{key}_daily_inside") or mix["name"].iloc[0]
     with left:
-        st.altair_chart(analytics_charts.ranked_bars(mix, picked=category), use_container_width=True)
+        st.altair_chart(analytics_charts.ranked_bars(mix, picked=category, previous=tick),
+                        use_container_width=True)
     with right:
         rows = picked[picked["primary_category"] == category]
         inside = daily.ranked(rows, lens, "sub_category", month=month)
-        st.altair_chart(analytics_charts.ranked_bars(inside), use_container_width=True)
+        if tick:
+            inside = daily.against_last_month(inside, rows, lens, "sub_category", month, p["day"])
+        st.altair_chart(analytics_charts.ranked_bars(inside, previous=tick), use_container_width=True)
 
 
-def _biggest_days(df, lens: str, month: str, sources: list[str], token: str, filters, key: str) -> None:
+def _biggest_days(df, lens: str, month: str, p: dict, sources: list[str], token: str, filters, key: str) -> None:
     """What went on the biggest days? The days, then the picked day's purchases."""
     st.subheader(f"What went on the biggest days of {daily.month_name(month)}?")
     days = daily.biggest_days(df, month, lens)
@@ -171,7 +182,10 @@ def _biggest_days(df, lens: str, month: str, sources: list[str], token: str, fil
     with right:
         day = st.selectbox("Look inside", list(labels), format_func=labels.get, key=f"{key}_daily_day")
     with left:
-        st.altair_chart(analytics_charts.ranked_bars(days, picked=labels[day], room=1.9),
+        # How far above a normal day each one is: the month's average day, quiet days included.
+        average = round(p["so_far"] / p["day"], 2) if p["day"] else None
+        st.altair_chart(analytics_charts.ranked_bars(days, picked=labels[day], room=1.9, reference=average,
+                                                     reference_label=f"average day {shape.short_brl(average or 0)}"),
                         use_container_width=True)
     with right:
         items = _items(sources, day, token, filters)
@@ -207,28 +221,32 @@ def render(token: str, lens: str, key: str, show_view: bool = False) -> None:
         st.info("Nothing matches these filters in this window. Widen them to see more.")
         return
     df = daily.by_day(picked)
-    p = daily.pace(df, data, lens, since=since)
+    started = daily.logging_started(rows)
+    p = daily.pace(df, data, lens, since=since, started=started)
     previous = daily.month_name(p["previous"])
     hist = daily.history(df, data, lens, since=since)
     this_cal = daily.calendar_frame(df, month, lens, today)
 
-    _top(p, daily.headline(p, filtering.note(filters), started=daily.logging_started(rows)),
-         df, data, lens, since, this_cal, month)
-    _cards(p, daily.cards(p), hist, this_cal)
+    _top(p, daily.headline(p, filtering.note(filters), started=started),
+         df, data, lens, since, started, this_cal, month)
+    _cards(p, daily.cards(p), hist, this_cal, daily.calendar_frame(df, p["previous"], lens, today))
 
     # --- How the month built up ---
     with ui.card("running"):
         st.subheader("How is the month building up?")
-        st.caption(f"Spent so far, day by day, against {previous} and the usual month (dashed). "
+        partly = (f" {previous} was logged only from the {daily.ordinal(p['last_partly_from'])}, so its line "
+                  "starts late." if p["last_partly_from"] else "")
+        st.caption(f"Spent so far, day by day, against {previous} and the usual month (dashed).{partly} "
                    "Hover to compare a day.")
         st.altair_chart(
-            charts.running_total_chart(daily.running_frame(df, data, lens, since=since), daily.series_order(data),
+            charts.running_total_chart(daily.running_frame(df, data, lens, since=since, started=started),
+                                       daily.series_order(data, p["last_partly_from"]),
                                        daily.days_in(month), p["day"] if p["is_partial"] else None, key),
             use_container_width=True,
         )
 
     with ui.card("where"):
-        _where(picked, lens, month, key)
+        _where(picked, lens, month, p, key)
 
     # --- Where the difference comes from ---
     if p["has_last"]:
@@ -260,7 +278,7 @@ def render(token: str, lens: str, key: str, show_view: bool = False) -> None:
                     st.caption(" ".join(notes))
 
     with ui.card("biggest"):
-        _biggest_days(df, lens, month, sources, token, filters, key)
+        _biggest_days(df, lens, month, p, sources, token, filters, key)
 
     # --- Patterns ---
     with ui.card("weekdays"):
