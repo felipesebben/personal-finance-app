@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A household expense tracker: a Streamlit UI talks to a FastAPI backend over HTTP, which persists to a Postgres star schema, and an ETL step exports that schema to a Tableau Cloud datasource. Everything runs through `docker-compose.yml` (db, backend, frontend, pgadmin) with `.env` at the repo root supplying every credential.
+A household expense tracker: a Streamlit UI talks to a FastAPI backend over HTTP, which persists to a Postgres star schema, and an ETL step exports that schema to a Tableau Cloud datasource. Everything runs through `docker-compose.yml` (db, backend, frontend, backup, pgadmin) with `.env` at the repo root supplying every credential.
 
 ## Product intent
 
@@ -20,7 +20,7 @@ This is a learning project. The owner wants to be walked through changes and und
 
 ## Commands
 
-Docker is the primary workflow — both app containers bind-mount their source, so code edits hot-reload without a rebuild. `db`, `backend` and `frontend` have `restart: unless-stopped`, so the app comes back by itself whenever Docker Desktop starts (after a reboot or a crash); `docker compose stop` still stops them for good, and pgAdmin stays manual. It's reached from phones over Tailscale at `http://felipesebben:8501` (the PC's tailnet name), which is also `FRONTEND_BASE_URL`.
+Docker is the primary workflow — both app containers bind-mount their source, so code edits hot-reload without a rebuild. `db`, `backend`, `frontend` and `backup` have `restart: unless-stopped`, so the app comes back by itself whenever Docker Desktop starts (after a reboot or a crash); `docker compose stop` still stops them for good, and pgAdmin stays manual. It's reached from phones over Tailscale at `http://felipesebben:8501` (the PC's tailnet name), which is also `FRONTEND_BASE_URL`.
 
 ```powershell
 docker compose up --build          # full stack: API :8000, UI :8501, pgAdmin :5050, Postgres on $DB_PORT
@@ -39,6 +39,16 @@ poetry run streamlit run Home.py          # frontend/
 ```
 
 Note that outside Docker the backend reads `DB_HOST`/`DB_PORT` straight from `.env`, which currently holds the Compose values (`db` / `5432`) — running the API on the host therefore requires setting `DB_HOST=localhost` first. Inside Docker, `docker-compose.yml` overrides them to `db:5432` regardless.
+
+**Backups.** The `backup` service (the postgres image's `pg_dump`, an inline loop in `docker-compose.yml`, so no script file with Windows line endings is mounted) writes a compressed dump when it starts and every `BACKUP_EVERY_SECONDS` (a day) after, to `BACKUP_DIR` (default `./backups`, gitignored) as `home_finances_<YYYY-MM-DD_HHMM>.dump` in São Paulo time, and deletes dumps older than `BACKUP_KEEP_DAYS` (14). Point `BACKUP_DIR` at a folder that syncs to the cloud so a copy leaves the PC. `docker compose logs backup` shows each one. To restore (this replaces the live data; stop the backend first):
+
+```bash
+docker compose stop backend
+docker compose exec -T db sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner' < backups/home_finances_<date>.dump
+docker compose start backend
+```
+
+To check a dump without touching the live data, restore it into a scratch database (`CREATE DATABASE restore_check;`, `pg_restore ... -d restore_check`, compare row counts, `DROP DATABASE restore_check;`).
 
 Utility scripts:
 
