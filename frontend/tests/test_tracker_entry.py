@@ -394,3 +394,30 @@ def test_the_page_says_where_backfilling_has_got_to(api):
     at = app.run()
     assert not at.exception
     assert any(c.startswith("Shared: one so far, 3 August 2026") and "logged by you" in c for c in captions(at))
+
+
+def test_log_again_fills_the_form_in_from_a_recent_expense(api):
+    get, _ = api
+    mine = {**EXPENDITURE, "expenditure_id": 5, "category": CATEGORIES[0], "payment_method": PAYMENT_METHODS[2],
+            "current_installment": 1, "total_installments": 1, "nature": "Recurring",
+            "splits": [{"user_id": 1, "share_pct": "0.6000", "share_amount": "1000.00",
+                        "split_source": "household_default"}]}
+
+    def fake(url, *args, **kwargs):
+        return response([mine]) if "/expenditures" in url else fake_get(url)
+
+    get.side_effect = fake
+    app = AppTest.from_file("Home.py", default_timeout=30)
+    app.session_state["access_token"] = "x"
+    app.session_state["user_email"] = ME
+    app.run()
+    app.switch_page(PAGE)
+    # AppTest can't tap a pill: preset what picking "Groceries · Pix" leaves behind.
+    app.session_state["entry_template"] = "Groceries · Pix"
+    at = app.run()
+    assert not at.exception
+    assert at.selectbox(key="entry_category_0_primary").value == "Food"
+    assert at.selectbox(key="entry_category_0_secondary_Food").value == "Groceries"
+    assert at.selectbox(key="entry_payment_0_primary").value == "Pix"
+    assert at.text_input(key="entry_price_0").value == ""  # the price is the one thing to type
+    assert any("Filled in from Groceries · Pix" in c.value for c in at.caption)

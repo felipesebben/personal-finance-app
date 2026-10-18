@@ -130,12 +130,17 @@ def _prefill(k, values: dict) -> None:
 
 
 def render(token: str, data: Lookups, prefix: str = "entry", expense: dict | None = None,
-           submit_label: str = "Submit Expenditure", on_saved=None) -> None:
+           submit_label: str = "Submit Expenditure", on_saved=None,
+           templates: list[tuple[str, dict]] | None = None) -> None:
     """
     The form. Without `expense` it adds one (POST, asking first about a
     likely duplicate); with an `expense` from GET /expenditures/ it edits
     that one (PATCH, only what the form holds, keeping the split it was
     logged with unless you change it).
+
+    `templates` (entries.recent_templates) adds a "Log again" row: picking
+    one fills the form in from that expense, dated now and with no price,
+    and it's saved as a new expense (POST).
 
     On success: `on_saved()` if given, a toast, the cache cleared, fresh
     widgets (nonce bumped) and a rerun of the whole page.
@@ -151,9 +156,29 @@ def render(token: str, data: Lookups, prefix: str = "entry", expense: dict | Non
         return f"{prefix}_{name}_{nonce}"
 
     names = {m["user_id"]: m["user"].get("full_name") or m["user"]["email"] for m in household_data or []}
+    # "Log again": the picked recent expense, kept apart from its pills (whose key carries the nonce).
+    template_key = f"{prefix}_template"
+    if templates and expense is None:
+        by_label = dict(templates)
+
+        def pick() -> None:
+            st.session_state[template_key] = st.session_state.get(k("repeat"))
+            st.session_state[nonce_key] = nonce + 1  # fresh widgets, filled in from it
+
+        st.pills("Log again", list(by_label), key=k("repeat"), on_change=pick,
+                 help="Your recent expenses: pick one to fill the form in, then type the price.")
+    picked = (dict(templates or []).get(st.session_state.get(template_key)) if expense is None else None)
+
+    # The values the form starts from: the expense being edited, or the one picked to log again.
     original = form_values(expense, data.pets, SAO_PAULO, names) if expense else None
-    if original:
-        _prefill(k, original)
+    start = original
+    if picked:
+        start = form_values(picked, data.pets, SAO_PAULO, names)
+        now = datetime.datetime.now(SAO_PAULO)
+        start.update(price_text="", date=now.date(), time=now.time().replace(second=0, microsecond=0))
+        st.caption(f"Filled in from {st.session_state[template_key]}. Type the price.")
+    if start:
+        _prefill(k, start)
     # A fresh form starts at now, in São Paulo (the container clock is UTC).
     elif k("date") not in st.session_state:
         now = datetime.datetime.now(SAO_PAULO)
@@ -197,22 +222,22 @@ def render(token: str, data: Lookups, prefix: str = "entry", expense: dict | Non
         if is_credit:
             inst_a, inst_b = st.columns(2)
             with inst_a:
-                start = original["total_installments"] if original else 1
+                start_total = start["total_installments"] if start else 1
                 pick = st.segmented_control(
                     "💳 Installments", INSTALLMENT_PICKS, key=k("inst_pick"),
-                    default=start if start in INSTALLMENT_PICKS else "Other",
+                    default=start_total if start_total in INSTALLMENT_PICKS else "Other",
                     format_func=lambda p: p if p == "Other" else f"{p}x",
                     help="1x = paid in full. Enter an installment purchase **once**, with its full price; "
                          "Tableau's cashflow datasource spreads it over the months.",
                 )
                 if pick == "Other":
-                    other = start if start not in INSTALLMENT_PICKS else 2
+                    other = start_total if start_total not in INSTALLMENT_PICKS else 2
                     total_inst = int(st.number_input("Number of installments", min_value=2, value=other, step=1,
                                                      key=k("inst_other")))
                 else:
                     total_inst = pick or 1
             if total_inst > 1:
-                billed = original["current_installment"] if original and total_inst == start else 1
+                billed = start["current_installment"] if start and total_inst == start_total else 1
                 current_inst = int(inst_b.number_input(
                     "Installment billed this month", min_value=1, max_value=total_inst, value=min(billed, total_inst),
                     key=k(f"inst_current_{total_inst}"),
@@ -249,7 +274,7 @@ def render(token: str, data: Lookups, prefix: str = "entry", expense: dict | Non
         st.caption("Paid from the joint account, so nobody owes anything for this. "
                    "It still counts towards each person's share of spending.")
     else:
-        is_shared = st.toggle("Shared Household Expense?", value=original["shared"] if original else True,
+        is_shared = st.toggle("Shared Household Expense?", value=start["shared"] if start else True,
                               key=k("shared"),
                               help="Leave ON if split between couple.")
         # "It's on me": still shared and split (it counts in both shares),
@@ -275,8 +300,8 @@ def render(token: str, data: Lookups, prefix: str = "entry", expense: dict | Non
             for share_col, member in zip(share_cols, household_data):
                 name = member["user"].get("full_name") or member["user"]["email"]
                 start_pct = int(round(float(member["share_pct"]) * 100))
-                if original and original["custom"] is not None:
-                    start_pct = original["custom"].get(member["user_id"], 0)
+                if start and start["custom"] is not None:
+                    start_pct = start["custom"].get(member["user_id"], 0)
                 pct = share_col.number_input(
                     f"{name} %", min_value=0, max_value=100, step=5,
                     value=start_pct, key=k(f"share_{member['user_id']}"),
@@ -290,7 +315,7 @@ def render(token: str, data: Lookups, prefix: str = "entry", expense: dict | Non
 
     # 6. Nature, then when.
     nature_option = st.segmented_control(
-        "Nature", NATURES, default=original["nature"] if original else "Normal", key=k("nature"),
+        "Nature", NATURES, default=start["nature"] if start else "Normal", key=k("nature"),
         help="Normal: everyday | Extraordinary: unplanned/emergency | Recurring: monthly subscription | Annual: once-a-year (IPVA, IPTU)",
     )
     date_col, time_col = st.columns(2)
@@ -315,6 +340,7 @@ def render(token: str, data: Lookups, prefix: str = "entry", expense: dict | Non
         """Fresh widgets next time, a toast after the rerun, and every view refetched."""
         if on_saved is not None:
             on_saved()
+        st.session_state.pop(template_key, None)  # the next one starts empty
         st.session_state.pop(k("duplicate"), None)
         st.session_state[nonce_key] = nonce + 1
         st.session_state["tracker_toast"] = message
