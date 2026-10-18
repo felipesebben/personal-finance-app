@@ -46,13 +46,14 @@ _CSS = f"""
    the border makes each card read as one region: one question, one answer. */
 [class*="st-key-hf-card"] {{ border-radius: 0.75rem; box-shadow: 0 1px 2px rgba(23, 32, 28, 0.06),
                              0 2px 8px rgba(23, 32, 28, 0.05); background: #ffffff; }}
-.hf-kpi {{ color: {INK}; line-height: 1.3; margin-bottom: 0.6rem; }}
+.hf-kpi {{ color: {INK}; line-height: 1.3; margin-bottom: 0.9rem; }}
+.hf-kpi.hf-hero {{ margin-bottom: 1.25rem; }}
 .hf-kpi-label {{ color: {INK_2}; font-size: 0.875rem; }}
 .hf-hero-label {{ color: {INK}; font-size: 1rem; font-weight: 600; }}
 /* Big standalone numbers read better with proportional figures. */
 .hf-kpi .hf-kpi-value {{ font-size: 1.75rem; font-weight: 700; white-space: nowrap; margin: 0.15rem 0 0.25rem;
                         font-variant-numeric: proportional-nums; }}
-.hf-kpi.hf-hero .hf-kpi-value {{ font-size: 3rem; line-height: 1.1; margin: 0.2rem 0 0.4rem; }}
+.hf-kpi.hf-hero .hf-kpi-value {{ font-size: 2.5rem; line-height: 1.1; margin: 0.15rem 0 0.3rem; }}
 .hf-kpi .hf-kpi-line {{ font-size: 0.82rem; color: {INK_2}; }}
 .hf-kpi.hf-hero .hf-kpi-line {{ font-size: 0.9rem; }}
 .hf-kpi .hf-more {{ color: {MORE}; font-weight: 600; }}
@@ -93,12 +94,16 @@ def callout(label: str, amount: str = "", detail: str = "") -> None:
 
 
 
-def card(key: str, height: int | str = "content"):
+def card(key: str, height: int | str = "content", min_height: int | None = None):
     """
     A bordered card for one question: a KPI, or a chart with its title and
     caption. Use as `with ui.card("running"):`. `key` must be unique on the
-    page; `height` in pixels makes a row of cards line up.
+    page. To line up a row of cards, `min_height` (pixels) makes each at
+    least that tall but lets one grow when its text wraps on a phone;
+    `height` fixes it, and clips what doesn't fit.
     """
+    if min_height:
+        st.html(f"<style>.st-key-hf-card-{escape(key)} {{ min-height: {int(min_height)}px; }}</style>")
     return st.container(border=True, key=f"hf-card-{key}", height=height, gap=None if height != "content" else "small")
 
 

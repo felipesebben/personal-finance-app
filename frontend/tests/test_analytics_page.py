@@ -1,4 +1,6 @@
 """The shared-expense overview (Our expenses, and My expenses' "My share over time") from mocked API responses."""
+import html
+import re
 from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, urlparse
 
@@ -53,25 +55,39 @@ def run_page(get, page=PAGE, **state):
     return at
 
 
-def labels(elements):
-    return [e.label for e in elements]
+def kpis(at):
+    """Every ui.kpi on the page as (label, value): labels are markdown (for their tooltip), values html."""
+    labels = [re.search(r'class="hf-(?:kpi|hero)-label">(.*?)</span>', m.value).group(1)
+              for m in at.markdown if "hf-kpi-label" in m.value or "hf-hero-label" in m.value]
+    values = [re.search(r'class="hf-kpi-value">(.*?)</div>', str(h.proto.body)).group(1)
+              for h in at.get("html") if str(h.proto.body).startswith("<div class=\"hf-kpi")]
+    return [(html.unescape(label), html.unescape(value)) for label, value in zip(labels, values)]
+
+
+def overview(at):
+    """Month by month's four cards: the one before "3-month average" and the three from it."""
+    pairs = kpis(at)
+    i = next(n for n, (label, _) in enumerate(pairs) if label.startswith("3-month average"))
+    return pairs[i - 1:i + 3]
 
 
 def test_renders_with_data():
     at = run_page(fake_api(lambda month: sample_payload(month)))
     assert not at.exception
     assert [t.label for t in at.tabs] == ["This month", "Month by month", "Settle up"]
-    assert len(at.metric) == 4
-    assert any("to date" in label for label in labels(at.metric))
-    assert at.metric[3].value == "Food"  # biggest increase
-    assert len(at.get("arrow_vega_lite_chart")) >= 5
+    cards = overview(at)
+    assert [label for label, _ in cards] == [
+        "Shared total so far", "3-month average (same days)", "Shared expenses so far", "Biggest increase"]
+    assert cards[3][1] == "Food"
+    assert not at.dataframe  # charts, not tables
+    assert len(at.get("arrow_vega_lite_chart")) >= 10
     assert not at.error
 
 
 def test_complete_month_is_not_labelled_to_date():
     at = run_page(fake_api(lambda month: sample_payload(month, is_partial=False, as_of_day=31)))
     assert not at.exception
-    assert not any("to date" in label for label in labels(at.metric))
+    assert not any("so far" in label for label, _ in overview(at))
 
 
 def test_my_share_lens():
@@ -79,7 +95,7 @@ def test_my_share_lens():
     # single-select segmented_control next to another one.
     at = run_page(fake_api(lambda month: sample_payload(month)), page=MINE, mine_window=6, mine_view="shared")
     assert not at.exception
-    assert at.metric[0].label.startswith("My share")
+    assert overview(at)[0][0].startswith("My share")
 
 
 def money(text: str) -> float:
@@ -90,13 +106,13 @@ def test_my_spending_views_and_everything_adds_both_halves():
     get = fake_api(lambda month: sample_payload(month))
     personal = run_page(get, page=MINE, mine_view="personal")
     assert not personal.exception
-    assert personal.metric[0].label.startswith("Personal")
+    assert overview(personal)[0][0].startswith("Personal")
     st.cache_data.clear()
     everything = run_page(get, page=MINE)  # the default view
     assert not everything.exception
-    assert everything.metric[0].label.startswith("I spent")
+    assert overview(everything)[0][0].startswith("I spent")
     # The fake answers both endpoints with the same rows, so everything is twice either half.
-    assert money(everything.metric[0].value) == 2 * money(personal.metric[0].value)
+    assert money(overview(everything)[0][1]) == 2 * money(overview(personal)[0][1])
 
 
 def test_personal_view_asks_only_the_personal_endpoints():
@@ -118,7 +134,7 @@ def test_empty_data_points_to_the_tracker():
     at = run_page(fake_api(lambda month: empty_payload(month)))
     assert not at.exception
     assert any("No shared expenses" in i.value for i in at.info)
-    assert not at.metric
+    assert not kpis(at)
 
 
 def test_month_with_nothing_still_renders_the_trend():
@@ -128,7 +144,7 @@ def test_month_with_nothing_still_renders_the_trend():
         return p
     at = run_page(fake_api(payload, expenses=[]))
     assert not at.exception
-    assert at.metric[0].value == "R$ 0,00"
+    assert overview(at)[0][1] == "R$ 0,00"
     assert len(at.get("arrow_vega_lite_chart")) >= 1
 
 
@@ -140,12 +156,11 @@ def test_api_error_is_shown_not_raised():
 
 def test_month_by_month_counts_only_what_the_filters_keep():
     everything = run_page(fake_api(lambda month: sample_payload(month)))
-    assert everything.metric[0].value == "R$ 2.370,00"  # rent + groceries + restaurants
+    assert overview(everything)[0][1] == "R$ 2.370,00"  # rent + groceries + restaurants
     st.cache_data.clear()
     day_to_day = run_page(fake_api(lambda month: sample_payload(month)), our_focus="Day-to-day")
     assert not day_to_day.exception
-    assert day_to_day.metric[0].value == "R$ 370,00"  # no rent
-    assert any("Counting day-to-day costs only." in c.value for c in day_to_day.caption)
+    assert overview(day_to_day)[0][1] == "R$ 370,00"  # no rent
     st.cache_data.clear()
     housing = run_page(fake_api(lambda month: sample_payload(month)), our_categories=["Housing"])
-    assert housing.metric[0].value == "R$ 2.000,00"
+    assert overview(housing)[0][1] == "R$ 2.000,00"

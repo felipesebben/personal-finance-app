@@ -13,7 +13,7 @@ from __future__ import annotations
 import altair as alt
 import pandas as pd
 
-from analytics_charts import ACCENT, GREY, MUTED, finish, x_title, y_title
+from analytics_charts import ACCENT, BAR_ROW, names_width, GREY, MUTED, X_AXIS, finish, name_axis, x_title, y_title
 from analytics_shaping import BRL_AXIS_EXPR, short_brl
 
 from daily_shaping import WEEKDAYS
@@ -24,7 +24,7 @@ USUAL_LINE = "#a9b1ab"   # lighter, and dashed: the usual month sits behind both
 EMPTY_DAY = "#f1f3f0"    # a day with nothing spent
 FUTURE_DAY = "#ffffff"
 HEAT = ["#d7ebe2", ACCENT]  # light to brand green; the lightest step still reads as "something"
-HEIGHT = 440  # the running-total chart: room to read, scrolling is fine
+HEIGHT = 400  # the running-total chart, axes and legend included (as Streamlit sizes it)
 SPARK_HEIGHT = 68  # every card's chart slot, so a row of cards lines up
 TRACK = "#e9ece8"  # the empty part of a progress bar
 MORE, LESS = "#b5470f", "#1f5fa8"  # spent more (orange) / less (blue), as ui.MORE / ui.LESS
@@ -83,13 +83,16 @@ def running_total_chart(frame: pd.DataFrame, order: list[str], days: int,
     if today is not None:
         marker = pd.DataFrame({"day": [today], "text": ["today"]})
         layers.append(alt.Chart(marker).mark_rule(color=GREY, strokeWidth=1).encode(x=x))
-        # At the foot of the line, clear of the value label at its end.
-        layers.append(alt.Chart(marker).mark_text(align="left", baseline="bottom", dx=4, y=HEIGHT - 4,
-                                                  color=MUTED, fontSize=11).encode(x=x, text="text:N"))
+        # At the foot of its line, just above the axis: the top is where the value label sits, and below the
+        # plot it would push the chart's bounds down.
+        layers.append(alt.Chart(marker).mark_text(align="left", baseline="bottom", dx=4, dy=-4,
+                                                  color=MUTED, fontSize=11).encode(x=x, y=alt.datum(0),
+                                                                                   text="text:N"))
     return finish(alt.layer(*layers), HEIGHT)
 
 
-def calendar_chart(cal: pd.DataFrame, max_amount: float, title: str) -> alt.LayerChart:
+def calendar_chart(cal: pd.DataFrame, max_amount: float, title: str | None = None,
+                   row_height: int = 42) -> alt.LayerChart:
     """
     A month as a calendar (weeks down, Monday first across), each day
     shaded by what was spent: lighter = less, brand green = `max_amount`
@@ -132,10 +135,11 @@ def calendar_chart(cal: pd.DataFrame, max_amount: float, title: str) -> alt.Laye
         x=x, y=y, text="day:Q", fill=alt.Fill("ink:N", scale=None), tooltip=tooltip,
     )
     weeks = int(cal["week"].max()) + 1
-    return finish(alt.layer(background, spend, today, numbers).properties(
-        title=alt.TitleParams(title, anchor="start", fontSize=14, color=INK),
-        width=7 * 44, height=weeks * 40,
-    ))
+    # As wide as its column (use_container_width); rows of `row_height`, plus the weekday header.
+    chart = alt.layer(background, spend, today, numbers).properties(height=weeks * row_height + 24)
+    if title:
+        chart = chart.properties(title=alt.TitleParams(title, anchor="start", fontSize=14, color=INK))
+    return finish(chart)
 
 
 def weekday_chart(profile: pd.DataFrame) -> alt.LayerChart:
@@ -160,7 +164,7 @@ def weekday_chart(profile: pd.DataFrame) -> alt.LayerChart:
 # numbers. Brand green marks the month in question, grey the others.
 
 def _spark(chart, height: int = SPARK_HEIGHT):
-    return chart.properties(height=height, padding={"left": 2, "right": 2, "top": 4, "bottom": 2}).configure(
+    return chart.properties(height=height, padding={"left": 2, "right": 6, "top": 12, "bottom": 2}).configure(
         background="transparent").configure_view(strokeWidth=0)
 
 
@@ -187,7 +191,8 @@ def spark_running(frame: pd.DataFrame, order: list[str], days: int, height: int 
     dots = end.mark_point(filled=True, size=40, stroke="white", strokeWidth=1).encode(
         x=x, y=y, color=colour, tooltip=tooltip)
     labels = end.mark_text(align="left", dx=5, fontSize=10, color=MUTED).encode(x=x, y=y, text="name:N")
-    baseline = alt.Chart(pd.DataFrame({"zero": [0.0]})).mark_rule(color="#aab2ac").encode(y="zero:Q")
+    baseline = alt.Chart(pd.DataFrame({"zero": [0.0]})).mark_rule(color="#aab2ac").encode(
+        y=alt.Y("zero:Q", axis=None))  # axis=None like the other layers, or Vega-Lite fails to compile
     return _spark(alt.layer(baseline, lines, dots, labels), height)
 
 
@@ -207,7 +212,7 @@ def spark_bars(frame: pd.DataFrame, value: str, tooltip_title: str, reference: f
     layers = [bars]
     if reference is not None:
         layers.append(alt.Chart(pd.DataFrame({"ref": [reference]})).mark_rule(
-            color=INK, strokeDash=[3, 2], strokeWidth=1).encode(y="ref:Q"))
+            color=INK, strokeDash=[3, 2], strokeWidth=1).encode(y=alt.Y("ref:Q", axis=None)))
     return _spark(alt.layer(*layers))
 
 
@@ -254,7 +259,7 @@ def changes_chart(changes: pd.DataFrame) -> alt.LayerChart:
     the left for less, labelled with an arrow and the amount (text in ink).
     """
     order = list(changes["name"])
-    y = alt.Y("name:N", sort=order, title=None, axis=alt.Axis(ticks=False, domain=False, labelLimit=220))
+    y = alt.Y("name:N", sort=order, axis=name_axis(names_width(order)))
     # Room past each end of the bars for their labels, so they never reach the category names.
     low, high = min(changes["change"].min(), 0.0), max(changes["change"].max(), 0.0)
     pad = 0.28 * (high - low or 1.0)
@@ -275,53 +280,4 @@ def changes_chart(changes: pd.DataFrame) -> alt.LayerChart:
     less = base.transform_filter("datum.change < 0").mark_text(
         align="right", dx=-4, fontSize=11, color=INK).encode(x=x, y=y, text="label:N")
     zero = alt.Chart(pd.DataFrame({"z": [0]})).mark_rule(color=MUTED).encode(x="z:Q")
-    return finish(alt.layer(bars, zero, more, less), max(30 * len(order), 70))
-
-
-# --- where the money goes ------------------------------------------------------
-
-BAR_ROW = 30  # px per bar in the ranked charts, so labels never crowd
-
-
-def pick_bars(frame: pd.DataFrame, name: str, picked: str | None, x_label: str = "Spent") -> alt.Chart:
-    """
-    A ranked, clickable bar chart (daily_shaping.ranked / biggest_days):
-    one horizontal bar per row, biggest on top, its name and amount in the
-    axis label. The bar whose breakdown is shown beside it is brand green,
-    the rest grey; tapping a bar picks it (selection `name`, field `key`).
-    A single layer on purpose: Streamlit 1.50 returns clicks only from
-    unlayered charts.
-    """
-    order = list(frame["label"])
-    pick = alt.selection_point(name=name, fields=["key"], on="click", clear=False, toggle=False,
-                               value=[{"key": picked}] if picked is not None else None)
-    tooltip = [alt.Tooltip("name:N", title="What"), alt.Tooltip("amount_brl:N", title="Spent"),
-               alt.Tooltip("share:Q", title="Share", format=".0%")]
-    chart = alt.Chart(frame).mark_bar(cornerRadiusTopRight=4, cornerRadiusBottomRight=4, height=18,
-                                      cursor="pointer").encode(
-        y=alt.Y("label:N", sort=order, title=None, axis=alt.Axis(ticks=False, domain=False, labelLimit=260,
-                                                                 labelColor=INK, labelFontSize=12)),
-        x=alt.X("amount:Q", axis=alt.Axis(labelExpr=BRL_AXIS_EXPR, tickCount=3, **x_title(x_label))),
-        color=alt.condition(pick, alt.value(ACCENT), alt.value(GREY)),
-        tooltip=tooltip,
-    ).add_params(pick)
-    return finish(chart, max(BAR_ROW * len(frame), 60))
-
-
-def breakdown_bars(frame: pd.DataFrame) -> alt.LayerChart:
-    """What the picked bar is made of (daily_shaping.ranked): brand green bars, each labelled with its amount."""
-    order = list(frame["name"])
-    y = alt.Y("name:N", sort=order, title=None, axis=alt.Axis(ticks=False, domain=False, labelLimit=220,
-                                                              labelColor=INK, labelFontSize=12))
-    top = float(frame["amount"].max()) if not frame.empty else 1.0
-    x = alt.X("amount:Q", scale=alt.Scale(domain=[0, top * 1.3], nice=False), axis=None)
-    tooltip = [alt.Tooltip("name:N", title="What"), alt.Tooltip("amount_brl:N", title="Spent"),
-               alt.Tooltip("share:Q", title="Share", format=".0%")]
-    data = frame.assign(text=[f"{short_brl(a)} · {s:.0%}" for a, s in zip(frame["amount"], frame["share"])])
-    base = alt.Chart(data)
-    bars = base.mark_bar(color=ACCENT, cornerRadiusTopRight=4, cornerRadiusBottomRight=4, height=16).encode(
-        x=x, y=y, tooltip=tooltip)
-    text = base.mark_text(align="left", dx=5, fontSize=11, color=INK).encode(x=x, y=y, text="text:N")
-    # The bars start on a quiet baseline, so they don't float.
-    zero = alt.Chart(pd.DataFrame({"z": [0.0]})).mark_rule(color="#aab2ac").encode(x=alt.X("z:Q", axis=None))
-    return finish(alt.layer(zero, bars, text), max(BAR_ROW * len(frame), 40))
+    return finish(alt.layer(bars, zero, more, less), BAR_ROW * max(len(order), 1) + X_AXIS)

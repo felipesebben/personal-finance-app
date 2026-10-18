@@ -178,10 +178,35 @@ def test_charts_build(df, months):
     for chart in (
         charts.trend_chart(totals, "2026-10", True, 2626.67),
         charts.trend_chart(totals, "2026-10", False, None),
-        charts.comparison_bars(comp, "primary_category", "Sep 26"),
-        charts.comparison_bars(comp.iloc[0:0], "primary_category", "Sep 26"),
+        charts.ranked_bars(shape.ranked_comparison(comp, "primary_category"), picked="Food", previous="previous"),
+        charts.ranked_bars(shape.ranked_comparison(comp.iloc[0:0], "primary_category")),
         charts.heatmap_chart(shape.heatmap_frame(df, months, "Household"), months),
         charts.cost_type_chart(shape.cost_type_split(df, "2026-10", True, "Household"), "Oct 26", "Sep 26"),
     ):
         spec = chart.to_dict()
-        assert "layer" in spec or "mark" in spec
+        assert "layer" in spec or "mark" in spec or "facet" in spec
+        assert spec["config"]["background"] == "transparent"  # charts sit on their card's white
+
+
+def test_ranked_comparison_says_the_move_at_the_tip(df):
+    comp = shape.compare(df, "2026-10", True, "Household")
+    bars = shape.ranked_comparison(comp, "primary_category").set_index("name")
+    assert bars.loc["Food", "text"].startswith("R$ ") and "▲" in bars.loc["Food", "text"]
+    assert (bars["amount"] == comp.set_index("primary_category")["current"]).all()
+
+
+def test_as_changes_drops_the_unchanged_and_points_the_arrows(df):
+    changes = shape.as_changes(shape.compare(df, "2026-10", True, "Household"), "primary_category")
+    assert (changes["change"] != 0).all()
+    assert set(changes["direction"]) <= {"more", "less"}
+    assert all(t.startswith(("▲ +", "▼ ")) for t in changes["change_brl"])
+
+
+def test_month_bars_and_counts(df, months):
+    bars = shape.month_bars(shape.monthly_totals(df, months, "Household"), "2026-10")
+    assert list(bars["is_selected"]) == [m == "2026-10" for m in months]
+    assert bars["label"].iloc[-1] == "Oct"
+    counts = shape.monthly_counts(df, months)
+    assert list(counts.index) == months and counts.dtype.kind == "i"
+
+

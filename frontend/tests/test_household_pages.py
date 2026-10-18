@@ -8,7 +8,7 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from streamlit.testing.v1 import AppTest
 
-from conftest import empty_payload
+from conftest import empty_payload, kpi_cards
 from test_tracker_entry import (
     BALANCES, EXPENDITURE, JOINT_ENTRIES, JOINT_STATUS, ME, PAYMENT_METHODS, SUMMARY,
     api, captions, fake_get, response, single_select_button_groups,  # noqa: F401 (fixtures)
@@ -50,10 +50,10 @@ def test_our_expenses_tabs_and_the_joint_account(api):
     assert not at.exception
     assert [t.label for t in at.tabs] == ["This month", "Month by month", "Joint account", "Settle up"]
 
-    metrics = {m.label: m for m in at.metric}
-    assert metrics["Left in the account"].value == "R$ 500,00"
-    assert metrics["Spent this month"].delta == "+R$ 100,00 vs usual"
-    assert metrics["Runs out"].value == "20/12"
+    cards = kpi_cards(at)
+    assert cards["Left in the account"]["value"] == "R$ 500,00"
+    assert cards["Spent this month"]["lines"][0] == "▲ +R$ 100,00 vs usual"
+    assert cards["Runs out"]["value"] == "20/12"
     assert any("▲" in c and "100,00 more than usual" in c for c in captions(at))
     assert list(at.dataframe[-1].value["What"]) == ["Balance check"]
 
@@ -80,8 +80,10 @@ def test_our_expenses_settle_up_leads_with_who_owes(api):
     assert not at.exception
     html = " ".join(str(h.proto) for h in at.get("html"))
     assert "Her owes Me" in html and "R$ 666,67" in html
-    owed = next(df.value for df in at.dataframe if "Should have paid" in df.value.columns)
-    assert list(owed["Difference"]) == ["R$ 666,67", "-R$ 666,67"]
+    # One card per person instead of a table.
+    cards = kpi_cards(at)
+    assert cards["Me"]["value"] == "Is owed R$ 666,67" and cards["Her"]["value"] == "Owes R$ 666,67"
+    assert cards["Me"]["lines"][:2] == ["Paid R$ 1.666,67", "Their share R$ 1.000,00"]
     # The other-payment form is pre-filled with what's owed, typed like a price.
     assert "666,67" in [t.value for t in at.text_input]
 
@@ -196,9 +198,10 @@ def test_this_month_tab_answers_first_then_charts(api):
     assert "Spent in" in html and "R$ 200,00" in html  # groceries + IPVA (the fake month is finished)
     for card in ("Per day", "Last month · ", "Usual month", "Days with spending"):
         assert card in html
-    # Hero and card sparklines, running total, where the money goes (bars and inside), changes, two
-    # calendars, the biggest days (bars and inside) and the weekday chart.
-    assert len(at.get("arrow_vega_lite_chart")) >= 13
+    # Hero sparkline, the calendar, card sparklines, running total, where the money goes (categories,
+    # inside), the biggest days (days, purchases) and the weekday chart. Charts, no tables.
+    assert len(at.get("arrow_vega_lite_chart")) >= 11
+    assert not at.dataframe
 
 
 def test_this_month_can_leave_out_one_offs_and_fixed_costs(api):
@@ -228,11 +231,10 @@ def test_the_biggest_category_and_day_open_without_a_tap(api):
     }])
     at = open_page(OURS)
     assert not at.exception
-    # AppTest can't tap a bar, so this checks what shows before any tap: the biggest of each.
-    # Both categories cost R$ 100,00 this month, so the tie goes to the name: Food; both days
-    # too, so it goes to the earlier day, the 1st.
-    text = " ".join(m.value for m in at.markdown).replace("\\$", "$")  # md() escapes $
-    assert "**Inside Food: R$ 100,00** (50% of the month)" in text
-    assert re.search(r"\*\*\w+day 1 \w+: R\$ 100,00\*\* \(50% of the month\)", text)
-    table = next(df.value for df in at.dataframe if "Paid by" in df.value.columns)
-    assert list(table["Paid by"]) == ["Her"] and list(table["Price"]) == ["R$ 100,00"]
+    # Before any pick, each opens on the biggest: both categories cost R$ 100,00 this month, so the
+    # tie goes to the name (Food), and both days too, so it goes to the earlier day (the 1st).
+    assert at.button_group(key="our_daily_inside").value == ["Food"]
+    month = at.selectbox(key="our_daily_month").value
+    assert at.selectbox(key="our_daily_day").value == f"{month}-01"
+    # That day's purchases were fetched for its chart.
+    assert any(f"day={month}-01" in str(c.args[0]) for c in api[0].call_args_list)

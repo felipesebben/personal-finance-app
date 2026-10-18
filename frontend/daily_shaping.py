@@ -522,7 +522,12 @@ def weekday_profile(df: pd.DataFrame, data: dict, lens: str, today: datetime.dat
 
 # --- where the money goes ------------------------------------------------------
 
-RANKED_COLUMNS = ["key", "name", "amount", "amount_brl", "share", "label"]
+RANKED_COLUMNS = ["key", "name", "amount", "amount_brl", "share", "text"]
+
+
+def tip_text(amount: float, share: float) -> str:
+    """What a bar says at its tip: 'R$ 4.135 · 59%'."""
+    return f"{shape.short_brl(amount)} · {share:.0%}"
 
 
 def ranked(rows: pd.DataFrame, lens: str, by: str, month: str | None = None,
@@ -531,7 +536,7 @@ def ranked(rows: pd.DataFrame, lens: str, by: str, month: str | None = None,
     What was spent per `by` (primary_category, sub_category, or "item" =
     "Primary › sub") in `month` or on `date` (YYYY-MM-DD), biggest first (a
     tie goes to the name): key (= name), amount, its share of the total and
-    a bar label "Food · R$ 1.234,00 · 32%". Empty when nothing was spent.
+    the text at the bar's tip, "R$ 1.234 · 32%". Empty when nothing was spent.
     """
     if rows.empty:
         return pd.DataFrame(columns=RANKED_COLUMNS)
@@ -550,16 +555,16 @@ def ranked(rows: pd.DataFrame, lens: str, by: str, month: str | None = None,
     out["key"] = out["name"]
     out["share"] = out["amount"] / out["amount"].sum()
     out["amount_brl"] = out["amount"].map(format_brl)
-    out["label"] = [f"{n} · {b} · {s:.0%}" for n, b, s in zip(out["name"], out["amount_brl"], out["share"])]
+    out["text"] = [tip_text(a, s) for a, s in zip(out["amount"], out["share"])]
     return out[RANKED_COLUMNS]
 
 
-def biggest_days(df: pd.DataFrame, month: str, lens: str, n: int = 10) -> pd.DataFrame:
+def biggest_days(df: pd.DataFrame, month: str, lens: str, n: int = 8) -> pd.DataFrame:
     """
     The month's n biggest days, biggest first (a tie goes to the earlier
     day): key (YYYY-MM-DD), name ("Fri 10 Oct"), amount, its share of the
-    month so far, the day's top category and a bar label
-    "Fri 10 Oct · R$ 812,00 · Groceries".
+    month so far, the day's top category, and the text at the bar's tip,
+    "R$ 812 · Food" (its biggest category), short enough for a phone.
     """
     columns = [*RANKED_COLUMNS, "top_category", "count"]
     if df.empty:
@@ -579,17 +584,38 @@ def biggest_days(df: pd.DataFrame, month: str, lens: str, n: int = 10) -> pd.Dat
     })
     out["share"] = out["amount"] / total
     out["amount_brl"] = out["amount"].map(format_brl)
-    out["label"] = [f"{n} · {b} · {c}" for n, b, c in zip(out["name"], out["amount_brl"], out["top_category"])]
+    out["text"] = [f"{shape.short_brl(a)} · {c}" for a, c in zip(out["amount"], out["top_category"])]
     return out[columns]
 
 
-def picked_key(frame: pd.DataFrame, clicked: list[dict] | None) -> str | None:
+def day_items(items: list[dict], lens: str, tz) -> pd.DataFrame:
     """
-    The key a clickable bar chart has selected: the clicked bar's, while it
-    is still on the chart, else the first (biggest) bar's; None when empty.
+    A day's expenses (an /analytics/.../expenses list, already filtered) as
+    bars, biggest first: name ("Groceries · 14:30", unique), amount, share
+    of the day, the text at the tip, and who paid and how for the tooltip.
     """
+    columns = ["key", "name", "amount", "amount_brl", "share", "text", "detail"]
+    if not items:
+        return pd.DataFrame(columns=columns)
+    col = "price" if lens == "Household" else "mine"
+    frame = pd.DataFrame(items)
+    frame["amount"] = pd.to_numeric(frame[col]).astype(float).round(2)
+    frame = frame[frame["amount"] > 0]
     if frame.empty:
-        return None
-    keys = list(frame["key"])
-    chosen = (clicked or [{}])[0].get("key")
-    return chosen if chosen in keys else keys[0]
+        return pd.DataFrame(columns=columns)
+    when = pd.to_datetime(frame["transaction_timestamp"], utc=True).dt.tz_convert(tz).dt.strftime("%H:%M")
+    # A sub-category named like a category ("Pets › Food") keeps its category, so it isn't read as Food.
+    clash = set(frame["primary_category"])
+    what = [f"{c} › {sub}" if sub in clash and sub != c else sub
+            for c, sub in zip(frame["primary_category"], frame["sub_category"])]
+    frame["name"] = pd.Series(what, index=frame.index) + " · " + when
+    frame = frame.sort_values(["amount", "name"], ascending=[False, True], ignore_index=True)
+    # Two purchases of the same thing at the same minute still need their own bar.
+    frame["name"] = frame["name"] + frame.groupby("name").cumcount().map(lambda i: f" ({i + 1})" if i else "")
+    frame["key"] = frame["name"]
+    frame["share"] = frame["amount"] / frame["amount"].sum()
+    frame["amount_brl"] = frame["amount"].map(format_brl)
+    frame["text"] = [tip_text(a, s) for a, s in zip(frame["amount"], frame["share"])]
+    paid = [f"{m} · {i}" if i else (m or "") for m, i in zip(frame.get("payment_method", ""), frame.get("institution", ""))]
+    frame["detail"] = [f"{p}, paid by {who}" if who else p for p, who in zip(paid, frame.get("paid_by", ""))]
+    return frame[columns]

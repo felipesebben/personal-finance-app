@@ -1,4 +1,7 @@
 """Sample /analytics/shared responses shared by the analytics tests."""
+import html
+import re
+
 from analytics_shaping import shift_month
 
 
@@ -60,3 +63,19 @@ def sample_expenses():
             "current_installment": 1, "total_installments": 1, "nature": "Normal",
         },
     ]
+
+
+def kpi_cards(at) -> dict[str, dict]:
+    """
+    Every ui.kpi on the page by label: {"value": ..., "lines": [...]}. Labels
+    are markdown (for their tooltip); the number and lines are one html block.
+    """
+    labels = [html.unescape(re.search(r'class="hf-(?:kpi|hero)-label">(.*?)</span>', m.value).group(1))
+              for m in at.markdown if "hf-kpi-label" in m.value or "hf-hero-label" in m.value]
+    blocks = [str(h.proto.body) for h in at.get("html") if str(h.proto.body).startswith('<div class="hf-kpi')]
+    cards = {}
+    for label, block in zip(labels, blocks):
+        value = re.search(r'class="hf-kpi-value">(.*?)</div>', block).group(1)
+        lines = re.findall(r'class="hf-kpi-line[^"]*">(.*?)</div>', block)
+        cards[label] = {"value": html.unescape(value), "lines": [html.unescape(x) for x in lines]}
+    return cards

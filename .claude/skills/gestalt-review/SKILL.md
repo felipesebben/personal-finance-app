@@ -19,7 +19,7 @@ Felipe's reference is a design-driven dataviz course, `notes/references/Learn_De
 2. **Inventory the page top to bottom.** For each tab, list every visible block in order: filter rows, cards, charts, tables, captions, expanders. Note which ones sit inside a `ui.card`, and their widths (`st.columns` ratios) and heights.
 3. **Write each block's question** in one line ("How is the month building up?"). A block with no question is decoration or noise. Two blocks with the same question should be one block, or be clearly one group. Check the order: from the most aggregated answer to the most detailed (see Continuity).
 4. **Check the principles below**, in order. Each finding names the principle, the place (`file:line`), what the eye does now, and the fix in this codebase's own idioms.
-5. **Render and look.** Charts: render the Altair spec to PNG (vl-convert in a scratch venv) on a white background, as the card shows it, and look at it. Pages: drive them with AppTest against the running app, and say plainly what you couldn't see (AppTest has no pixels; Felipe's laptop and phone are the final check).
+5. **Render and look.** Charts: render the Altair spec to PNG (vl-convert) on a white background, as the card shows it, and look at it. Pages: screenshot the real page. A copy of `frontend/` in a scratch folder with an entry script that sets `st.session_state["access_token"]` to a token minted in the backend container (`auth.create_access_token`) and `st.switch_page`s, run on another port, then Playwright driving the installed Chrome with a tall viewport (Streamlit scrolls inside its own container, so a full-page capture only gets the first screen). Restart that copy after editing a module. AppTest has no pixels; Felipe's laptop and phone are the final check.
 6. **Report** as plain text (Felipe's terminal garbles tables and headings): the findings most-harmful first, each with its fix, then what you checked and found fine in one line. Don't fix anything unasked; offer to.
 
 ## The Gestalt principles, as they apply here
@@ -55,6 +55,7 @@ The eye notices position, length, size, colour intensity and hue before attentio
 
 Some of a page's difficulty is the question itself; the rest is what the design adds. Remove the added part, and spend a little on explanation where it saves a lot of puzzling:
 
+- **Charts, not tables.** A table hands the comparing to the reader; a chart does it for them. In an analysis view, every table is a chart waiting to be drawn.
 - **Data-ink.** Every pixel either shows data or helps read it. No chart backgrounds, frames, heavy grids, decorative icons or flags; one quiet axis line.
 - **Text hierarchy.** Page title, then card question (subheader), then one explanatory caption, then the fine print, each visibly smaller and quieter. Sentence case, Roboto throughout, no all-caps, no italics for whole sentences, bold only for the answer.
 - **Context for every number.** A bare figure says little: give it the comparison (▲/▼ against last month and the usual month) and, when there's room, its trend (a sparkline). That's the shape of every `ui.kpi` card.
@@ -67,13 +68,23 @@ Some of a page's difficulty is the question itself; the rest is what the design 
 
 - A chart or table outside any card: wrap it in `with ui.card("<key>"):` with its question as the subheader.
 - A chart with a grey box on a white card: it's missing `analytics_charts.finish` (or `daily_charts._spark`), which set the background transparent; Streamlit's theme otherwise paints the page colour behind it.
-- Cards in a row with different heights: give them `height=` and a fixed chart slot.
+- Cards in a row with different heights: give them `min_height=` (lines up on desktop, grows where text wraps on a phone) and a fixed chart slot; a fixed `height=` clips on a phone.
+- A chart pressed against the title or number above it: the room comes from the chart's padding (`finish`, `_spark`) and the KPI's bottom margin (`.hf-kpi`); check at phone width too.
+- A value at a bar's tip cut off on a phone: give the bars `room` and keep tip text short ("R$ 1,8 mil · Food").
+- A control row that wraps (a segmented control with long options): make it a dropdown.
 - A legend inside one of two side-by-side charts: it changes that chart's size. Use one shared legend under both (the calendars' `_calendar_legend`).
-- Squeezed charts: give height; scrolling is fine, squeezing isn't.
+- Squeezed charts: give height; scrolling is fine, squeezing isn't. Streamlit counts the axes, legend and title inside a chart's height, so size it as rows + axis, never a bare row count.
+- A card taller than its content, or content floating in a fixed-height card: let the chart fill what the text leaves (the hero's sparkline, the calendar's rows), or shorten the card. Check it in a real screenshot.
+- A name column wider than its names, pushing bars away from their labels: size it to the longest name (`analytics_charts.names_width`).
+- A per-day breakdown of what's bought once a month (rent, electricity, a cleaner): it says nothing; stop at what's inside the category.
 - An ⓘ that does nothing: help must go through Streamlit's own `help=` (`ui.kpi(..., help=...)` does), not an HTML `title` attribute, which phones never show.
 - Text in a data colour: labels and values use the ink tokens; colour sits on the mark beside them.
-- A table where a ranked bar chart would answer faster: rank it as bars (`daily_charts.pick_bars`), keep the table in an expander for the exact figures.
-- A picker (selectbox) that duplicates a chart: let the chart be the picker (`on_select="rerun"` on an unlayered chart, as `pick_bars` does) and default to its biggest bar.
+- A table in an analysis view: it makes the reader do the comparing. Rank it as bars (`analytics_charts.ranked_bars`), show a trend as sparkbars or a heatmap, a split as one stacked bar. Tables belong only where rows are managed (Entries, a joint account's entries, recorded payments).
+- A bar chart whose labels carry the numbers ("Food · R$ 4.135 · 59%"): the axis says only the name, left-aligned; the value goes at the bar's tip.
+- A deep stack before the answer (title, purpose, tabs, a month row, a filter row, a big multiselect...): one control row, secondary filters in a popover (`sections/filters.py`), and a control that serves one card inside that card.
+- A picker far from what it drives: put it directly above the breakdown it changes ("Look inside" pills). Charts can't be both labelled and tapped in Streamlit 1.50 (no selections on layered charts), so the picker is a control, defaulting to the biggest bar.
+- Two calendars side by side for "which days cost most": one, this month's, as a reference at the top; days compare better as ranked bars.
+- An unreadable label: "Food · 14:35" under Pets reads as the Food category. Keep the parent where a name clashes.
 
 ## Limits
 

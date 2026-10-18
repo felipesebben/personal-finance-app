@@ -212,7 +212,8 @@ def test_weekday_profile_counts_quiet_days():
 def test_biggest_days_biggest_first_with_their_top_category():
     top = daily.biggest_days(frame(), "2026-10", "Household")
     assert list(top["key"]) == ["2026-10-04", "2026-10-01"]
-    assert list(top["label"]) == ["Sun 4 Oct · R$ 220,00 · Pets", "Thu 1 Oct · R$ 80,00 · Food"]
+    assert list(top["name"]) == ["Sun 4 Oct", "Thu 1 Oct"]
+    assert list(top["text"]) == ["R$ 220 · Pets", "R$ 80 · Food"]
     assert round(top["share"].sum(), 6) == 1.0  # of the month so far
     assert list(daily.biggest_days(frame(), "2026-10", "Household", n=1)["key"]) == ["2026-10-04"]
 
@@ -224,19 +225,30 @@ def test_ranked_shares_a_month_by_category_and_a_day_by_item():
     ]))
     mix = daily.ranked(rows, "Household", "primary_category", month="2026-10")
     assert list(mix["key"]) == ["Pets", "Food"]  # September's vet bill isn't this month
-    assert list(mix["label"]) == ["Pets · R$ 220,00 · 73%", "Food · R$ 80,00 · 27%"]
+    assert list(mix["text"]) == ["R$ 220 · 73%", "R$ 80 · 27%"]  # the value at each bar's tip
     day = daily.ranked(rows, "My share", "item", date="2026-10-01")
     assert list(day["name"]) == ["Food › Groceries", "Food › Delivery"]
     assert list(day["amount"]) == [36.0, 12.0]
     assert daily.ranked(rows, "Household", "primary_category", month="2026-11").empty
 
 
-def test_picked_key_follows_the_tap_and_falls_back_to_the_biggest():
-    mix = daily.ranked(daily.rows_frame(SAMPLE), "Household", "primary_category", month="2026-10")
-    assert daily.picked_key(mix, None) == "Pets"
-    assert daily.picked_key(mix, [{"key": "Food"}]) == "Food"
-    assert daily.picked_key(mix, [{"key": "Gone"}]) == "Pets"  # filtered away since the tap
-    assert daily.picked_key(mix.iloc[0:0], None) is None
+def test_day_items_are_a_days_purchases_biggest_first():
+    from zoneinfo import ZoneInfo
+    items = [
+        {"transaction_timestamp": "2026-10-05T12:30:00Z", "primary_category": "Food", "sub_category": "Groceries",
+         "price": "100.00", "mine": "60.00", "payment_method": "Pix", "institution": "Nubank", "paid_by": "Her"},
+        {"transaction_timestamp": "2026-10-05T18:00:00Z", "primary_category": "Pets", "sub_category": "Food",
+         "price": "300.00", "mine": "180.00", "payment_method": "Cash", "institution": None, "paid_by": "Me"},
+        {"transaction_timestamp": "2026-10-05T12:30:00Z", "primary_category": "Food", "sub_category": "Groceries",
+         "price": "100.00", "mine": "60.00", "payment_method": "Pix", "institution": "Nubank", "paid_by": "Her"},
+    ]
+    frame = daily.day_items(items, "Household", ZoneInfo("America/Sao_Paulo"))
+    # "Food" alone would read as the Food category: the pets' food keeps its category.
+    assert list(frame["name"]) == ["Pets › Food · 15:00", "Groceries · 09:30", "Groceries · 09:30 (2)"]
+    assert list(frame["text"]) == ["R$ 300 · 60%", "R$ 100 · 20%", "R$ 100 · 20%"]
+    assert frame["detail"].iloc[1] == "Pix · Nubank, paid by Her"
+    assert list(daily.day_items(items, "My share", ZoneInfo("UTC"))["amount"]) == [180.0, 60.0, 60.0]
+    assert daily.day_items([], "Household", ZoneInfo("UTC")).empty
 
 
 def test_empty_payload_is_handled():
@@ -266,11 +278,8 @@ def test_chart_specs_build(partial):
     daily_charts.calendar_chart(cal, 220.0, "October 2026").to_dict()
     daily_charts.weekday_chart(daily.weekday_profile(df, p, "Household", datetime.date(2026, 10, 10))).to_dict()
     daily_charts.changes_chart(daily.category_changes(daily.rows_frame(p), p, "Household")).to_dict()
-    mix = daily.ranked(daily.rows_frame(p), "Household", "primary_category", month="2026-10")
-    spec = daily_charts.pick_bars(mix, "category", mix["key"].iloc[0]).to_dict()
-    assert spec["config"]["background"] == "transparent"  # charts sit on their card's white
-    daily_charts.breakdown_bars(mix).to_dict()
     assert daily_charts.spark_days(cal).to_dict()["config"]["background"] == "transparent"
+    daily_charts.calendar_chart(cal, 220.0).to_dict()  # no title: the card has it
 
 
 def test_calendar_scale_ignores_one_huge_day():

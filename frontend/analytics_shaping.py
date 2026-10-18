@@ -222,3 +222,57 @@ def short_brl(value: float) -> str:
     else:
         return f"{sign}R$ {amount:.0f}"
     return f"{sign}R$ {text.replace('.', ',')}"
+
+
+# --- charts' frames -----------------------------------------------------------
+
+def month_bars(values: pd.Series, selected: str, money: bool = True) -> pd.DataFrame:
+    """
+    A KPI card's sparkbars from a per-month series (index YYYY-MM, oldest
+    first): label ("Oct"), value, value text and is_selected, the frame
+    daily_charts.spark_bars draws.
+    """
+    out = pd.DataFrame({"month": list(values.index), "value": [float(v) for v in values.values]})
+    out["label"] = [MONTH_NAMES[int(m[5:]) - 1] for m in out["month"]]
+    out["value_brl"] = out["value"].map(format_brl) if money else out["value"].map(lambda v: f"{v:.0f}")
+    out["is_selected"] = out["month"] == selected
+    return out
+
+
+def monthly_counts(df: pd.DataFrame, months: list[str]) -> pd.Series:
+    """How many expenses per month over `months`, zero-filled."""
+    counts = df.groupby("month")["count"].sum() if not df.empty else pd.Series(dtype=float)
+    return counts.reindex(months, fill_value=0).astype(int)
+
+
+def ranked_comparison(comparison: pd.DataFrame, by: str) -> pd.DataFrame:
+    """
+    compare() as ranked bars with a tick for the month before: name,
+    amount (this month), previous, their text, and the text at the bar's
+    tip, "R$ 4.135 · ▲ 12%" (or "new" when there was nothing before).
+    """
+    out = comparison.rename(columns={by: "name", "current": "amount"}).copy()
+    out["amount_brl"] = out["amount"].map(format_brl)
+    out["previous_brl"] = out["previous"].map(format_brl)
+
+    def move(change: float, pct: float) -> str:
+        if round(change, 2) == 0:
+            return "same"
+        arrow = "▲" if change > 0 else "▼"
+        return "new" if math.isnan(pct) else f"{arrow} {abs(pct) * 100:.0f}%"
+
+    out["text"] = [f"{short_brl(a)} · {move(c, p)}" for a, c, p in zip(out["amount"], out["change"], out["pct"])]
+    return out
+
+
+def as_changes(comparison: pd.DataFrame, by: str) -> pd.DataFrame:
+    """compare() in the shape daily_charts.changes_chart draws: name, change, now/then/change text, direction."""
+    changed = biggest_changes(comparison, by)
+    return pd.DataFrame({
+        "name": changed[by], "change": changed["change"],
+        "now_brl": changed["current"].map(format_brl), "then_brl": changed["previous"].map(format_brl),
+        "change_brl": [("▲ +" if c > 0 else "▼ ") + format_brl(c) for c in changed["change"]],
+        "direction": ["more" if c > 0 else "less" for c in changed["change"]],
+    })
+
+
