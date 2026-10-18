@@ -13,7 +13,7 @@ class DimUser(Base):
     full_name = Column(String)
 
     # Relationship - one user has many expenditures
-    expenditures = relationship("FactExpenditure", back_populates="user")
+    expenditures = relationship("FactExpenditure", back_populates="user", foreign_keys="FactExpenditure.user_id")
 
 class DimPaymentMethod(Base):
     __tablename__ = "dim_payment_method"
@@ -83,11 +83,24 @@ class FactExpenditure(Base):
     # share, but the payer treated, so nobody owes them for it.
     is_treat = Column(Boolean, nullable=False, server_default="false", default=False)
 
+    # The trace of the last edit (PATCH /expenditures/{id}): when and by
+    # whom. Both NULL on an expense never edited since it was logged.
+    # Deleting that account keeps the edit's time and forgets who.
+    updated_at = Column(DateTime(timezone=True), nullable=True)
+    updated_by_user_id = Column(
+        Integer, ForeignKey("dim_user.user_id", name="fk_fact_expenditures_updated_by", ondelete="SET NULL"),
+        nullable=True,
+    )
+
     # Define the relationships
-    user = relationship("DimUser", back_populates="expenditures")
+    user = relationship("DimUser", back_populates="expenditures", foreign_keys=[user_id])
+    updated_by = relationship("DimUser", foreign_keys=[updated_by_user_id])
     category = relationship("DimCategory")
     payment_method = relationship("DimPaymentMethod")
     pet = relationship("DimPet")
+    # Its allocation rows, read-only here: ledger.py writes them, and the
+    # database deletes them with the expense (ON DELETE CASCADE).
+    splits = relationship("FactExpenditureSplit", viewonly=True, order_by="FactExpenditureSplit.user_id")
 
 class FactExpenditureSplit(Base):
     __tablename__ = "fact_expenditure_split"

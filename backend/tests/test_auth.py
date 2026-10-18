@@ -38,6 +38,7 @@ PROTECTED_ROUTES = [
     ("delete", "/settlements/1"),
     ("get", "/expenditures/"),
     ("post", "/expenditures/"),
+    ("patch", "/expenditures/1"),
     ("delete", "/expenditures/1"),
     ("post", "/refresh"),
 ]
