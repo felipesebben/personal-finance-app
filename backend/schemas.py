@@ -86,6 +86,20 @@ class PaymentMethod(BaseModel):
 # -- Household Setting Schema --
 # The household split ratio: one row per user, snapshotted onto each
 # expenditure's allocation rows at write time (see notes/02).
+class CategoryTargetItem(BaseModel):
+    """A primary category's monthly target (the household's shared spending, full price)."""
+    primary_category: str = Field(min_length=1)
+    amount: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
+
+    class Config:
+        from_attributes = True
+
+
+class CategoryTargetsUpdate(BaseModel):
+    """PUT /category_targets/: the whole set; a category left out has no target."""
+    targets: List[CategoryTargetItem]
+
+
 class HouseholdSettingRead(BaseModel):
     user_id: int
     share_pct: Decimal = Field(gt=0, le=1, max_digits=5, decimal_places=4)

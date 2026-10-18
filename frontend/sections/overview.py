@@ -201,7 +201,11 @@ def render(token: str, lens: str, key: str, show_view: bool = False) -> None:
             st.caption(" ".join(notes))
 
     with ui.card(f"{key}_where"):
-        _where(df, comparison, selected, selected_label, previous_title, is_partial, lens, key, comparable)
+        targets = {}
+        if lens == "Household":  # targets are for the household's shared spending
+            rows = get_data("category_targets/", token, default=[])
+            targets = {t["primary_category"]: float(t["amount"]) for t in rows or [] if isinstance(t, dict)}
+        _where(df, comparison, selected, selected_label, previous_title, is_partial, lens, key, comparable, targets)
 
     changes = shape.as_changes(comparison, "primary_category")
     if comparable and not changes.empty:
@@ -220,7 +224,8 @@ def render(token: str, lens: str, key: str, show_view: bool = False) -> None:
         _fixed_vs_variable(df, selected, is_partial, lens, previous, previous_title, noun, selected_label)
 
 
-def _where(df, comparison, selected, selected_label, previous_title, is_partial, lens, key, comparable) -> None:
+def _where(df, comparison, selected, selected_label, previous_title, is_partial, lens, key, comparable,
+           targets: dict[str, float]) -> None:
     """
     Where is the money going? Categories against last month (a grey tick
     and the change at the tip, when last month was logged in full; shares
@@ -235,16 +240,20 @@ def _where(df, comparison, selected, selected_label, previous_title, is_partial,
         st.caption(f"Nothing in {selected_label} yet.")
         return
     tick = "previous" if comparable else None
-    if comparable:
-        st.caption(f"Grey tick: {previous_title}.")
-    else:
+    if not comparable:
         bars = shape.with_share_text(bars)
+    # The household's monthly targets (Settings), as a dark tick: for the whole month.
+    bars = bars.assign(target=[targets.get(n, 0.0) for n in bars["name"]])
+    notes = ([f"Grey tick: {previous_title}."] if comparable else []) + (
+        ["Dark tick: the monthly target."] if bars["target"].gt(0).any() else [])
+    if notes:
+        st.caption(" ".join(notes))
     left, right = st.columns([1, 1], gap="medium")
     with right:
         category = st.pills("Look inside", list(bars["name"]), default=bars["name"].iloc[0],
                             key=f"{key}_inside") or bars["name"].iloc[0]
     with left:
-        st.altair_chart(charts.ranked_bars(bars, picked=category, previous=tick, room=1.7),
+        st.altair_chart(charts.ranked_bars(bars, picked=category, previous=tick, room=1.7, target="target"),
                         use_container_width=True)
     with right:
         sub = shape.compare(df, selected, is_partial, lens, by="sub_category", where={"primary_category": category})

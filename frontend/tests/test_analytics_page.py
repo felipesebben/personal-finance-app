@@ -177,3 +177,17 @@ def test_a_partly_logged_last_month_is_named_not_compared():
     assert cards["Biggest increase"]["value"] == "—"
     assert not any("Where does the difference come from?" in s.value for s in at.subheader)
     assert any("logged from the 26th only" in c.value for c in at.caption)  # the trend's footnote
+
+
+def test_monthly_targets_show_as_a_dark_tick_on_our_expenses():
+    inner = fake_api(lambda month: sample_payload(month))
+
+    def get(url, *args, **kwargs):
+        if "/category_targets" in url:
+            return MagicMock(status_code=200, json=MagicMock(return_value=[
+                {"primary_category": "Food", "amount": "500.00"}]))
+        return inner(url, *args, **kwargs)
+
+    at = run_page(get)
+    assert not at.exception
+    assert any("Dark tick: the monthly target." in c.value for c in at.caption)

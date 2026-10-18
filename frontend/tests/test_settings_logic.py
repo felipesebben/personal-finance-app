@@ -1,6 +1,7 @@
 """From an edited Settings table to the API calls that apply it."""
 import math
 
+import settings_logic as logic
 from settings_logic import CATEGORIES, PAYMENT_METHODS, PETS, household_payload, plan_changes
 
 CATS = [
@@ -146,3 +147,23 @@ def test_one_person_at_100_is_a_valid_household():
 def test_household_payload_explains_what_is_wrong():
     assert household_payload({12: 60.0, 13: 30.0})[1] == "Shares must add up to 100% (now 90%)."
     assert household_payload({12: 0.0})[1] == "Give at least one person a share."
+
+
+# --- monthly targets --------------------------------------------------------
+
+def test_target_rows_list_each_primary_category_once_with_its_target():
+    categories = [{"primary_category": "Food", "sub_category": "Groceries"},
+                  {"primary_category": "Food", "sub_category": "Delivery"},
+                  {"primary_category": "pets", "sub_category": "Vet"}]
+    rows = logic.target_rows(categories, [{"primary_category": "Food", "amount": "3000.00"}])
+    assert list(rows["Category"]) == ["Food", "pets"]
+    assert list(rows["Target"]) == ["3.000,00", ""]
+
+
+def test_targets_payload_reads_brazilian_amounts_and_blocks_bad_ones():
+    import pandas as pd
+    ok, problems = logic.targets_payload(pd.DataFrame({"Category": ["Food", "Pets", "Home"],
+                                                        "Target": ["3.000,00", "", None]}))
+    assert ok == [{"primary_category": "Food", "amount": "3000.00"}] and problems == []
+    _, problems = logic.targets_payload(pd.DataFrame({"Category": ["Food", "Pets"], "Target": ["abc", "0"]}))
+    assert [p.split(":")[0] for p in problems] == ["Food", "Pets"]  # both blocked, each named

@@ -36,6 +36,23 @@ class HouseholdSetting(Base):
 
     user = relationship("DimUser")
 
+class CategoryTarget(Base):
+    """
+    What the household means to spend a month in a primary category (shared
+    expenses, full price): the bullet charts' dark tick on Our expenses.
+    Keyed by the primary category's name, as the analytics group by it; a
+    category without a row has no target.
+    """
+    __tablename__ = "category_target"
+    primary_category = Column(String(255), primary_key=True)
+    amount = Column(Numeric(10, 2), nullable=False)
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="ck_category_target_amount_positive"),
+    )
+
+
 class DimCategory(Base):
     __tablename__ = "dim_category"
     category_id = Column(Integer, primary_key=True, index=True)
