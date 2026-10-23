@@ -56,6 +56,9 @@ _CSS = f"""
 .hf-kpi.hf-hero .hf-kpi-value {{ font-size: 2.5rem; line-height: 1.1; margin: 0.15rem 0 0.3rem; }}
 .hf-kpi .hf-kpi-line {{ font-size: 0.82rem; color: {INK_2}; }}
 .hf-kpi.hf-lines .hf-kpi-line {{ font-size: 0.95rem; color: {INK}; margin: 0.15rem 0; }}
+/* Keep the ▲/▼ tones over the plain ink above. */
+.hf-kpi.hf-lines .hf-kpi-line.hf-more {{ color: {MORE}; }}
+.hf-kpi.hf-lines .hf-kpi-line.hf-less {{ color: {LESS}; }}
 .hf-kpi.hf-hero .hf-kpi-line {{ font-size: 0.9rem; }}
 .hf-kpi .hf-more {{ color: {MORE}; font-weight: 600; }}
 .hf-kpi .hf-less {{ color: {LESS}; font-weight: 600; }}
