@@ -62,6 +62,10 @@ _CSS = f"""
 .hf-kpi.hf-hero .hf-kpi-line {{ font-size: 0.9rem; }}
 .hf-kpi .hf-more {{ color: {MORE}; font-weight: 600; }}
 .hf-kpi .hf-less {{ color: {LESS}; font-weight: 600; }}
+.hf-notices {{ background: #fdf6ee; border-left: 4px solid {MORE}; border-radius: 0.5rem;
+               padding: 0.55rem 0.9rem; margin: 0.1rem 0 0.4rem; }}
+.hf-notice {{ color: {INK}; font-size: 0.92rem; line-height: 1.45; }}
+.hf-notice.hf-more {{ color: {MORE}; font-weight: 600; }}
 .hf-empty {{ display: grid; place-items: center; text-align: center; border: 1px dashed {LINE}; border-radius: 0.5rem;
             color: {INK_2}; font-size: 0.8rem; padding: 0 0.75rem; box-sizing: border-box; }}
 </style>
@@ -132,6 +136,18 @@ def kpi_lines(lines) -> None:
     tones = {"more": "hf-more", "less": "hf-less"}
     body = "".join(f'<div class="hf-kpi-line {tones.get(tone, "")}">{escape(text)}</div>' for text, tone in lines)
     st.html(f'<div class="hf-kpi hf-lines">{body}</div>')
+
+
+def notices(lines) -> None:
+    """
+    In-app notices, a slim strip: (text, tone) lines, ▲-orange for "more"
+    (e.g. past a target), ink otherwise. Nothing drawn without lines.
+    """
+    if not lines:
+        return
+    tones = {"more": "hf-more"}
+    body = "".join(f'<div class="hf-notice {tones.get(tone, "")}">{escape(text)}</div>' for text, tone in lines)
+    st.html(f'<div class="hf-notices">{body}</div>')
 
 
 def empty_chart(text: str, height: int) -> None:

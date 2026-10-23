@@ -21,7 +21,6 @@ only wires them to widgets.
 from __future__ import annotations
 
 import datetime
-from html import escape
 from urllib.parse import urlencode
 
 import pandas as pd
@@ -32,6 +31,7 @@ import analytics_shaping as shape
 import daily_charts as charts
 import daily_shaping as daily
 import filtering
+import notices
 import ui
 import upcoming
 from common import SAO_PAULO, get_data, md
@@ -46,11 +46,10 @@ ENDPOINTS = {
 # My expenses' Show -> the sources behind it, and what they're called
 VIEW_SOURCES = {"all": ["shared", "personal"], "personal": ["personal"], "shared": ["shared"]}
 NOUNS = {"all": "expenses", "personal": "personal expenses", "shared": "shared expenses"}
-MONTHS = 7  # the month and six before it: last month, the usual month and the cards' bars
+MONTHS = 13  # the month and twelve before: last month, usual, the 12-month average, the same month last year
 TOP_CHANGES = 10
 CARD_HEIGHT = 200
-TOP_HEIGHT = 370   # the hero and the calendar beside it, filled by both (at least: text wraps on a phone)
-HERO_SPARK = 185   # what the hero's text leaves of it
+MINI_ROW = 22  # the corner calendar's rows
 EMPTY = {
     "per_day": "Bars per month appear once there's an earlier month to compare with.",
     "last": "Appears once a whole month before this one has been logged.",
@@ -87,20 +86,6 @@ def _card_chart(card: dict, p: dict, hist: pd.DataFrame, this_cal: pd.DataFrame,
     return None
 
 
-def _calendar_legend(top: float) -> None:
-    """The calendar's legend, in HTML so it never changes the chart's size: an empty day, the green scale, today."""
-    swatch = "display:inline-block;border-radius:3px;vertical-align:middle"
-    st.html(
-        f'<div style="display:flex;flex-wrap:wrap;align-items:center;gap:0.4rem;font-size:0.75rem;color:{ui.INK_2}">'
-        f'<span style="{swatch};width:12px;height:12px;background:{charts.EMPTY_DAY};border:1px solid {ui.LINE}">'
-        f'</span><span>Nothing</span><span style="width:0.5rem"></span>'
-        f'<span style="{swatch};width:72px;height:8px;'
-        f'background:linear-gradient(90deg,{charts.HEAT[0]},{charts.HEAT[1]})"></span>'
-        f"<span>{escape(shape.short_brl(top))}+</span><span style=\"width:0.5rem\"></span>"
-        f'<span style="{swatch};width:12px;height:12px;border:2px solid {ui.INK}"></span><span>Today</span></div>'
-    )
-
-
 def _items(sources: list[str], day: str, token: str, filters: filtering.Filters) -> list[dict] | None:
     """A day's expenses from every source, obeying the filters; None on failure."""
     lists = [get_data(f"{ENDPOINTS[s][1]}?{urlencode({'day': day})}", token, default=_FAILED) for s in sources]
@@ -110,26 +95,24 @@ def _items(sources: list[str], day: str, token: str, filters: filtering.Filters)
     return filtering.filter_rows(pd.DataFrame(items), filters).to_dict("records") if items else []
 
 
-def _top(p: dict, hero: dict, df, data, lens: str, since, started, this_cal, month: str) -> None:
-    """The answer first: the hero card beside this month's calendar, then four equal KPI cards."""
-    left, right = st.columns(2, gap="small")
-    with left, ui.card("hero", min_height=TOP_HEIGHT):
-        ui.kpi(hero["label"], hero["amount"], hero["lines"], hero=True,
-               help="Everything counted so far this month. The line is this month's running total (green) "
-                    "over last month's (grey).")
-        frame = daily.running_frame(df, data, lens, since=since, with_usual=False, started=started)
-        st.altair_chart(charts.spark_running(frame, daily.series_order(data, p["last_partly_from"]),
-                                             daily.days_in(month), HERO_SPARK), use_container_width=True)
-    with right, ui.card("calendar", min_height=TOP_HEIGHT):
-        st.markdown("**Which days cost the most?**", help="Each day shaded by what was spent; hover a day for the "
-                    "amount and its biggest category. The darkest green is a typical big day, so one large "
-                    "payment doesn't wash the rest out.")
-        top = daily.calendar_scale_max(this_cal)
-        weeks = int(this_cal["week"].max()) + 1
-        # The rows share what the title and the legend leave of the card.
-        row_height = max(28, (TOP_HEIGHT - 120) // weeks)
-        st.altair_chart(charts.calendar_chart(this_cal, top, row_height=row_height), use_container_width=True)
-        _calendar_legend(top)
+def _top(hero: dict, this_cal, p: dict, top_category: str | None) -> None:
+    """
+    The answer first: the hero KPI, with this month's calendar as a small
+    widget in its top-right corner (where we are in the month, which days
+    cost most; hover a day for its amount), then four equal KPI cards.
+    """
+    with ui.card("hero"):
+        left, right = st.columns([3, 2], gap="medium")
+        with left:
+            ui.kpi(hero["label"], hero["amount"], hero["lines"], hero=True,
+                   help="Everything counted so far this month, against the same days of earlier months.")
+        with right:
+            top = daily.calendar_scale_max(this_cal)
+            st.altair_chart(charts.calendar_chart(this_cal, top, row_height=MINI_ROW, compact=True),
+                            use_container_width=True)
+            where = f"Day {p['day']} of {p['days']}" if p["is_partial"] else f"{p['days']} days"
+            st.caption(where + (f" · mostly {top_category}" if top_category else "")
+                       + ". Darker days cost more.")
 
 
 def _cards(p: dict, cards: list[dict], hist, this_cal, last_cal) -> None:
@@ -151,16 +134,21 @@ def _targets(token: str, lens: str) -> dict[str, float]:
     return {t["primary_category"]: float(t["amount"]) for t in rows or [] if isinstance(t, dict)}
 
 
-def _still_to_come(token: str, month: str, view: str, lens: str, filters: filtering.Filters) -> None:
+def _due(token: str, month: str, view: str, lens: str, filters: filtering.Filters):
+    """Recurring bills not logged yet and card installments billed this month, as the filters keep them."""
+    expenses = get_data("expenditures", token) or []
+    bills = filtering.filter_rows(upcoming.recurring_due(expenses, month, datetime.datetime.now(SAO_PAULO).date(),
+                                                        view, lens, SAO_PAULO), filters)
+    cards = filtering.filter_rows(upcoming.installments_due(expenses, month, view, lens, SAO_PAULO), filters)
+    return bills, cards
+
+
+def _still_to_come(bills, cards) -> None:
     """
     What's still to come this month: recurring bills not logged yet, and
     card installments of earlier purchases billed this month. Only drawn
     when there's something, and only for the month in progress.
     """
-    expenses = get_data("expenditures", token) or []
-    bills = filtering.filter_rows(upcoming.recurring_due(expenses, month, datetime.datetime.now(SAO_PAULO).date(),
-                                                        view, lens, SAO_PAULO), filters)
-    cards = filtering.filter_rows(upcoming.installments_due(expenses, month, view, lens, SAO_PAULO), filters)
     if bills.empty and cards.empty:
         return
     with ui.card("upcoming"):
@@ -275,39 +263,64 @@ def render(token: str, lens: str, key: str, show_view: bool = False) -> None:
     hist = daily.history(df, data, lens, since=since)
     this_cal = daily.calendar_frame(df, month, lens, today)
 
-    _top(p, daily.headline(p, filtering.note(filters), started=started),
-         df, data, lens, since, started, this_cal, month)
+    targets = _targets(token, lens)
+    target = daily.target_total(targets, picked, filters.active)
+    month_rows = picked[picked["month"] == month]
+    spent = month_rows.groupby("primary_category")[shape.lens_column(lens)].sum().to_dict()
+    top_category = max(spent, key=spent.get) if spent else None
+
+    bills = cards = None
+    if p["is_partial"]:
+        bills, cards = _due(token, month, view, lens, filters)
+        # In-app notices, never pushed: past or near a target, a recurring bill late.
+        ui.notices(notices.notices({c: v for c, v in targets.items() if c in spent or not filters.active}, spent,
+                                   bills, p["day"], p["days"]))
+
+    _top(daily.headline(p, filtering.note(filters), started=started), this_cal, p, top_category)
     _cards(p, daily.cards(p), hist, this_cal, daily.calendar_frame(df, p["previous"], lens, today))
     if p["is_partial"]:
-        _still_to_come(token, month, view, lens, filters)
+        _still_to_come(bills, cards)
 
-    # --- How the month built up ---
-    with ui.card("running"):
-        st.subheader("How is the month building up?")
-        partly = (f" {previous} was logged only from the {daily.ordinal(p['last_partly_from'])}, so its line "
-                  "starts late." if p["last_partly_from"] else "")
-        st.caption(f"Spent so far, day by day, against {previous} and the usual month (dashed).{partly} "
-                   "Hover to compare a day.")
-        st.altair_chart(
-            charts.running_total_chart(daily.running_frame(df, data, lens, since=since, started=started),
-                                       daily.series_order(data, p["last_partly_from"]),
-                                       daily.days_in(month), p["day"] if p["is_partial"] else None, key),
-            use_container_width=True,
-        )
+    # --- Are we on track this month? (days) ---
+    with ui.card("track"):
+        st.subheader("Are we on track this month?")
+        frame, order, roles = daily.track_frame(df, data, lens, since=since, started=started, target=target)
+        named = [f"the {daily.BASELINES[r][0].lower()}" if r != "last" else n for n, r in zip(order[1:], roles[1:])]
+        named = [", ".join(named[:-1]) + " and " + named[-1]] if len(named) > 1 else named
+        partly = (f" {previous} was logged from the {daily.ordinal(p['last_partly_from'])} only, so its line starts "
+                  "late." if p["last_partly_from"] else "")
+        st.caption((f"Spent so far, day by day, against {', '.join(named)}." if named
+                    else "Spent so far, day by day. Comparisons appear as whole months are logged.")
+                   + partly + (" The target line is its steady pace through the month." if target > 0 else "")
+                   + " Hover to compare a day.")
+        st.altair_chart(charts.running_total_chart(frame, order, daily.days_in(month),
+                                                   p["day"] if p["is_partial"] else None, key, roles=roles),
+                        use_container_width=True)
+
+    # --- Where are we heading? (months) ---
+    months = daily.months_frame(df, data, lens, since=since)
+    if len(months) >= 2:
+        with ui.card("heading"):
+            st.subheader("Where are we heading?")
+            refs = daily.month_references(df, data, lens, since=since, target=target)
+            st.caption("Each month's total" + (" (this one so far: a hollow dot, never projected)"
+                                               if p["is_partial"] else "")
+                       + (", against " + " and ".join(f"the {n.lower()}" for n, _ in refs) if refs else "")
+                       + ". The 12-month average and the same month last year appear once there's a year logged.")
+            st.altair_chart(charts.months_chart(months, refs), use_container_width=True)
 
     with ui.card("where"):
-        _where(picked, lens, month, p, key, _targets(token, lens))
+        _where(picked, lens, month, p, key, targets)
 
     # --- Where the difference comes from ---
     if p["has_last"]:
         with ui.card("changes"):
             st.subheader("Where does the difference come from?")
-            against_names = {previous: "last"}
-            if p["usual_total"] is not None:
-                against_names["Usual month"] = "usual"
-            c1, c2, _ = st.columns([2, 2, 3])
-            against_label = c1.segmented_control("Compare with", list(against_names), default=previous,
-                                                 key=f"{key}_daily_against") or previous
+            against_names = daily.comparison_options(df, data, since=since) or {previous: "last"}
+            c1, c2 = st.columns([3, 2])
+            first = next(iter(against_names))
+            against_label = c1.segmented_control("Compare with", list(against_names), default=first,
+                                                 key=f"{key}_daily_against") or first
             level = c2.segmented_control("Group by", ["Category", "Sub-category"], default="Category",
                                          key=f"{key}_daily_level") or "Category"
             against = against_names.get(against_label, "last")
@@ -317,7 +330,10 @@ def render(token: str, lens: str, key: str, show_view: bool = False) -> None:
             if changes.empty or not changes["change"].any():
                 st.caption("No change by category to show.")
             else:
-                st.markdown(md(daily.change_summary(changes, previous if against == "last" else "usual")))
+                st.markdown(md(daily.change_summary(changes, previous if against == "last"
+                                                    else against_label.lower())))
+                # What drove it: behaviour (day-to-day) or fixed costs.
+                ui.kpi_lines(daily.cause_lines(picked, data, lens, against, since=since))
                 moved = changes[changes["change"] != 0]
                 st.altair_chart(charts.changes_chart(moved.head(TOP_CHANGES)), use_container_width=True)
                 same = changes.loc[changes["change"] == 0, "name"]
