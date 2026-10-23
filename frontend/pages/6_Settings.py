@@ -1,8 +1,11 @@
+import datetime
+
 import pandas as pd
 import requests
 import streamlit as st
 
-from common import end_session, get_data as common_get, require_login
+from analytics_shaping import month_label, shift_month
+from common import SAO_PAULO, end_session, get_data as common_get, require_login
 from config import API_BASE_URL
 import settings_logic as logic
 import ui
@@ -201,14 +204,28 @@ st.subheader("Monthly targets")
 ui.lede("What you mean to spend a month, per category.",
         " Our expenses draws it as a dark tick on each category's bar, next to last month's grey one. "
         "For shared spending, at full price. Leave a category blank for no target.")
-target_table = logic.target_rows(categories, get_data("category_targets", token))
+# A starting point from history: the last full months before this one.
+last_month = shift_month(datetime.datetime.now(SAO_PAULO).strftime("%Y-%m"), -1)
+history = common_get(f"analytics/shared?month={last_month}&months=12", token, default=None)
+suggested, averaged = logic.suggest_targets(history if isinstance(history, dict) else None)
+target_table = logic.target_rows(categories, get_data("category_targets", token), suggested,
+                                 fill_blanks=st.session_state.get("targets_fill_blanks", False))
 if target_table.empty:
     st.caption("Add a category first.")
 else:
+    if averaged:
+        span = month_label(averaged[0]) + (f" to {month_label(averaged[-1])}" if len(averaged) > 1 else "")
+        st.caption(f"Suggested: the average of {span}, rounded up to R$ 50. A starting point; change it freely.")
+        if st.button("Fill blank targets with the suggestions", key=f"fill_targets_{nonce}"):
+            st.session_state["targets_fill_blanks"] = True
+            st.session_state["settings_nonce"] = nonce + 1  # a fresh table, filled in
+            st.rerun()
     edited_targets = st.data_editor(
         target_table, hide_index=True, width="stretch", num_rows="fixed", key=f"targets_{nonce}",
         column_config={"Category": st.column_config.TextColumn(disabled=True),
-                       "Target": st.column_config.TextColumn("Target (R$ a month)", help="e.g. 3.000,00")},
+                       "Target": st.column_config.TextColumn("Target (R$ a month)", help="e.g. 3.000,00"),
+                       "Suggested": st.column_config.TextColumn(disabled=True,
+                                                                help="From the last full months logged")},
     )
     if st.button("Save targets", key=f"save_targets_{nonce}"):
         targets, problems = logic.targets_payload(edited_targets)
@@ -219,6 +236,7 @@ else:
             if error:
                 st.error(error)
             else:
+                st.session_state.pop("targets_fill_blanks", None)
                 done(f"Targets saved: {len(targets)} categor{'y' if len(targets) == 1 else 'ies'}.")
 
 st.divider()
