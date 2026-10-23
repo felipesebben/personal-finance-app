@@ -31,14 +31,19 @@ class FilterRow:
     preset them.
     """
 
-    def __init__(self, prefix: str, months: list[str], show_view: bool = False):
+    def __init__(self, prefix: str, months: list[str], show_view: bool = False, installments: bool = False):
         self.prefix = prefix
         self.show_view = show_view
+        self.installments = installments
         st.session_state.setdefault(f"{prefix}_focus", filtering.EVERYTHING)
         widths = [2, 2, 3, 1.4] if show_view else [2, 3, 1.4, 1.6]
         self.cols = iter(st.columns(widths, vertical_alignment="bottom"))
         self.month = next(self.cols).selectbox("Month", months, format_func=shape.month_label,
                                                key=f"{prefix}_month")
+
+    def basis(self) -> str:
+        """"billed" when installments are counted when billed, else "bought" (read before the fetch, like view)."""
+        return "billed" if self.installments and st.session_state.get(f"{self.prefix}_billed") else "bought"
 
     def view(self) -> str | None:
         """"all", "personal" or "shared" (None without the Show control)."""
@@ -61,11 +66,17 @@ class FilterRow:
         chosen = f"{prefix}_categories"
         if chosen in st.session_state:
             st.session_state[chosen] = [c for c in st.session_state[chosen] if c in categories]
-        on = len(st.session_state.get(chosen) or []) + bool(st.session_state.get(f"{prefix}_one_offs"))
+        on = (len(st.session_state.get(chosen) or []) + bool(st.session_state.get(f"{prefix}_one_offs"))
+              + bool(self.installments and st.session_state.get(f"{prefix}_billed")))
         with next(self.cols).popover(f"Filters · {on}" if on else "Filters", icon=":material/tune:",
                                      width="stretch"):
             picked = st.multiselect("Categories", categories, key=chosen, placeholder="All categories")
             without = st.toggle("Leave out one-offs", key=f"{prefix}_one_offs",
                                 help="Expenses marked Annual or Extraordinary, like IPVA or a repair, "
                                      "which would make one month look expensive.")
+            if self.installments:
+                st.toggle("Count installments when billed", key=f"{prefix}_billed",
+                          help="Off: an installment purchase counts in full in the month you bought it (when "
+                               "you decided to spend). On: each installment counts in the month it's billed "
+                               "(what actually leaves the account).")
         return filtering.Filters(focus, tuple(picked), without)

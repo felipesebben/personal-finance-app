@@ -50,9 +50,14 @@ def fetch(endpoint: str, token: str):
     return None if result is _FAILED else result
 
 
-def fetch_window(endpoints: list[str], selected: str, token: str):
-    """One /analytics payload, or several merged (same window, rows added together); None on failure."""
-    payloads = {e: fetch(f"{e}?{urlencode({'month': selected, 'months': 12})}", token) for e in endpoints}
+def fetch_window(endpoints: list[str], selected: str, token: str, basis: str = "bought"):
+    """
+    One /analytics payload, or several merged (same window, rows added
+    together); None on failure. `basis` "billed" counts installments in
+    their billing months.
+    """
+    query = urlencode({"month": selected, "months": 12, "basis": basis})
+    payloads = {e: fetch(f"{e}?{query}", token) for e in endpoints}
     if any(p is None for p in payloads.values()):
         return None
     return shape.merge_payloads(payloads)
@@ -136,13 +141,14 @@ def _kpis(df, months, selected, is_partial, lens, headline, noun, previous_title
 def render(token: str, lens: str, key: str, show_view: bool = False) -> None:
     """The whole overview for one lens. `key` prefixes widget keys so each page keeps its own picks."""
     current_month = datetime.datetime.now(SAO_PAULO).strftime("%Y-%m")
-    row = FilterRow(key, shape.month_options(current_month, 12), show_view=show_view)
+    row = FilterRow(key, shape.month_options(current_month, 12), show_view=show_view, installments=True)
     selected = row.month
     scope = row.view() or "shared"
     endpoints, noun = SCOPES[scope]
 
     # Always fetch 12 months: the 6-month view and the 3-month average both fit inside.
-    data = fetch_window(endpoints, selected, token)
+    basis = row.basis()
+    data = fetch_window(endpoints, selected, token, basis)
     if data is None:
         return
 
@@ -175,6 +181,9 @@ def render(token: str, lens: str, key: str, show_view: bool = False) -> None:
     comparable = since is not None and since <= previous
     partly = shape.partly_logged_from(previous, first_date)
     partly_month = first_date[:7] if first_date and shape.partly_logged_from(first_date[:7], first_date) else None
+
+    if basis == "billed":
+        st.caption("Installments are counted in the month they're billed (Filters).")
 
     comparison = shape.compare(df, selected, is_partial, lens)
     rising = shape.biggest_increase(comparison) if comparable else None
