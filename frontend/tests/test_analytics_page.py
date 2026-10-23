@@ -199,8 +199,9 @@ def test_installments_when_billed_asks_for_the_billed_basis():
 
     def get(url, *args, **kwargs):
         parsed = urlparse(url)
-        if parsed.path.endswith("/analytics/shared"):
-            queries.append(parse_qs(parsed.query).get("basis", [None])[0])
+        query = parse_qs(parsed.query)
+        if parsed.path.endswith("/analytics/shared") and query.get("months") == ["12"]:  # Month by month's window
+            queries.append(query.get("basis", [None])[0])
         return inner(url, *args, **kwargs)
 
     default = run_page(get)
