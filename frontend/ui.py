@@ -55,6 +55,10 @@ _CSS = f"""
                         font-variant-numeric: proportional-nums; }}
 .hf-kpi.hf-hero .hf-kpi-value {{ font-size: 2.5rem; line-height: 1.1; margin: 0.15rem 0 0.3rem; }}
 .hf-kpi .hf-kpi-line {{ font-size: 0.82rem; color: {INK_2}; }}
+.hf-kpi.hf-lines .hf-kpi-line {{ font-size: 0.95rem; color: {INK}; margin: 0.15rem 0; }}
+/* Keep the ▲/▼ tones over the plain ink above. */
+.hf-kpi.hf-lines .hf-kpi-line.hf-more {{ color: {MORE}; }}
+.hf-kpi.hf-lines .hf-kpi-line.hf-less {{ color: {LESS}; }}
 .hf-kpi.hf-hero .hf-kpi-line {{ font-size: 0.9rem; }}
 .hf-kpi .hf-more {{ color: {MORE}; font-weight: 600; }}
 .hf-kpi .hf-less {{ color: {LESS}; font-weight: 600; }}
@@ -121,6 +125,13 @@ def kpi(label: str, value: str, lines=(), hero: bool = False, help: str = "") ->
     body = "".join(f'<div class="hf-kpi-line {tones.get(tone, "")}">{escape(text)}</div>' for text, tone in lines)
     st.html(f'<div class="hf-kpi{" hf-hero" if hero else ""}"><div class="hf-kpi-value">{escape(value)}</div>'
             f"{body}</div>")
+
+
+def kpi_lines(lines) -> None:
+    """(text, tone) lines like a KPI's, on their own: ▲ orange for more, ▼ blue for less, ink otherwise."""
+    tones = {"more": "hf-more", "less": "hf-less"}
+    body = "".join(f'<div class="hf-kpi-line {tones.get(tone, "")}">{escape(text)}</div>' for text, tone in lines)
+    st.html(f'<div class="hf-kpi hf-lines">{body}</div>')
 
 
 def empty_chart(text: str, height: int) -> None:

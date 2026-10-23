@@ -1,4 +1,11 @@
-"""The Tableau Cloud dashboard: the long-term home for analysis, embedded as is."""
+"""
+The Tableau Cloud dashboard: the long-term home for analysis, embedded as is.
+
+Parked (2026-10-23): Felipe asked to hide it from the menu until he decides
+what to do with Tableau. Streamlit lists only files in pages/, so it lives
+here; to bring it back, move it to pages/5_Tableau.py (and add it to
+tests/test_pages_smoke.py).
+"""
 import streamlit.components.v1 as components
 
 import ui
