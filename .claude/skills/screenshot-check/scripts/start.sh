@@ -5,6 +5,7 @@
 #
 # Copies frontend/ (no .venv, no tests) to $SHOT_DIR (default: a temp folder),
 # adds an entry page that logs in with a token minted in the backend container
+# (the running container personal_finance_api, so it works from a git worktree too)
 # for $SHOT_EMAIL (default: the first account) and opens ?page=..., then runs it
 # with the frontend's own venv against the API on localhost:8000. Prints the
 # URL and leaves it running; stop it with stop.sh. Re-run after editing a
@@ -28,12 +29,17 @@ st.session_state["user_email"] = os.environ.get("SHOT_EMAIL", "")
 st.switch_page(st.query_params.get("page", "pages/2_Our_expenses.py"))
 PY
 
-EMAIL="${SHOT_EMAIL:-$(docker compose exec -T backend python -c "import database, models; s = database.SessionLocal(); print(s.query(models.DimUser).order_by(models.DimUser.user_id).first().email)" | tail -1)}"
-TOKEN="$(docker compose exec -T backend python -c "import auth; print(auth.create_access_token({'sub': '$EMAIL'}))" | tail -1)"
+EMAIL="${SHOT_EMAIL:-$(docker exec -i personal_finance_api python -c "import database, models; s = database.SessionLocal(); print(s.query(models.DimUser).order_by(models.DimUser.user_id).first().email)" | tail -1)}"
+TOKEN="$(docker exec -i personal_finance_api python -c "import auth; print(auth.create_access_token({'sub': '$EMAIL'}))" | tail -1)"
 
-PYTHON=frontend/.venv/Scripts/python.exe
-[ -x "$PYTHON" ] || PYTHON=frontend/.venv/bin/python
-PYTHON="$(cd "$(dirname "$PYTHON")" && pwd)/$(basename "$PYTHON")"
+# The frontend's own venv; SHOT_PYTHON overrides it (a git worktree has no .venv of its own).
+if [ -n "${SHOT_PYTHON:-}" ]; then
+  PYTHON="$SHOT_PYTHON"
+else
+  PYTHON=frontend/.venv/Scripts/python.exe
+  [ -x "$PYTHON" ] || PYTHON=frontend/.venv/bin/python
+  PYTHON="$(cd "$(dirname "$PYTHON")" && pwd)/$(basename "$PYTHON")"
+fi
 
 cd "$SHOT_DIR"
 SHOT_TOKEN="$TOKEN" SHOT_EMAIL="$EMAIL" API_URL=http://localhost:8000 nohup "$PYTHON" -m streamlit run Shot.py \
