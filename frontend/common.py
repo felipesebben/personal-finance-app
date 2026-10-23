@@ -133,7 +133,9 @@ def saved(message: str) -> None:
     st.rerun()
 
 
-@st.cache_data(ttl=60)
+# No spinner: the one a cache miss draws sends st.tabs back to the first tab,
+# so changing a month or a filter on Month by month would land on This month.
+@st.cache_data(ttl=60, show_spinner=False)
 def _cached_get(endpoint: str, token: str):
     response = requests.get(f"{API_BASE_URL}/{endpoint}", headers=auth_headers(token))
     if response.status_code != 200:

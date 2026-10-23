@@ -72,7 +72,7 @@ def kpi_cards(at) -> dict[str, dict]:
     """
     labels = [html.unescape(re.search(r'class="hf-(?:kpi|hero)-label">(.*?)</span>', m.value).group(1))
               for m in at.markdown if "hf-kpi-label" in m.value or "hf-hero-label" in m.value]
-    blocks = [str(h.proto.body) for h in at.get("html") if str(h.proto.body).startswith('<div class="hf-kpi')]
+    blocks = [str(h.proto.body) for h in at.get("html") if "hf-kpi-value" in str(h.proto.body) and str(h.proto.body).startswith('<div class="hf-kpi')]
     cards = {}
     for label, block in zip(labels, blocks):
         value = re.search(r'class="hf-kpi-value">(.*?)</div>', block).group(1)

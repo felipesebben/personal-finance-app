@@ -48,7 +48,7 @@ def test_our_expenses_tabs_and_the_joint_account(api):
     get.side_effect = answering({"/joint/status": [JOINT_STATUS], "/joint/entries": JOINT_ENTRIES})
     at = open_page(OURS)
     assert not at.exception
-    assert [t.label for t in at.tabs] == ["This month", "Month by month", "Joint account", "Settle up"]
+    assert [t.label for t in at.tabs] == ["This month", "Month by month", "Monthly recap", "Joint account", "Settle up"]
 
     cards = kpi_cards(at)
     assert cards["Left in the account"]["value"] == "R$ 500,00"
@@ -71,7 +71,7 @@ def test_no_joint_tab_without_a_joint_method(api, monkeypatch):
     api[0].side_effect = answering({})
     at = open_page(OURS)
     assert not at.exception
-    assert [t.label for t in at.tabs] == ["This month", "Month by month", "Settle up"]
+    assert [t.label for t in at.tabs] == ["This month", "Month by month", "Monthly recap", "Settle up"]
 
 
 def test_our_expenses_settle_up_leads_with_who_owes(api):
@@ -252,3 +252,57 @@ def test_this_month_says_what_is_still_to_come(api):
     assert any("What's still to come this month?" in s.value for s in at.subheader)
     assert any("Bills not logged yet" in m.value for m in at.markdown)
     assert any("about R\$ 180,00 in bills not logged yet" in c.value for c in at.caption)
+
+
+def test_settle_up_is_one_tap_in_the_payers_own_words(api):
+    from sections.settle import action_labels
+    debt = BALANCES["transfers"][0]  # Her owes Me R$ 666,67
+    assert action_labels(debt, 2) == {"all": "I paid Me R$ 666,67", "other": "I paid Me a different amount"}
+    assert action_labels(debt, 1)["all"] == "Her paid me R$ 666,67"
+    assert action_labels(debt, None)["all"] == "Her paid Me R$ 666,67"
+
+    get, post = api
+    get.side_effect = answering({"/balances/": BALANCES})
+    app = AppTest.from_file("Home.py", default_timeout=30)
+    app.session_state["access_token"] = "x"
+    app.session_state["user_email"] = "her@example.com"  # the one who owes
+    app.run()
+    app.switch_page(OURS)
+    at = app.run()
+    assert not at.exception
+    button = at.button(key="settle_all_0")  # Settle up's (the recap tab has its own)
+    assert button.label == "I paid Me R$ 666,67"
+    button.click().run()
+    url, sent = post.call_args.args[0], post.call_args.kwargs["json"]
+    assert url.endswith("/settlements/")
+    assert (sent["from_user_id"], sent["to_user_id"], sent["amount"]) == (2, 1, "666.67")
+
+
+def test_settle_up_takes_a_different_amount_in_one_step(api):
+    get, post = api
+    get.side_effect = answering({"/balances/": BALANCES})
+    app = AppTest.from_file("Home.py", default_timeout=30)
+    app.session_state["access_token"] = "x"
+    app.session_state["user_email"] = "her@example.com"
+    app.run()
+    app.switch_page(OURS)
+    at = app.run()
+    at.text_input(key="settle_amount_0").input("300,00")
+    at.button(key="settle_other_0").click().run()
+    assert not at.exception
+    assert post.call_args.kwargs["json"]["amount"] == "300.00"
+
+
+def test_the_monthly_recap_reads_the_month_and_offers_to_settle(api):
+    from conftest import sample_payload
+    get, _ = api
+    get.side_effect = answering({"/analytics/shared?": sample_payload("2026-09", is_partial=False, as_of_day=30),
+                                 "/balances/": BALANCES,
+                                 "/category_targets": [{"primary_category": "Food", "amount": "500.00"}]})
+    at = open_page(OURS)
+    assert not at.exception
+    assert "Monthly recap" in [t.label for t in at.tabs]
+    assert any("What drove it?" in s.value for s in at.subheader)
+    html = " ".join(str(h.proto.body) for h in at.get("html"))
+    assert "Food: R$ 370,00 of R$ 500,00 (74%)" in html  # the target line
+    assert any(b.label == "Her paid me R$ 666,67" for b in at.button)  # settle with one tap, from the recap too

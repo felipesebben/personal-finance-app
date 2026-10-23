@@ -60,7 +60,7 @@ def kpis(at):
     labels = [re.search(r'class="hf-(?:kpi|hero)-label">(.*?)</span>', m.value).group(1)
               for m in at.markdown if "hf-kpi-label" in m.value or "hf-hero-label" in m.value]
     values = [re.search(r'class="hf-kpi-value">(.*?)</div>', str(h.proto.body)).group(1)
-              for h in at.get("html") if str(h.proto.body).startswith("<div class=\"hf-kpi")]
+              for h in at.get("html") if "hf-kpi-value" in str(h.proto.body) and str(h.proto.body).startswith("<div class=\"hf-kpi")]
     return [(html.unescape(label), html.unescape(value)) for label, value in zip(labels, values)]
 
 
@@ -74,7 +74,7 @@ def overview(at):
 def test_renders_with_data():
     at = run_page(fake_api(lambda month: sample_payload(month)))
     assert not at.exception
-    assert [t.label for t in at.tabs] == ["This month", "Month by month", "Settle up"]
+    assert [t.label for t in at.tabs] == ["This month", "Month by month", "Monthly recap", "Settle up"]
     cards = overview(at)
     assert [label for label, _ in cards] == [
         "Shared total so far", "3-month average (same days)", "Shared expenses so far", "Biggest increase"]
@@ -191,3 +191,27 @@ def test_monthly_targets_show_as_a_dark_tick_on_our_expenses():
     at = run_page(get)
     assert not at.exception
     assert any("Dark tick: the monthly target." in c.value for c in at.caption)
+
+
+def test_installments_when_billed_asks_for_the_billed_basis():
+    queries = []
+    inner = fake_api(lambda month: sample_payload(month))
+
+    def get(url, *args, **kwargs):
+        parsed = urlparse(url)
+        query = parse_qs(parsed.query)
+        if parsed.path.endswith("/analytics/shared") and query.get("months") == ["12"]:  # Month by month's window
+            queries.append(query.get("basis", [None])[0])
+        return inner(url, *args, **kwargs)
+
+    default = run_page(get)
+    assert not default.exception
+    assert queries and set(queries) == {"bought"}
+    assert not any("billed" in c.value for c in default.caption)
+
+    queries.clear()
+    st.cache_data.clear()
+    billed = run_page(get, our_billed=True)
+    assert not billed.exception
+    assert queries and set(queries) == {"billed"}
+    assert any("month they're billed" in c.value for c in billed.caption)

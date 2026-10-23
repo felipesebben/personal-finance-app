@@ -1210,7 +1210,7 @@ def refresh_data():
 
 # Imported here rather than at the top so this section stays self-contained.
 import calendar
-from sqlalchemy import case, extract
+from sqlalchemy import case, extract, true
 
 
 def in_period(fact, month: str, day: date | None):
@@ -1236,10 +1236,42 @@ def shift_month(month: str, delta: int) -> str:
 # partner's — never appear, and an account outside the household gets nothing.
 
 
+BASIS_PATTERN = "^(bought|billed)$"
+
+
+def installment_terms(fact, local_ts, basis: str):
+    """
+    How the monthly analytics count an installment purchase. "bought" (the
+    default): in full, in the month it was bought. "billed": one part per
+    installment, in its billing month (installment k falls k - current
+    months from the purchase), split like the ETL's cashflow: all but the
+    last rounded down to the cent, the last taking the remainder, so the
+    parts add up to the price. The billing day is the purchase's day of
+    the month (for the "same days" columns).
+
+    Returns (extra FROM item or None, month expression, part(amount)).
+    """
+    if basis != "billed":
+        return None, func.to_char(local_ts, "YYYY-MM"), lambda amount: amount
+    total = func.greatest(func.coalesce(fact.total_installments, 1), 1)
+    current = func.coalesce(fact.current_installment, 1)
+    # generate_series(...) AS installment(k); a function in FROM may refer to the tables before it (no LATERAL needed).
+    k = func.generate_series(1, total).table_valued("k", joins_implicitly=True).render_derived(name="installment")
+    month = func.to_char(func.date_trunc("month", local_ts) + func.make_interval(0, k.c.k - current), "YYYY-MM")
+
+    def part(amount):
+        each = func.floor(amount * 100 / total) / 100
+        return case((k.c.k == total, amount - each * (total - 1)), else_=each)
+
+    return k, month, part
+
+
 @app.get("/analytics/shared", response_model=schemas.SharedAnalytics)
 def get_shared_analytics(
     month: str | None = Query(None, pattern=MONTH_PATTERN, description="YYYY-MM, the last month of the window; defaults to the current month"),
     months: int = Query(12, ge=1, le=24, description="How many months the window covers, ending at `month`"),
+    basis: str = Query("bought", pattern=BASIS_PATTERN,
+                       description="Count an installment purchase when bought (in full) or when billed (per installment)"),
     db: Session = Depends(get_db),
     current_user: models.DimUser = Depends(get_current_user),
 ):
@@ -1265,25 +1297,32 @@ def get_shared_analytics(
     category = models.DimCategory
 
     local_ts = func.timezone("America/Sao_Paulo", fact.transaction_timestamp)
-    local_month = func.to_char(local_ts, "YYYY-MM")
+    installments, local_month, part = installment_terms(fact, local_ts, basis)
     in_first_days = extract("day", local_ts) <= as_of_day
+    price, my_share = part(fact.price), part(func.coalesce(mine.share_amount, 0))
 
-    rows = (
+    query = (
         db.query(
             local_month.label("month"),
             func.coalesce(category.primary_category, "Uncategorised").label("primary_category"),
             func.coalesce(category.sub_category, "Uncategorised").label("sub_category"),
             func.coalesce(category.cost_type, "Unknown").label("cost_type"),
             func.coalesce(fact.nature, "Normal").label("nature"),
-            func.sum(fact.price).label("household"),
-            func.sum(func.coalesce(mine.share_amount, 0)).label("mine"),
-            func.count(fact.expenditure_id).label("count"),
-            func.sum(case((in_first_days, fact.price), else_=0)).label("household_to_day"),
-            func.sum(case((in_first_days, func.coalesce(mine.share_amount, 0)), else_=0)).label("mine_to_day"),
+            func.sum(price).label("household"),
+            func.sum(my_share).label("mine"),
+            func.count(func.distinct(fact.expenditure_id)).label("count"),
+            func.sum(case((in_first_days, price), else_=0)).label("household_to_day"),
+            func.sum(case((in_first_days, my_share), else_=0)).label("mine_to_day"),
         )
+        .select_from(fact)
         # One split row per (expense, user), so this join never duplicates a price.
         .outerjoin(mine, (mine.expenditure_id == fact.expenditure_id) & (mine.user_id == current_user.user_id))
         .outerjoin(category, category.category_id == fact.category_id)
+    )
+    if installments is not None:
+        query = query.join(installments, true())
+    rows = (
+        query
         .filter(
             fact.has_other_share, local_month.in_(window),
             or_(mine.user_id.isnot(None), fact.user_id == current_user.user_id),
@@ -1404,6 +1443,8 @@ def personal_to(user: models.DimUser):
 def get_personal_analytics(
     month: str | None = Query(None, pattern=MONTH_PATTERN, description="YYYY-MM, the last month of the window; defaults to the current month"),
     months: int = Query(12, ge=1, le=24, description="How many months the window covers, ending at `month`"),
+    basis: str = Query("bought", pattern=BASIS_PATTERN,
+                       description="Count an installment purchase when bought (in full) or when billed (per installment)"),
     db: Session = Depends(get_db),
     current_user: models.DimUser = Depends(get_current_user),
 ):
@@ -1419,21 +1460,28 @@ def get_personal_analytics(
     fact = models.FactExpenditure
     category = models.DimCategory
     local_ts = func.timezone("America/Sao_Paulo", fact.transaction_timestamp)
-    local_month = func.to_char(local_ts, "YYYY-MM")
+    installments, local_month, part = installment_terms(fact, local_ts, basis)
     in_first_days = extract("day", local_ts) <= as_of_day
+    price = part(fact.price)
 
-    rows = (
+    query = (
         db.query(
             local_month.label("month"),
             func.coalesce(category.primary_category, "Uncategorised").label("primary_category"),
             func.coalesce(category.sub_category, "Uncategorised").label("sub_category"),
             func.coalesce(category.cost_type, "Unknown").label("cost_type"),
             func.coalesce(fact.nature, "Normal").label("nature"),
-            func.sum(fact.price).label("amount"),
-            func.count(fact.expenditure_id).label("count"),
-            func.sum(case((in_first_days, fact.price), else_=0)).label("amount_to_day"),
+            func.sum(price).label("amount"),
+            func.count(func.distinct(fact.expenditure_id)).label("count"),
+            func.sum(case((in_first_days, price), else_=0)).label("amount_to_day"),
         )
+        .select_from(fact)
         .outerjoin(category, category.category_id == fact.category_id)
+    )
+    if installments is not None:
+        query = query.join(installments, true())
+    rows = (
+        query
         .filter(personal_to(current_user), local_month.in_(window))
         .group_by("month", "primary_category", "sub_category", "cost_type", "nature")
         .order_by("month", "primary_category", "sub_category", "nature")
