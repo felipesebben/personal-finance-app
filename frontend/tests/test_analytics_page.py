@@ -191,3 +191,27 @@ def test_monthly_targets_show_as_a_dark_tick_on_our_expenses():
     at = run_page(get)
     assert not at.exception
     assert any("Dark tick: the monthly target." in c.value for c in at.caption)
+
+
+def test_installments_when_billed_asks_for_the_billed_basis():
+    queries = []
+    inner = fake_api(lambda month: sample_payload(month))
+
+    def get(url, *args, **kwargs):
+        parsed = urlparse(url)
+        query = parse_qs(parsed.query)
+        if parsed.path.endswith("/analytics/shared") and query.get("months") == ["12"]:  # Month by month's window
+            queries.append(query.get("basis", [None])[0])
+        return inner(url, *args, **kwargs)
+
+    default = run_page(get)
+    assert not default.exception
+    assert queries and set(queries) == {"bought"}
+    assert not any("billed" in c.value for c in default.caption)
+
+    queries.clear()
+    st.cache_data.clear()
+    billed = run_page(get, our_billed=True)
+    assert not billed.exception
+    assert queries and set(queries) == {"billed"}
+    assert any("month they're billed" in c.value for c in billed.caption)
