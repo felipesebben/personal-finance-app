@@ -30,17 +30,32 @@ TRACK = "#e9ece8"  # the empty part of a progress bar
 MORE, LESS = "#b5470f", "#1f5fa8"  # spent more (orange) / less (blue), as ui.MORE / ui.LESS
 
 
+# Each comparison's line: this month brand green; the others greys told
+# apart by their dash (the legend names them); the target in ink, dotted.
+ROLE_STYLE = {
+    "this": (ACCENT, [1, 0], 3),
+    "last": (LAST_MONTH, [1, 0], 2),
+    "usual": (USUAL_LINE, [6, 4], 2),
+    "year": (USUAL_LINE, [2, 3], 2),
+    "last_year": ("#8f9892", [9, 3, 2, 3], 2),
+    "target": (INK, [1, 3], 1.5),
+}
+
+
 def running_total_chart(frame: pd.DataFrame, order: list[str], days: int,
-                        today: int | None, key: str) -> alt.LayerChart:
+                        today: int | None, key: str, roles: list[str] | None = None) -> alt.LayerChart:
     """
     Cumulative spending through the month: this month (brand green, ends
-    today, labelled), last month in full (grey) and the usual month (grey,
-    dashed). Hovering anywhere shows all three at that day.
+    today, labelled) against each comparison in `order`, styled by its role
+    (ROLE_STYLE; by default this month, last month, usual month).
+    Hovering anywhere shows them all at that day.
     """
-    present = [s for s in order if s in set(frame["series"])]
-    colours = dict(zip(order, [ACCENT, LAST_MONTH, USUAL_LINE]))
-    dashes = dict(zip(order, [[1, 0], [1, 0], [6, 4]]))
-    widths = dict(zip(order, [3, 2, 2]))
+    roles = roles or ["this", "last", "usual"][:len(order)]
+    present = [x for x in order if x in set(frame["series"])]
+    by_name = dict(zip(order, roles))
+    colours = {x: ROLE_STYLE[by_name[x]][0] for x in present}
+    dashes = {x: ROLE_STYLE[by_name[x]][1] for x in present}
+    widths = {x: ROLE_STYLE[by_name[x]][2] for x in present}
 
     x = alt.X("day:Q", scale=alt.Scale(domain=[1, days], nice=False),
               axis=alt.Axis(values=[1, 5, 10, 15, 20, 25, days], format="d", grid=False,
@@ -92,7 +107,7 @@ def running_total_chart(frame: pd.DataFrame, order: list[str], days: int,
 
 
 def calendar_chart(cal: pd.DataFrame, max_amount: float, title: str | None = None,
-                   row_height: int = 42) -> alt.LayerChart:
+                   row_height: int = 42, compact: bool = False) -> alt.LayerChart:
     """
     A month as a calendar (weeks down, Monday first across), each day
     shaded by what was spent: lighter = less, brand green = `max_amount`
@@ -108,12 +123,15 @@ def calendar_chart(cal: pd.DataFrame, max_amount: float, title: str | None = Non
     top = max(max_amount, 1.0)
     x = alt.X("weekday_name:O", sort=WEEKDAYS, title=None,
               scale=alt.Scale(paddingInner=0.08),
-              axis=alt.Axis(orient="top", labelAngle=0, ticks=False, domain=False, labelColor=MUTED, labelPadding=6))
+              axis=alt.Axis(orient="top", labelAngle=0, ticks=False, domain=False, labelColor=MUTED,
+                            labelPadding=4 if compact else 6, labelFontSize=9 if compact else 11,
+                            # compact: the weekday's first letter, like a pocket calendar
+                            labelExpr="substring(datum.label, 0, 1)" if compact else "datum.label"))
     y = alt.Y("week:O", title=None, axis=None, scale=alt.Scale(paddingInner=0.08))
     tooltip = [alt.Tooltip("label:N", title="Day"), alt.Tooltip("amount_brl:N", title="Spent"),
                alt.Tooltip("count:Q", title="Expenses"), alt.Tooltip("top_category:N", title="Biggest category")]
     base = alt.Chart(cal)
-    cell = dict(cornerRadius=5)
+    cell = dict(cornerRadius=3 if compact else 5)
 
     background = base.mark_rect(**cell).encode(
         x=x, y=y,
@@ -131,7 +149,7 @@ def calendar_chart(cal: pd.DataFrame, max_amount: float, title: str | None = Non
     # White on the darker greens, faint on days still to come, ink otherwise.
     ink = (f"datum.amount > {top * 0.55} ? 'white' : "
            f"(datum.state === 'future' ? '#b4bbb5' : '{INK}')")
-    numbers = base.transform_calculate(ink=ink).mark_text(fontSize=12).encode(
+    numbers = base.transform_calculate(ink=ink).mark_text(fontSize=9 if compact else 12).encode(
         x=x, y=y, text="day:Q", fill=alt.Fill("ink:N", scale=None), tooltip=tooltip,
     )
     weeks = int(cal["week"].max()) + 1
@@ -281,3 +299,40 @@ def changes_chart(changes: pd.DataFrame) -> alt.LayerChart:
         align="right", dx=-4, fontSize=11, color=INK).encode(x=x, y=y, text="label:N")
     zero = alt.Chart(pd.DataFrame({"z": [0]})).mark_rule(color=MUTED).encode(x="z:Q")
     return finish(alt.layer(bars, zero, more, less), BAR_ROW * max(len(order), 1) + X_AXIS)
+
+
+
+def months_chart(frame: pd.DataFrame, references: list[tuple[str, float]]) -> alt.LayerChart:
+    """
+    "Where are we heading?": each month's total as a line (daily_shaping.
+    months_frame), the selected month a brand-green dot (hollow while it's
+    still going: shown so far, never projected), and each reference (the
+    12-month average, the target) a quiet horizontal line named at its end.
+    """
+    order = list(frame["label"])
+    x = alt.X("label:N", sort=order, axis=alt.Axis(labelAngle=0, ticks=False, **x_title("Month")))
+    y = alt.Y("amount:Q", axis=alt.Axis(labelExpr=BRL_AXIS_EXPR, tickCount=4, domain=False, ticks=False,
+                                        **y_title("Spent in the month")),
+              scale=alt.Scale(zero=True))
+    tooltip = [alt.Tooltip("label:N", title="Month"), alt.Tooltip("amount_brl:N", title="Spent")]
+    data = frame.assign(text=frame["amount"].map(short_brl))
+    base = alt.Chart(data)
+    layers = [
+        base.mark_line(color=LAST_MONTH, strokeWidth=2).encode(x=x, y=y),
+        base.mark_point(filled=True, size=50, color=LAST_MONTH, stroke="white", strokeWidth=1.5).encode(
+            x=x, y=y, tooltip=tooltip),
+        base.transform_filter("datum.is_selected").mark_point(size=110, strokeWidth=2.5, color=ACCENT).encode(
+            x=x, y=y, tooltip=tooltip,
+            fill=alt.condition("datum.is_partial", alt.value("white"), alt.value(ACCENT))),
+        base.transform_filter("datum.is_selected").mark_text(dy=-14, fontSize=11, fontWeight="bold",
+                                                             color=INK).encode(x=x, y=y, text="text:N"),
+    ]
+    for name, value in references:
+        ref = alt.Chart(pd.DataFrame({"value": [value], "name": [f"{name} {short_brl(value)}"]}))
+        dash = [1, 3] if name == "Target" else [6, 4]
+        colour = INK if name == "Target" else MUTED
+        layers.insert(0, ref.mark_rule(color=colour, strokeDash=dash, strokeWidth=1.2).encode(
+            y=alt.Y("value:Q"), tooltip=[alt.Tooltip("name:N", title=" ")]))
+        layers.append(ref.mark_text(align="right", baseline="bottom", dy=-3, fontSize=11, color=MUTED).encode(
+            y=alt.Y("value:Q"), x=alt.value("width"), text="name:N"))
+    return finish(alt.layer(*layers), 300)
