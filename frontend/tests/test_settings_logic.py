@@ -167,3 +167,27 @@ def test_targets_payload_reads_brazilian_amounts_and_blocks_bad_ones():
     assert ok == [{"primary_category": "Food", "amount": "3000.00"}] and problems == []
     _, problems = logic.targets_payload(pd.DataFrame({"Category": ["Food", "Pets"], "Target": ["abc", "0"]}))
     assert [p.split(":")[0] for p in problems] == ["Food", "Pets"]  # both blocked, each named
+
+
+def test_suggested_targets_average_the_last_full_months_rounded_up():
+    from conftest import sample_payload
+    history = sample_payload("2026-09", is_partial=False, as_of_day=30)  # Jun–Sep 2026
+    suggested, months = logic.suggest_targets(history)
+    assert months == ["2026-07", "2026-08", "2026-09"]
+    # Food: (600 + 900 + 370) / 3 = 623,33 -> R$ 650; Housing R$ 2.000 a month.
+    assert suggested["Food"] == 650.0 and suggested["Housing"] == 2000.0
+    # Logging began on 26 August: August doesn't count, only September does.
+    late, months = logic.suggest_targets({**history, "first_date": "2026-08-26"})
+    assert months == ["2026-09"] and late["Food"] == 400.0
+    assert logic.suggest_targets(None) == ({}, [])
+
+
+def test_blank_targets_fill_with_suggestions_only_when_asked():
+    categories = [{"primary_category": "Food"}, {"primary_category": "Pets"}]
+    targets = [{"primary_category": "Pets", "amount": "800.00"}]
+    rows = logic.target_rows(categories, targets, {"Food": 650.0, "Pets": 900.0})
+    assert list(rows["Target"]) == ["", "800,00"] and list(rows["Suggested"]) == ["R$ 650,00", "R$ 900,00"]
+    filled = logic.target_rows(categories, targets, {"Food": 650.0, "Pets": 900.0}, fill_blanks=True)
+    assert list(filled["Target"]) == ["650,00", "800,00"]  # a set target is never overwritten
+    assert logic.targets_payload(filled)[0] == [{"primary_category": "Food", "amount": "650.00"},
+                                               {"primary_category": "Pets", "amount": "800.00"}]
