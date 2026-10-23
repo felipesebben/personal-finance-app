@@ -55,9 +55,17 @@ _CSS = f"""
                         font-variant-numeric: proportional-nums; }}
 .hf-kpi.hf-hero .hf-kpi-value {{ font-size: 2.5rem; line-height: 1.1; margin: 0.15rem 0 0.3rem; }}
 .hf-kpi .hf-kpi-line {{ font-size: 0.82rem; color: {INK_2}; }}
+.hf-kpi.hf-lines .hf-kpi-line {{ font-size: 0.95rem; color: {INK}; margin: 0.15rem 0; }}
+/* Keep the ▲/▼ tones over the plain ink above. */
+.hf-kpi.hf-lines .hf-kpi-line.hf-more {{ color: {MORE}; }}
+.hf-kpi.hf-lines .hf-kpi-line.hf-less {{ color: {LESS}; }}
 .hf-kpi.hf-hero .hf-kpi-line {{ font-size: 0.9rem; }}
 .hf-kpi .hf-more {{ color: {MORE}; font-weight: 600; }}
 .hf-kpi .hf-less {{ color: {LESS}; font-weight: 600; }}
+.hf-notices {{ background: #fdf6ee; border-left: 4px solid {MORE}; border-radius: 0.5rem;
+               padding: 0.55rem 0.9rem; margin: 0.1rem 0 0.4rem; }}
+.hf-notice {{ color: {INK}; font-size: 0.92rem; line-height: 1.45; }}
+.hf-notice.hf-more {{ color: {MORE}; font-weight: 600; }}
 .hf-empty {{ display: grid; place-items: center; text-align: center; border: 1px dashed {LINE}; border-radius: 0.5rem;
             color: {INK_2}; font-size: 0.8rem; padding: 0 0.75rem; box-sizing: border-box; }}
 </style>
@@ -121,6 +129,25 @@ def kpi(label: str, value: str, lines=(), hero: bool = False, help: str = "") ->
     body = "".join(f'<div class="hf-kpi-line {tones.get(tone, "")}">{escape(text)}</div>' for text, tone in lines)
     st.html(f'<div class="hf-kpi{" hf-hero" if hero else ""}"><div class="hf-kpi-value">{escape(value)}</div>'
             f"{body}</div>")
+
+
+def kpi_lines(lines) -> None:
+    """(text, tone) lines like a KPI's, on their own: ▲ orange for more, ▼ blue for less, ink otherwise."""
+    tones = {"more": "hf-more", "less": "hf-less"}
+    body = "".join(f'<div class="hf-kpi-line {tones.get(tone, "")}">{escape(text)}</div>' for text, tone in lines)
+    st.html(f'<div class="hf-kpi hf-lines">{body}</div>')
+
+
+def notices(lines) -> None:
+    """
+    In-app notices, a slim strip: (text, tone) lines, ▲-orange for "more"
+    (e.g. past a target), ink otherwise. Nothing drawn without lines.
+    """
+    if not lines:
+        return
+    tones = {"more": "hf-more"}
+    body = "".join(f'<div class="hf-notice {tones.get(tone, "")}">{escape(text)}</div>' for text, tone in lines)
+    st.html(f'<div class="hf-notices">{body}</div>')
 
 
 def empty_chart(text: str, height: int) -> None:

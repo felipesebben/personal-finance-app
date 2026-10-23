@@ -19,7 +19,7 @@ from entries import local
 from joint_shaping import ordinal
 from money import format_brl
 
-COLUMNS = ["name", "amount", "amount_brl", "share", "text", "primary_category", "cost_type", "nature"]
+COLUMNS = ["name", "amount", "amount_brl", "share", "text", "primary_category", "cost_type", "nature", "day"]
 LOOKBACK = 3  # months searched for a recurring bill
 
 
@@ -77,7 +77,7 @@ def recurring_due(expenses: list[dict] | None, month: str, today: datetime.date,
         category = e.get("category") or {}
         rows.append({"name": name, "amount": value, "text": f"{shape.short_brl(value)} · usually the {ordinal(when.day)}",
                      "primary_category": category.get("primary_category", "—"),
-                     "cost_type": category.get("cost_type", "Unknown"), "nature": "Recurring"})
+                     "cost_type": category.get("cost_type", "Unknown"), "nature": "Recurring", "day": when.day})
     return _frame(rows)
 
 
@@ -110,5 +110,6 @@ def installments_due(expenses: list[dict] | None, month: str, view: str, lens: s
         rows.append({"name": f"{_what(e)} · {when:%d/%m}", "amount": value,
                      "text": f"{shape.short_brl(value)} · {number} of {total}",
                      "primary_category": category.get("primary_category", "—"),
-                     "cost_type": category.get("cost_type", "Unknown"), "nature": e.get("nature") or "Normal"})
+                     "cost_type": category.get("cost_type", "Unknown"), "nature": e.get("nature") or "Normal",
+                     "day": when.day})
     return _frame(rows)

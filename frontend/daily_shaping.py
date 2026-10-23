@@ -389,9 +389,10 @@ def cards(p: dict) -> list[dict]:
 def category_changes(rows: pd.DataFrame, data: dict, lens: str, against: str = "last",
                      level: str = "primary_category", since: str | None = None) -> pd.DataFrame:
     """
-    This month so far against last month (`against="last"`) or the usual
-    month (`"usual"`) by the same day, per category (or "Primary ›
-    sub" with level="sub_category"): name, now, then, change and their
+    This month so far against a named comparison by the same day
+    (`against`: "last", "usual", "year" or "last_year"; see BASELINES), per
+    category (or "Primary › sub" with level="sub_category", or "Day-to-day"
+    / "Fixed" with level="cost_type"): name, now, then, change and their
     text, biggest move first. Rows that are zero on both sides are dropped.
     """
     columns = ["name", "now", "then", "change", "now_brl", "then_brl", "change_brl", "direction"]
@@ -399,15 +400,19 @@ def category_changes(rows: pd.DataFrame, data: dict, lens: str, against: str = "
         return pd.DataFrame(columns=columns)
     month, day = data["month"], data["as_of_day"]
     col = shape.lens_column(lens)
-    names = rows["primary_category"] if level == "primary_category" else (
-        rows["primary_category"] + " › " + rows["sub_category"])
+    if level == "cost_type":
+        names = rows["cost_type"].map({"Variable": "Day-to-day", "Fixed": "Fixed"}).fillna(rows["cost_type"])
+    elif level == "primary_category":
+        names = rows["primary_category"]
+    else:
+        names = rows["primary_category"] + " › " + rows["sub_category"]
     frame = rows.assign(name=names)
-    if against == "usual":
-        months = usual_months(by_day(rows), data, since=since)
+    if against == "last":
+        months = [shape.shift_month(month, -1)]  # last month in full, partly logged or not
+    else:
+        months = baseline_months(by_day(rows), data, against, since)
         if not months:
             return pd.DataFrame(columns=columns)
-    else:
-        months = [shape.shift_month(month, -1)]
 
     def to_day(m):
         cut = min(day, days_in(m))
@@ -673,3 +678,144 @@ def day_items(items: list[dict], lens: str, tz) -> pd.DataFrame:
     paid = [f"{m} · {i}" if i else (m or "") for m, i in zip(frame.get("payment_method", ""), frame.get("institution", ""))]
     frame["detail"] = [f"{p}, paid by {who}" if who else p for p, who in zip(paid, frame.get("paid_by", ""))]
     return frame[columns]
+
+
+# --- the named comparisons --------------------------------------------------------
+# One vocabulary across the app, each comparison named by the question it
+# answers. A comparison shows only when its months were all logged in full.
+
+BASELINES = {
+    "last": ("Last month", "what changed?"),
+    "usual": ("Usual month", "is this normal?"),
+    "year": ("12-month average", "where is the trend going?"),
+    "last_year": ("Same month last year", "is it the season?"),
+    "target": ("Target", "are we on plan?"),
+}
+
+
+def baseline_months(df: pd.DataFrame, data: dict, key: str, since: str | None = None) -> list[str]:
+    """
+    The months a comparison averages over ("last": the month before;
+    "usual": the three before; "year": the twelve before; "last_year": the
+    same month a year earlier), or [] when the window or the tracking
+    (`since`, else the data's first month) doesn't reach back that far.
+    """
+    month = data["month"]
+    since = since or (None if df.empty else df["month"].min())
+    wanted = {"last": [1], "usual": [1, 2, 3], "year": list(range(1, 13)), "last_year": [12]}.get(key)
+    if not wanted:
+        return []
+    months = [shape.shift_month(month, -k) for k in wanted]
+    if since is None or any(m not in data["months"] for m in months) or min(months) < since:
+        return []
+    return months
+
+
+def average_cumulative(df: pd.DataFrame, data: dict, lens: str, months: list[str]) -> pd.Series:
+    """The average running total of `months`, by day 1..n of the selected month (a shorter month carries on)."""
+    n = days_in(data["month"])
+    curves = [daily_amounts(df, m, lens).cumsum().reindex(pd.RangeIndex(1, n + 1, name="day")).ffill().fillna(0.0)
+              for m in months]
+    return sum(curves) / len(curves)
+
+
+def target_total(targets: dict[str, float], rows: pd.DataFrame, narrowed: bool) -> float:
+    """
+    The monthly target for what's being counted: every category's target,
+    or, when the filters narrow what's counted, only the targets of the
+    categories left (those with rows).
+    """
+    if not targets:
+        return 0.0
+    kept = set(rows["primary_category"]) if narrowed and not rows.empty else None
+    return round(sum(v for c, v in targets.items() if kept is None or c in kept), 2)
+
+
+def track_frame(df: pd.DataFrame, data: dict, lens: str, since: str | None = None,
+                started: datetime.date | None = None, target: float = 0.0):
+    """
+    "Are we on track this month?": this month's running total by day, and
+    every comparison that has the data: last month (also a partly logged
+    one, named "September (from the 26th)", for context), the usual month,
+    the 12-month average, the same month last year, and the target as a
+    straight pace from 0 to the whole month's target. Returns the long frame
+    (day, series, amount, amount_brl), the series in order, and each one's
+    role ("this", "last", "usual", "year", "last_year", "target").
+    """
+    month, day = data["month"], data["as_of_day"]
+    previous = shape.shift_month(month, -1)
+    n = days_in(month)
+    partly = partly_logged_from(previous, since, started)
+    this_name = f"{month_name(month)}{' so far' if data['is_partial'] else ''}"
+    series = [(this_name, "this", daily_amounts(df, month, lens).cumsum().loc[:day])]
+    if baseline_months(df, data, "last", since) or partly:
+        name = month_name(previous) + (f" (from the {ordinal(partly)})" if partly else "")
+        series.append((name, "last", daily_amounts(df, previous, lens).cumsum()))
+    for key in ("usual", "year", "last_year"):
+        months = baseline_months(df, data, key, since)
+        if months:
+            series.append((BASELINES[key][0], key, average_cumulative(df, data, lens, months)))
+    if target > 0:
+        days = pd.RangeIndex(1, n + 1, name="day")
+        series.append((BASELINES["target"][0], "target", pd.Series([target * d / n for d in days], index=days)))
+    rows = [(d, name, float(v)) for name, _, curve in series for d, v in curve.items()]
+    out = pd.DataFrame(rows, columns=["day", "series", "amount"])
+    out["amount"] = out["amount"].round(2)
+    out["amount_brl"] = out["amount"].map(format_brl)
+    return out, [x[0] for x in series], [x[1] for x in series]
+
+
+def months_frame(df: pd.DataFrame, data: dict, lens: str, since: str | None = None) -> pd.DataFrame:
+    """
+    "Where are we heading?": each month's total from the first one logged
+    in full to the selected one (so far, if it's still going): month,
+    label ("Oct 26"), amount, amount_brl, is_selected, is_partial.
+    """
+    since = since or (None if df.empty else df["month"].min())
+    months = [m for m in data["months"] if since is not None and m >= since]
+    col = shape.lens_column(lens)
+    totals = df.groupby("month")[col].sum() if not df.empty else pd.Series(dtype=float)
+    out = pd.DataFrame({"month": months})
+    out["label"] = [shape.month_label(m, short=True) for m in months]
+    out["amount"] = [round(float(totals.get(m, 0.0)), 2) for m in months]
+    out["amount_brl"] = out["amount"].map(format_brl)
+    out["is_selected"] = out["month"] == data["month"]
+    out["is_partial"] = out["is_selected"] & bool(data["is_partial"])
+    return out
+
+
+def month_references(df: pd.DataFrame, data: dict, lens: str, since: str | None = None,
+                     target: float = 0.0) -> list[tuple[str, float]]:
+    """The months chart's reference lines: the 12-month average and the target, when there's one."""
+    refs = []
+    months = baseline_months(df, data, "year", since)
+    if months:
+        col = shape.lens_column(lens)
+        totals = df.groupby("month")[col].sum()
+        refs.append((BASELINES["year"][0], round(float(sum(totals.get(m, 0.0) for m in months)) / 12, 2)))
+    if target > 0:
+        refs.append((BASELINES["target"][0], round(target, 2)))
+    return refs
+
+
+def comparison_options(df: pd.DataFrame, data: dict, since: str | None = None) -> dict[str, str]:
+    """The comparisons "Where does the difference come from?" can use now: {name: key}, in the app's order."""
+    previous = month_name(shape.shift_month(data["month"], -1))
+    out = {}
+    for key in ("last", "usual", "year", "last_year"):
+        if baseline_months(df, data, key, since):
+            out[previous if key == "last" else BASELINES[key][0]] = key
+    return out
+
+
+def cause_lines(rows: pd.DataFrame, data: dict, lens: str, against: str,
+                since: str | None = None) -> list[tuple[str, str | None]]:
+    """The change split by cost type: [("Day-to-day ▲ R$ 2.100,00", "more"), ("Fixed ▼ R$ 240,00", "less")]."""
+    changes = category_changes(rows, data, lens, against=against, level="cost_type", since=since)
+    out = []
+    for name, change in zip(changes["name"], changes["change"]):
+        if round(change, 2) == 0:
+            continue
+        out.append((f"{name} {'▲' if change > 0 else '▼'} {format_brl(abs(change))}",
+                    "more" if change > 0 else "less"))
+    return out

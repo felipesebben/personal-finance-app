@@ -60,7 +60,7 @@ def kpis(at):
     labels = [re.search(r'class="hf-(?:kpi|hero)-label">(.*?)</span>', m.value).group(1)
               for m in at.markdown if "hf-kpi-label" in m.value or "hf-hero-label" in m.value]
     values = [re.search(r'class="hf-kpi-value">(.*?)</div>', str(h.proto.body)).group(1)
-              for h in at.get("html") if str(h.proto.body).startswith("<div class=\"hf-kpi")]
+              for h in at.get("html") if "hf-kpi-value" in str(h.proto.body) and str(h.proto.body).startswith("<div class=\"hf-kpi")]
     return [(html.unescape(label), html.unescape(value)) for label, value in zip(labels, values)]
 
 
@@ -74,7 +74,7 @@ def overview(at):
 def test_renders_with_data():
     at = run_page(fake_api(lambda month: sample_payload(month)))
     assert not at.exception
-    assert [t.label for t in at.tabs] == ["This month", "Month by month", "Settle up"]
+    assert [t.label for t in at.tabs] == ["This month", "Month by month", "Monthly recap", "Settle up"]
     cards = overview(at)
     assert [label for label, _ in cards] == [
         "Shared total so far", "3-month average (same days)", "Shared expenses so far", "Biggest increase"]
