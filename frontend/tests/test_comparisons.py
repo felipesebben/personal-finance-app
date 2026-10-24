@@ -77,10 +77,21 @@ def test_target_total_follows_the_filters():
     assert daily.target_total({}, rows, narrowed=False) == 0.0
 
 
-def test_the_corner_calendar_compiles():
+def test_the_hero_sparkline_keeps_this_month_and_last_and_compiles():
     p = year_of_data()
-    cal = daily.calendar_frame(daily.by_day(daily.rows_frame(p)), "2026-10", "Household", datetime.date(2026, 10, 10))
-    compiles(daily_charts.calendar_chart(cal, 1000.0, row_height=22, compact=True))
+    df = daily.by_day(daily.rows_frame(p))
+    frame, order, roles = daily.track_frame(df, p, "Household", target=3000.0)
+    assert {"this", "last"} <= set(roles) and len(roles) > 2  # the big chart has more than the gist
+    spark = daily_charts.hero_spark(frame, order, roles, 31)
+    compiles(spark)
+    kept = {v for v in spark.to_dict()["layer"][0]["encoding"]["color"]["scale"]["domain"]}
+    assert kept == {name for name, role in zip(order, roles) if role in ("this", "last")}
+
+
+def test_no_sparkline_without_spending():
+    frame = pd.DataFrame({"day": [1, 2], "series": ["October so far"] * 2, "amount": [0.0, 0.0],
+                          "amount_brl": ["R$ 0,00"] * 2})
+    assert daily_charts.hero_spark(frame, ["October so far"], ["this"], 31) is None
 
 
 def test_notices_put_what_is_over_first_then_near_then_late_bills():

@@ -44,7 +44,6 @@ def daily_charts_for(partial: bool):
         daily_charts.spark_bars(hist, "total", "Whole month"),
         daily_charts.spark_progress(0.7, 0.3),
         daily_charts.spark_days(cal),
-        daily_charts.calendar_chart(cal, daily.calendar_scale_max(cal)),
         daily_charts.weekday_chart(daily.weekday_profile(df, p, "Household", today)),
         daily_charts.changes_chart(daily.category_changes(rows, p, "Household")),
         analytics_charts.ranked_bars(mix, picked=mix["name"].iloc[0]),
