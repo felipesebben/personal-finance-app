@@ -295,6 +295,17 @@ def test_both_pets_is_sent_without_a_pet_id(at, api):
     assert "pet_id" not in post.call_args.kwargs["json"]
 
 
+def test_custom_split_fills_in_the_other_share(at, api):
+    at.text_input(key="entry_price_0").input("100").run()
+    at.selectbox(key="entry_payment_0_primary").select("Cash").run()
+    at.checkbox(key="entry_custom_0").check().run()
+    at.number_input(key="entry_share_1_0").set_value(50).run()
+    assert not at.exception
+    assert at.number_input(key="entry_share_2_0").value == 50
+    at.number_input(key="entry_share_2_0").set_value(25).run()
+    assert at.number_input(key="entry_share_1_0").value == 75
+
+
 def test_custom_split_is_sent_as_shares(at, api):
     _, post = api
     at.text_input(key="entry_price_0").input("100").run()
