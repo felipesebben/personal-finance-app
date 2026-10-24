@@ -38,7 +38,7 @@ SCOPES = {
     "personal": (["analytics/personal"], "personal expenses"),
     "all": (["analytics/shared", "analytics/personal"], "expenses"),
 }
-CARD_HEIGHT = 230
+CARD_HEIGHT = 240  # a minimum: a card whose text wraps grows rather than clipping
 
 
 _FAILED = object()
@@ -130,7 +130,7 @@ def _kpis(df, months, selected, is_partial, lens, headline, noun, previous_title
                       "The category that rose most in reais against last month."))
 
     for col, (label, value, lines, chart, help_text) in zip(st.columns(4, gap="small"), cards):
-        with col, ui.card(f"kpi_{label[:12]}", height=CARD_HEIGHT):
+        with col, ui.card(f"kpi_{label[:12]}", height="stretch", min_height=CARD_HEIGHT):
             ui.kpi(label, value, lines, help=help_text)
             if chart is None:
                 ui.empty_chart("Appears once there's history to compare with.", daily_charts.SPARK_HEIGHT)

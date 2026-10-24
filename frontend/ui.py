@@ -32,28 +32,34 @@ _CSS = f"""
 .stApp {{ font-variant-numeric: tabular-nums; }}
 .hf-purpose {{ color: {INK_2}; margin: -0.6rem 0 0.4rem; max-width: 68ch; font-size: 1rem; }}
 .hf-lede {{ display: flex; gap: 0.6rem; align-items: flex-start; background: {BRAND_SOFT};
-           border-radius: 0.5rem; padding: 0.65rem 0.8rem; margin: 0.25rem 0 0.5rem; color: {INK}; }}
+           border-radius: 0.75rem; padding: 0.65rem 0.8rem; margin: 0.25rem 0 0.5rem; color: {INK}; }}
 .hf-lede .hf-i {{ flex: none; width: 1.35rem; height: 1.35rem; border-radius: 50%; background: {BRAND};
                  color: #fff; font-weight: 700; font-size: 0.8rem; display: grid; place-items: center; margin-top: 0.1rem; }}
 .hf-lede b {{ display: block; }}
 .hf-callout {{ display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.75rem;
-              background: {OWED_SOFT}; border-left: 4px solid {BRAND}; border-radius: 0.5rem; padding: 0.9rem 1rem; color: {INK}; }}
+              background: {OWED_SOFT}; border-left: 4px solid {BRAND}; border-radius: 0.75rem; padding: 0.9rem 1rem; color: {INK}; }}
 .hf-callout .hf-label {{ font-size: 1.15rem; font-weight: 700; }}
 .hf-callout .hf-detail {{ color: {INK_2}; font-size: 0.85rem; }}
 .hf-callout .hf-amount {{ font-size: 1.6rem; font-weight: 700; white-space: nowrap; }}
 /* Cards: st.container(key="hf-card-…") gets the class st-key-hf-card-… (documented
-   Streamlit behaviour), so this styles only our own containers. A soft shadow on top of
-   the border makes each card read as one region: one question, one answer. */
-[class*="st-key-hf-card"] {{ border-radius: 0.75rem; box-shadow: 0 1px 2px rgba(23, 32, 28, 0.06),
-                             0 2px 8px rgba(23, 32, 28, 0.05); background: #ffffff; }}
+   Streamlit behaviour), so this styles only our own containers. No border: white on the
+   grey page with a soft, layered shadow makes each card one region (one question, one
+   answer), and more room inside lets it breathe. */
+[class*="st-key-hf-card"] {{ border: none !important; border-radius: 1rem; background: #ffffff;
+                             padding: 1.25rem 1.4rem;
+                             box-shadow: 0 1px 2px rgba(23, 32, 28, 0.05), 0 4px 16px rgba(23, 32, 28, 0.06); }}
+[class*="st-key-hf-card"] h3 {{ letter-spacing: -0.01em; padding-top: 0; }}
 .hf-kpi {{ color: {INK}; line-height: 1.3; margin-bottom: 0.9rem; }}
 .hf-kpi.hf-hero {{ margin-bottom: 1.25rem; }}
-.hf-kpi-label {{ color: {INK_2}; font-size: 0.875rem; }}
+/* Labels small and spaced in capitals, so the number under them leads. */
+.hf-kpi-label {{ color: {INK_2}; font-size: 0.72rem; font-weight: 600; text-transform: uppercase;
+                letter-spacing: 0.06em; }}
 .hf-hero-label {{ color: {INK}; font-size: 1rem; font-weight: 600; }}
 /* Big standalone numbers read better with proportional figures. */
 .hf-kpi .hf-kpi-value {{ font-size: 1.75rem; font-weight: 700; white-space: nowrap; margin: 0.15rem 0 0.25rem;
                         font-variant-numeric: proportional-nums; }}
-.hf-kpi.hf-hero .hf-kpi-value {{ font-size: 2.5rem; line-height: 1.1; margin: 0.15rem 0 0.3rem; }}
+.hf-kpi.hf-hero .hf-kpi-value {{ font-size: 2.75rem; line-height: 1.1; letter-spacing: -0.02em;
+                                  margin: 0.2rem 0 0.35rem; }}
 .hf-kpi .hf-kpi-line {{ font-size: 0.82rem; color: {INK_2}; }}
 .hf-kpi.hf-lines .hf-kpi-line {{ font-size: 0.95rem; color: {INK}; margin: 0.15rem 0; }}
 /* Keep the ▲/▼ tones over the plain ink above. */
@@ -62,7 +68,7 @@ _CSS = f"""
 .hf-kpi.hf-hero .hf-kpi-line {{ font-size: 0.9rem; }}
 .hf-kpi .hf-more {{ color: {MORE}; font-weight: 600; }}
 .hf-kpi .hf-less {{ color: {LESS}; font-weight: 600; }}
-.hf-notices {{ background: #fdf6ee; border-left: 4px solid {MORE}; border-radius: 0.5rem;
+.hf-notices {{ background: #fdf6ee; border-left: 4px solid {MORE}; border-radius: 0.75rem;
                padding: 0.55rem 0.9rem; margin: 0.1rem 0 0.4rem; }}
 .hf-notice {{ color: {INK}; font-size: 0.92rem; line-height: 1.45; }}
 .hf-notice.hf-more {{ color: {MORE}; font-weight: 600; }}
@@ -114,13 +120,14 @@ def card(key: str, height: int | str = "content", min_height: int | None = None)
     """
     A bordered card for one question: a KPI, or a chart with its title and
     caption. Use as `with ui.card("running"):`. `key` must be unique on the
-    page. To line up a row of cards, `min_height` (pixels) makes each at
-    least that tall but lets one grow when its text wraps on a phone;
-    `height` fixes it, and clips what doesn't fit.
+    page. To line up a row of cards, give each `height="stretch"` (as tall
+    as the tallest in its row, Streamlit's own option) and a `min_height`
+    (pixels) for the usual content; a card whose text wraps then grows and
+    the row grows with it. An int `height` fixes it, and clips what doesn't fit.
     """
     if min_height:
         st.html(f"<style>.st-key-hf-card-{escape(key)} {{ min-height: {int(min_height)}px; }}</style>")
-    return st.container(border=True, key=f"hf-card-{key}", height=height, gap=None if height != "content" else "small")
+    return st.container(border=True, key=f"hf-card-{key}", height=height, gap=None if isinstance(height, int) else "small")
 
 
 def kpi(label: str, value: str, lines=(), hero: bool = False, help: str = "") -> None:
