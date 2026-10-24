@@ -1,6 +1,6 @@
 ---
 name: dashboard-assessment
-description: Assess Home Finances' analysis views as a data product — value, users, moments of use, devices, scope, data quality and business rules — by interviewing Felipe with the questions that matter for a two-person household app, then turning the answers into concrete changes. Use when planning a new view or a redesign, when asked whether the app's dashboards meet their purpose, or when Felipe asks to be interviewed about the product.
+description: Assess Home Finances' analysis views as a data product — value, users, moments of use, devices, scope, data quality and business rules — by interviewing Felipe with the questions that matter for a two-person household app, then turning the answers into concrete changes. Use when planning a new view or a redesign, when asked whether the app's dashboards meet their purpose, or when Felipe asks to be interviewed about the product. Also use whenever Felipe criticises a view or asks for a change: the interview never closes, and his input is a cue for a follow-up question tied to what he has already answered.
 ---
 
 # Dashboard assessment
@@ -46,3 +46,17 @@ Ask the non-obvious version: the guide's plain wording ("what is the purpose?") 
 3. After each answer, play back what you heard in a line or two, then pick the next question from that answer. A follow-up on something surprising beats the next item on the list.
 4. End with the report, in plain text with no tables (Felipe's terminal garbles them): each finding with the answer behind it, what it changes (a view to add, cut or reshape, a rule to change, a caveat to show), and a suggested order. Don't implement anything unasked.
 5. Save the durable answers (personas, moments of use, rules) as project memories, so later work doesn't ask again.
+
+## The interview never closes
+
+The formal interview is only the first pass. Every later input from Felipe is more interview material, and a cue to ask:
+
+- **A criticism** ("this chart repeats the number", "too many clicks on the phone"). Connect it to what he already answered, then ask the question that answer leaves open. For example: "You said you check the phone for a quick scan. Is this chart failing that scan, or is it a laptop chart showing up on the phone?" A criticism usually means an earlier answer was incomplete, or the view drifted from it.
+- **A request for a change** ("add X", "move Y"). Before building, place it against the earlier answers: which question does it serve, which persona and which moment of use? Does it fit the scope he set, or quietly widen it? If it contradicts an earlier answer, say so and ask which one holds now. The latest answer may well win, but say it aloud.
+- **A reaction to something shipped** ("Lívia didn't find it", "I never open that tab"). Treat it as an answer to questions 2, 5 and 6, and ask what that implies for the view.
+
+How to do it:
+
+1. Read the saved interview answers first (the product-interview memory and any later ones), so the follow-up builds on them instead of asking again.
+2. Ask **one** short question, quoting the earlier answer it connects to. Don't run a new full interview, and don't hold up a small, clear change for one: a question is worth asking when the answer would change what gets built.
+3. When the answer refines or overturns an earlier one, update the memory. Keep the date, and what changed and why, so the history of his thinking stays readable.
