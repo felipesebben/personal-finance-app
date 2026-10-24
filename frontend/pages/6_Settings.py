@@ -8,6 +8,7 @@ from analytics_shaping import month_label, shift_month
 from common import SAO_PAULO, end_session, get_data as common_get, require_login
 from config import API_BASE_URL
 import settings_logic as logic
+from shares import fill_rest_in_state
 import ui
 
 ui.setup("Settings")
@@ -148,15 +149,19 @@ ui.lede(
 current = {s["user_id"]: float(s["share_pct"]) * 100 for s in household}
 people = sorted(users, key=lambda u: (u["email"].lower() != me, u["full_name"] or ""))
 shares = {}
+share_keys = {person["user_id"]: f"share_{person['user_id']}_{nonce}" for person in people}
 for person in people:
     name, email = person["full_name"] or person["email"], person["email"]
     you = " (you)" if email.lower() == me else ""
     c_name, c_share = st.columns([3, 1])
     c_name.markdown(f"**{name}**{you}  \n{email}")
+    key = share_keys[person["user_id"]]
+    # Seeded here, not passed as value=: the other person's input fills this one in.
+    st.session_state.setdefault(key, current.get(person["user_id"], 0.0))
     shares[person["user_id"]] = c_share.number_input(
-        "Share (%)", min_value=0.0, max_value=100.0, step=1.0,
-        value=current.get(person["user_id"], 0.0),
-        key=f"share_{person['user_id']}_{nonce}",
+        "Share (%)", min_value=0.0, max_value=100.0, step=1.0, key=key,
+        on_change=fill_rest_in_state, args=(st.session_state, share_keys, person["user_id"]),
+        help="Change one and the other person's share becomes the rest.",
     )
 
 if len(people) < 2:

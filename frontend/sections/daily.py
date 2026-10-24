@@ -21,12 +21,14 @@ only wires them to widgets.
 from __future__ import annotations
 
 import datetime
+from html import escape
 from urllib.parse import urlencode
 
 import pandas as pd
 import streamlit as st
 
 import analytics_charts
+import calendar_html
 import analytics_shaping as shape
 import daily_charts as charts
 import daily_shaping as daily
@@ -48,8 +50,8 @@ VIEW_SOURCES = {"all": ["shared", "personal"], "personal": ["personal"], "shared
 NOUNS = {"all": "expenses", "personal": "personal expenses", "shared": "shared expenses"}
 MONTHS = 13  # the month and twelve before: last month, usual, the 12-month average, the same month last year
 TOP_CHANGES = 10
-CARD_HEIGHT = 200
-MINI_ROW = 22  # the corner calendar's rows
+CARD_HEIGHT = 232  # a minimum: a card whose text wraps grows rather than clipping its chart
+TOP_HEIGHT = 352  # the hero and the calendar beside it, so the top row lines up
 EMPTY = {
     "per_day": "Bars per month appear once there's an earlier month to compare with.",
     "last": "Appears once a whole month before this one has been logged.",
@@ -95,29 +97,31 @@ def _items(sources: list[str], day: str, token: str, filters: filtering.Filters)
     return filtering.filter_rows(pd.DataFrame(items), filters).to_dict("records") if items else []
 
 
-def _top(hero: dict, this_cal, p: dict, top_category: str | None) -> None:
+def _top(hero: dict, spark, this_cal, p: dict, top_category: str | None) -> None:
     """
-    The answer first: the hero KPI, with this month's calendar as a small
-    widget in its top-right corner (where we are in the month, which days
-    cost most; hover a day for its amount), then four equal KPI cards.
+    The answer first: the hero KPI with a sparkline of the month so far
+    against last month (the gist; "Are we on track?" below has every
+    comparison), and beside it this month's calendar as its own small card
+    (where we are in the month, which days cost most; hover a day). On a
+    phone the calendar drops below the hero.
     """
-    with ui.card("hero"):
-        left, right = st.columns([3, 2], gap="medium")
-        with left:
-            ui.kpi(hero["label"], hero["amount"], hero["lines"], hero=True,
-                   help="Everything counted so far this month, against the same days of earlier months.")
-        with right:
-            top = daily.calendar_scale_max(this_cal)
-            st.altair_chart(charts.calendar_chart(this_cal, top, row_height=MINI_ROW, compact=True),
-                            use_container_width=True)
-            where = f"Day {p['day']} of {p['days']}" if p["is_partial"] else f"{p['days']} days"
-            st.caption(where + (f" · mostly {top_category}" if top_category else "")
-                       + ". Darker days cost more.")
+    left, right = st.columns([2, 1], gap="small")
+    with left, ui.card("hero", height="stretch", min_height=TOP_HEIGHT):
+        ui.kpi(hero["label"], hero["amount"], hero["lines"], hero=True,
+               help="Everything counted so far this month, against the same days of earlier months.")
+        if spark is not None:
+            st.altair_chart(spark, use_container_width=True)
+    with right, ui.card("calendar", height="stretch", min_height=TOP_HEIGHT):
+        where = f"day {p['day']} of {p['days']}" if p["is_partial"] else f"all {p['days']} days"
+        st.html(f'<div class="hf-kpi-label">{escape(daily.month_name(p["month"]))} · {where}</div>')
+        st.html(calendar_html.calendar_html(this_cal, daily.calendar_scale_max(this_cal)))
+        st.html('<div class="hf-cal-note">' + escape((f"Mostly {top_category}. " if top_category else "")
+                                                      + "Darker days cost more; hover a day.") + "</div>")
 
 
 def _cards(p: dict, cards: list[dict], hist, this_cal, last_cal) -> None:
     for col, card in zip(st.columns(4, gap="small"), cards):
-        with col, ui.card(card["key"], height=CARD_HEIGHT):
+        with col, ui.card(card["key"], height="stretch", min_height=CARD_HEIGHT):
             ui.kpi(card["label"], card["value"], card["lines"], help=card["help"])
             chart = _card_chart(card, p, hist, this_cal, last_cal)
             if chart is None:
@@ -276,7 +280,9 @@ def render(token: str, lens: str, key: str, show_view: bool = False) -> None:
         ui.notices(notices.notices({c: v for c, v in targets.items() if c in spent or not filters.active}, spent,
                                    bills, p["day"], p["days"]))
 
-    _top(daily.headline(p, filtering.note(filters), started=started), this_cal, p, top_category)
+    track = daily.track_frame(df, data, lens, since=since, started=started, target=target)
+    spark = charts.hero_spark(*track, daily.days_in(month))
+    _top(daily.headline(p, filtering.note(filters), started=started), spark, this_cal, p, top_category)
     _cards(p, daily.cards(p), hist, this_cal, daily.calendar_frame(df, p["previous"], lens, today))
     if p["is_partial"]:
         _still_to_come(bills, cards)
@@ -284,7 +290,7 @@ def render(token: str, lens: str, key: str, show_view: bool = False) -> None:
     # --- Are we on track this month? (days) ---
     with ui.card("track"):
         st.subheader("Are we on track this month?")
-        frame, order, roles = daily.track_frame(df, data, lens, since=since, started=started, target=target)
+        frame, order, roles = track
         named = [f"the {daily.BASELINES[r][0].lower()}" if r != "last" else n for n, r in zip(order[1:], roles[1:])]
         named = [", ".join(named[:-1]) + " and " + named[-1]] if len(named) > 1 else named
         partly = (f" {previous} was logged from the {daily.ordinal(p['last_partly_from'])} only, so its line starts "

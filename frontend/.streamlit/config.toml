@@ -23,9 +23,12 @@ textColor = "#17201c"
 borderColor = "#d9ddd6"
 showWidgetBorder = true
 linkColor = "#1f6f5c"
-baseRadius = "0.5rem"
+baseRadius = "0.75rem"
 font = "Roboto:https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap"
-headingFontWeights = [700, 700, 600, 600]
+headingFontWeights = [700, 650, 600, 600]
+# A calm type scale: the page title stays big, a card's question (st.subheader, h3)
+# is a heading, not a banner, so the numbers under it lead.
+headingFontSizes = ["2.5rem", "1.5rem", "1.2rem", "1rem", "0.95rem", "0.9rem"]
 
 # Semantic slots, remapped for colour-blind safety (see the top of this file).
 redColor = "#b5470f"
