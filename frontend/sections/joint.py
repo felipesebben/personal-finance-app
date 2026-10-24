@@ -67,7 +67,7 @@ def render(token: str) -> None:
          [(joint_shaping.run_out_text(status) or "Needs the balance first.", None)]),
     ]
     for col, (label, value, lines) in zip(st.columns(3, gap="small"), cards):
-        with col, ui.card(f"joint_{label[:8]}", height=170):
+        with col, ui.card(f"joint_{label[:8]}", height="stretch", min_height=180):
             ui.kpi(label, value, lines)
 
     frame = joint_shaping.pace_frame(status)

@@ -50,7 +50,7 @@ VIEW_SOURCES = {"all": ["shared", "personal"], "personal": ["personal"], "shared
 NOUNS = {"all": "expenses", "personal": "personal expenses", "shared": "shared expenses"}
 MONTHS = 13  # the month and twelve before: last month, usual, the 12-month average, the same month last year
 TOP_CHANGES = 10
-CARD_HEIGHT = 200
+CARD_HEIGHT = 232  # a minimum: a card whose text wraps grows rather than clipping its chart
 TOP_HEIGHT = 352  # the hero and the calendar beside it, so the top row lines up
 EMPTY = {
     "per_day": "Bars per month appear once there's an earlier month to compare with.",
@@ -106,12 +106,12 @@ def _top(hero: dict, spark, this_cal, p: dict, top_category: str | None) -> None
     phone the calendar drops below the hero.
     """
     left, right = st.columns([2, 1], gap="small")
-    with left, ui.card("hero", min_height=TOP_HEIGHT):
+    with left, ui.card("hero", height="stretch", min_height=TOP_HEIGHT):
         ui.kpi(hero["label"], hero["amount"], hero["lines"], hero=True,
                help="Everything counted so far this month, against the same days of earlier months.")
         if spark is not None:
             st.altair_chart(spark, use_container_width=True)
-    with right, ui.card("calendar", min_height=TOP_HEIGHT):
+    with right, ui.card("calendar", height="stretch", min_height=TOP_HEIGHT):
         where = f"day {p['day']} of {p['days']}" if p["is_partial"] else f"all {p['days']} days"
         st.html(f'<div class="hf-kpi-label">{escape(daily.month_name(p["month"]))} · {where}</div>')
         st.html(calendar_html.calendar_html(this_cal, daily.calendar_scale_max(this_cal)))
@@ -121,7 +121,7 @@ def _top(hero: dict, spark, this_cal, p: dict, top_category: str | None) -> None
 
 def _cards(p: dict, cards: list[dict], hist, this_cal, last_cal) -> None:
     for col, card in zip(st.columns(4, gap="small"), cards):
-        with col, ui.card(card["key"], height=CARD_HEIGHT):
+        with col, ui.card(card["key"], height="stretch", min_height=CARD_HEIGHT):
             ui.kpi(card["label"], card["value"], card["lines"], help=card["help"])
             chart = _card_chart(card, p, hist, this_cal, last_cal)
             if chart is None:
