@@ -66,6 +66,14 @@ _CSS = f"""
                padding: 0.55rem 0.9rem; margin: 0.1rem 0 0.4rem; }}
 .hf-notice {{ color: {INK}; font-size: 0.92rem; line-height: 1.45; }}
 .hf-notice.hf-more {{ color: {MORE}; font-weight: 600; }}
+/* This month's calendar (calendar_html.py): seven equal columns, square days. */
+.hf-cal {{ display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; max-width: 22rem; }}
+.hf-cal-head {{ color: {INK_2}; font-size: 0.7rem; text-align: center; padding-bottom: 2px; }}
+.hf-cal-day {{ aspect-ratio: 1; border-radius: 6px; display: grid; place-items: center; font-size: 0.75rem;
+               cursor: default; }}
+.hf-cal-day.hf-future {{ background: #ffffff; border: 1px solid #e3e7e2; color: #b4bbb5; }}
+.hf-cal-day.hf-today {{ outline: 2px solid {INK}; outline-offset: -2px; font-weight: 700; }}
+.hf-cal-note {{ color: {INK_2}; font-size: 0.8rem; margin-top: 0.5rem; }}
 .hf-empty {{ display: grid; place-items: center; text-align: center; border: 1px dashed {LINE}; border-radius: 0.5rem;
             color: {INK_2}; font-size: 0.8rem; padding: 0 0.75rem; box-sizing: border-box; }}
 </style>

@@ -275,11 +275,9 @@ def test_chart_specs_build(partial):
     daily_charts.spark_progress(0.7, 0.3).to_dict()
     cal = daily.calendar_frame(df, "2026-10", "Household", datetime.date(2026, 10, 10))
     daily_charts.spark_days(cal).to_dict()
-    daily_charts.calendar_chart(cal, 220.0, "October 2026").to_dict()
     daily_charts.weekday_chart(daily.weekday_profile(df, p, "Household", datetime.date(2026, 10, 10))).to_dict()
     daily_charts.changes_chart(daily.category_changes(daily.rows_frame(p), p, "Household")).to_dict()
     assert daily_charts.spark_days(cal).to_dict()["config"]["background"] == "transparent"
-    daily_charts.calendar_chart(cal, 220.0).to_dict()  # no title: the card has it
 
 
 def test_calendar_scale_ignores_one_huge_day():

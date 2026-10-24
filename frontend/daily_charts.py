@@ -106,58 +106,38 @@ def running_total_chart(frame: pd.DataFrame, order: list[str], days: int,
     return finish(alt.layer(*layers), HEIGHT)
 
 
-def calendar_chart(cal: pd.DataFrame, max_amount: float, title: str | None = None,
-                   row_height: int = 42, compact: bool = False) -> alt.LayerChart:
-    """
-    A month as a calendar (weeks down, Monday first across), each day
-    shaded by what was spent: lighter = less, brand green = `max_amount`
-    or more (daily_shaping.calendar_scale_max: a typical big day, so one
-    rent payment doesn't wash every other day out; the tooltip has the
-    exact amount). Days with nothing are pale grey; days still to come are
-    blank; today is outlined. Share `max_amount` between calendars so their
-    shades compare. No legend inside: both calendars must be the same size
-    side by side, so the page draws one shared legend under them (a legend
-    on one only squeezed it). No click selection either: Streamlit 1.50
-    can't return one from a layered chart, so the page offers a day picker.
-    """
-    top = max(max_amount, 1.0)
-    x = alt.X("weekday_name:O", sort=WEEKDAYS, title=None,
-              scale=alt.Scale(paddingInner=0.08),
-              axis=alt.Axis(orient="top", labelAngle=0, ticks=False, domain=False, labelColor=MUTED,
-                            labelPadding=4 if compact else 6, labelFontSize=9 if compact else 11,
-                            # compact: the weekday's first letter, like a pocket calendar
-                            labelExpr="substring(datum.label, 0, 1)" if compact else "datum.label"))
-    y = alt.Y("week:O", title=None, axis=None, scale=alt.Scale(paddingInner=0.08))
-    tooltip = [alt.Tooltip("label:N", title="Day"), alt.Tooltip("amount_brl:N", title="Spent"),
-               alt.Tooltip("count:Q", title="Expenses"), alt.Tooltip("top_category:N", title="Biggest category")]
-    base = alt.Chart(cal)
-    cell = dict(cornerRadius=3 if compact else 5)
+HERO_SPARK_HEIGHT = 150
 
-    background = base.mark_rect(**cell).encode(
-        x=x, y=y,
-        color=alt.condition("datum.state === 'future'", alt.value(FUTURE_DAY), alt.value(EMPTY_DAY)),
-        stroke=alt.condition("datum.state === 'future'", alt.value("#e3e7e2"), alt.value("transparent")),
-        tooltip=tooltip,
-    )
-    spend = base.transform_filter("datum.amount > 0").mark_rect(**cell).encode(
-        x=x, y=y,
-        color=alt.Color("amount:Q", scale=alt.Scale(domain=[0, top], range=HEAT, clamp=True), legend=None),
-        tooltip=tooltip,
-    )
-    today = base.transform_filter("datum.state === 'today'").mark_rect(
-        filled=False, stroke=INK, strokeWidth=2, **cell).encode(x=x, y=y)
-    # White on the darker greens, faint on days still to come, ink otherwise.
-    ink = (f"datum.amount > {top * 0.55} ? 'white' : "
-           f"(datum.state === 'future' ? '#b4bbb5' : '{INK}')")
-    numbers = base.transform_calculate(ink=ink).mark_text(fontSize=9 if compact else 12).encode(
-        x=x, y=y, text="day:Q", fill=alt.Fill("ink:N", scale=None), tooltip=tooltip,
-    )
-    weeks = int(cal["week"].max()) + 1
-    # As wide as its column (use_container_width); rows of `row_height`, plus the weekday header.
-    chart = alt.layer(background, spend, today, numbers).properties(height=weeks * row_height + 24)
-    if title:
-        chart = chart.properties(title=alt.TitleParams(title, anchor="start", fontSize=14, color=INK))
-    return finish(chart)
+
+def hero_spark(frame: pd.DataFrame, order: list[str], roles: list[str], days: int) -> alt.LayerChart | None:
+    """
+    The hero's sparkline: the gist of track_frame's running totals, this
+    month so far against last month only, no axes, each line named at its
+    end ("Oct", "Sep"). The full comparison is "Are we on track?" below.
+    None when there's nothing to draw.
+    """
+    keep = [name for name, role in zip(order, roles) if role in ("this", "last")]
+    data = frame[frame["series"].isin(keep)]
+    if data.empty or data["amount"].max() <= 0:
+        return None
+    styles = {name: ROLE_STYLE[role] for name, role in zip(order, roles) if name in keep}
+    x = alt.X("day:Q", scale=alt.Scale(domain=[1, days], nice=False), axis=None)
+    y = alt.Y("amount:Q", scale=alt.Scale(zero=True, nice=False), axis=None)
+    colour = alt.Color("series:N", scale=alt.Scale(domain=keep, range=[styles[k][0] for k in keep]), legend=None)
+    dash = alt.StrokeDash("series:N", scale=alt.Scale(domain=keep, range=[styles[k][1] for k in keep]), legend=None)
+    width = alt.StrokeWidth("series:N", scale=alt.Scale(domain=keep, range=[styles[k][2] for k in keep]),
+                            legend=None)
+    tooltip = [alt.Tooltip("series:N", title="Month"), alt.Tooltip("day:Q", title="Day"),
+               alt.Tooltip("amount_brl:N", title="Spent so far")]
+    lines = alt.Chart(data).mark_line(interpolate="linear").encode(
+        x=x, y=y, color=colour, strokeDash=dash, strokeWidth=width, tooltip=tooltip)
+    ends = (data.sort_values("day").groupby("series", sort=False).tail(1)
+            .assign(label=lambda d: d["series"].str[:3]))
+    dot = alt.Chart(ends[ends["series"] == keep[0]]).mark_point(filled=True, size=40, color=styles[keep[0]][0]).encode(
+        x=x, y=y)
+    labels = alt.Chart(ends).mark_text(align="left", dx=5, fontSize=10, color=MUTED).encode(x=x, y=y, text="label:N")
+    # Room on the right for the end labels; finish() adds the shared look.
+    return finish(alt.layer(lines, dot, labels).properties(padding={"right": 28}), HERO_SPARK_HEIGHT)
 
 
 def weekday_chart(profile: pd.DataFrame) -> alt.LayerChart:
