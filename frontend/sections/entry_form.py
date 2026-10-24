@@ -23,6 +23,7 @@ from common import SAO_PAULO, auth_headers, check, get_data, keep_alive, md, my_
 from config import API_BASE_URL
 from entries import NO_INSTITUTION, form_values
 from money import entry_preview, format_brl, parse_brl
+from shares import fill_rest_in_state
 
 INSTALLMENT_PICKS = [1, 2, 3, 6, 10, 12, "Other"]
 NATURES = ["Normal", "Extraordinary", "Recurring", "Annual"]
@@ -295,16 +296,22 @@ def render(token: str, data: Lookups, prefix: str = "entry", expense: dict | Non
     if is_shared and household_data:
         if st.checkbox("Custom split for this expense", key=k("custom"),
                        help="Override the household ratio just for this one, e.g. 70/30, or 100% on one person."):
-            share_cols = st.columns(len(household_data))
+            members = sorted(household_data, key=lambda m: m["user_id"] != my_user_id)  # you first, as in Settings
+            share_cols = st.columns(len(members))
             custom_shares = []
-            for share_col, member in zip(share_cols, household_data):
+            share_keys = {m["user_id"]: k(f"share_{m['user_id']}") for m in members}
+            for share_col, member in zip(share_cols, members):
                 name = member["user"].get("full_name") or member["user"]["email"]
                 start_pct = int(round(float(member["share_pct"]) * 100))
                 if start and start["custom"] is not None:
                     start_pct = start["custom"].get(member["user_id"], 0)
+                key = share_keys[member["user_id"]]
+                # Seeded here, not passed as value=: the other input's callback writes to it.
+                st.session_state.setdefault(key, start_pct)
                 pct = share_col.number_input(
-                    f"{name} %", min_value=0, max_value=100, step=5,
-                    value=start_pct, key=k(f"share_{member['user_id']}"),
+                    f"{name} %", min_value=0, max_value=100, step=5, key=key,
+                    on_change=fill_rest_in_state, args=(st.session_state, share_keys, member["user_id"]),
+                    help="With two people, the other share becomes the rest." if len(household_data) == 2 else None,
                 )
                 custom_shares.append((member["user_id"], pct))
             split_total = sum(pct for _, pct in custom_shares)

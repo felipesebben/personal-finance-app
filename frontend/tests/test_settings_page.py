@@ -93,9 +93,23 @@ def test_saving_a_new_split_puts_both_shares():
     assert [t.value for t in at.toast] == ["Household split saved."]
 
 
-def test_shares_that_dont_add_up_disable_save_and_say_why():
-    at = run()
+def test_changing_my_share_fills_in_my_partners():
+    at = run(household=[{"user_id": 12, "share_pct": "0.8000", "user": USERS[0]},
+                        {"user_id": 13, "share_pct": "0.2000", "user": USERS[1]}])
     with patch("requests.get", side_effect=fake_get(USERS, [])):
+        at.number_input(key="share_12_0").set_value(50.0).run()
+        assert at.number_input(key="share_13_0").value == 50.0
+        at.number_input(key="share_13_0").set_value(30.0).run()
+    assert not at.exception
+    assert at.number_input(key="share_12_0").value == 70.0
+    assert not next(b for b in at.button if b.label == "Save split").disabled
+
+
+def test_shares_that_dont_add_up_disable_save_and_say_why():
+    # With a third account and nobody else sharing yet, there's no one "rest" to fill in.
+    users = USERS + [{"user_id": 14, "full_name": "Guest", "email": "guest@example.com"}]
+    at = run(users=users, household=[{"user_id": 12, "share_pct": "1.0000", "user": USERS[0]}])
+    with patch("requests.get", side_effect=fake_get(users, [])):
         at.number_input(key="share_12_0").set_value(70.0).run()
     assert "Shares must add up to 100% (now 70%)." in " ".join(c.value for c in at.caption)
     assert next(b for b in at.button if b.label == "Save split").disabled
