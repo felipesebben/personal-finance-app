@@ -21,7 +21,7 @@
 
 {#if loggedIn}
   <header class="topbar">
-    <a class="brand" href={href('home')}><img src="/logo.svg" alt="" width="28" height="28" /><span>Home Finances</span></a>
+    <a class="brand" href={href('home')}><img src="/icon.svg" alt="" width="28" height="28" /><span>Home Finances</span></a>
     <nav class="top-nav" aria-label="Pages">
       {#each PAGES.slice(1) as p}
         <a href={href(p.id)} class:active={route.page === p.id} aria-current={route.page === p.id ? 'page' : undefined}>{p.label}</a>

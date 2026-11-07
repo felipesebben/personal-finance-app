@@ -61,7 +61,37 @@ jobs:
       - name: Run tests
         run: poetry run pytest -v
 
-  # The Streamlit side has no database: pure helpers (money.py) and page
+  # The Svelte frontend: unit tests of the pure helpers (vitest), the type
+  # check (svelte-check + tsc) and a production build. No API needed.
+  web-tests:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Run tests
+        run: npm test
+
+      - name: Type check
+        run: npm run check
+
+      - name: Build
+        run: npm run build
+
+  # The legacy Streamlit side (kept for one release) has no database: pure helpers (money.py) and page
   # smoke tests with streamlit.testing.AppTest, which never reach the API.
   frontend-tests:
     runs-on: ubuntu-latest
