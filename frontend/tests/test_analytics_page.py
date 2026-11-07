@@ -222,3 +222,24 @@ def test_installments_when_billed_asks_for_the_billed_basis():
     assert not billed.exception
     assert queries and set(queries) == {"billed"}
     assert any("month they're billed" in c.value for c in billed.caption)
+
+
+def test_month_by_month_answers_what_we_control_and_keeps_fixed_costs_apart():
+    at = run_page(fake_api(lambda month: sample_payload(month)))
+    assert not at.exception
+    titles = [s.value for s in at.subheader]
+    assert "Are the costs we control changing?" in titles
+    assert "What's inside a category?" in titles
+    # The heatmap, the separate change card and the fixed-vs-day-to-day bar are gone.
+    assert not any(t.startswith(("Which categories are growing", "Where does the difference", "How much is fixed"))
+                   for t in titles)
+    labels = [label for label, _ in kpis(at)]
+    assert "Food" in labels and "Housing" not in labels  # rent is fixed: not something we control
+    assert any(label.startswith("Fixed costs") for label in labels) and "One-offs" in labels
+
+
+def test_the_change_beside_the_bars_can_be_read_in_percent():
+    at = run_page(fake_api(lambda month: sample_payload(month)), our_change_mode="%")
+    assert not at.exception
+    specs = [c.proto.spec for c in at.get("arrow_vega_lite_chart")]
+    assert any("format(datum.value, '.0%')" in s for s in specs)

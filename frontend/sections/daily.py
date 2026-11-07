@@ -39,6 +39,7 @@ import targets as category_targets
 import upcoming
 from common import SAO_PAULO, get_data, md
 from money import format_brl
+from sections import where
 from sections.filters import FilterRow
 
 # source -> (daily endpoint, expense list endpoint)
@@ -175,39 +176,66 @@ def _still_to_come(bills, cards) -> None:
                 st.altair_chart(analytics_charts.ranked_bars(cards, room=1.7), use_container_width=True)
 
 
-def _where(picked, lens: str, month: str, p: dict, key: str, targets: dict[str, float]) -> None:
-    """Where is the money going? The categories, then what's inside the picked one, each against last month."""
-    st.subheader(f"Where is the money going in {daily.month_name(month)}?")
+def _where(picked, lens: str, month: str, p: dict, key: str, targets: list[dict]) -> str | None:
+    """
+    Where is the money going? The categories, each with its change against
+    last month beside it. Returns the category to look inside, picked in
+    the card below (_inside).
+    """
+    title, control = st.columns([3, 1], vertical_alignment="bottom")
+    title.subheader(f"Where is the money going in {daily.month_name(month)}?")
     mix = daily.ranked(picked, lens, "primary_category", month=month)
     if mix.empty:
         st.caption("Nothing spent yet this month.")
-        return
+        return None
     # Last month by the same day as a grey tick, once it was logged in full (a partial month would mislead).
     tick = "previous" if p["has_last"] else None
+    mode = where.change_mode(control, f"{key}_daily_change_mode") if tick else "R$"
     notes = []
     if tick:
-        by = f" by the {daily.ordinal(p['day'])}" if p["is_partial"] else ""
-        notes.append(f"Grey tick: {daily.month_name(p['previous'])}{by}.")
+        notes.append(f"Grey tick and change: against {_last_by(p)}.")
         mix = daily.against_last_month(mix, picked, lens, "primary_category", month, p["day"])
     # The household's monthly targets (Settings), as a dark tick: for the whole month.
-    mix = mix.assign(target=[targets.get(n, 0.0) for n in mix["name"]])
+    whole = category_targets.whole(targets)
+    mix = mix.assign(target=[whole.get(n, 0.0) for n in mix["name"]])
     if mix["target"].gt(0).any():
         notes.append("Dark tick: the monthly target.")
     if notes:
         st.caption(" ".join(notes))
-    left, right = st.columns([1, 1], gap="medium")
-    with right:
-        category = st.pills("Look inside", list(mix["name"]), default=mix["name"].iloc[0],
-                            key=f"{key}_daily_inside") or mix["name"].iloc[0]
-    with left:
-        st.altair_chart(analytics_charts.ranked_bars(mix, picked=category, previous=tick, target="target"),
-                        use_container_width=True)
-    with right:
-        rows = picked[picked["primary_category"] == category]
-        inside = daily.ranked(rows, lens, "sub_category", month=month)
-        if tick:
-            inside = daily.against_last_month(inside, rows, lens, "sub_category", month, p["day"])
-        st.altair_chart(analytics_charts.ranked_bars(inside, previous=tick), use_container_width=True)
+    names = list(mix["name"])
+    category = st.session_state.get(f"{key}_daily_inside")
+    category = category if category in names else names[0]
+    where.bars_and_change(mix, mode, tick, picked=category, target="target", room=1.5,
+                          change_title=f"Change vs {daily.month_name(p['previous'])}")
+    return category
+
+
+def _last_by(p: dict) -> str:
+    """'October by the 7th' (or 'October' once this month is over)."""
+    return daily.month_name(p["previous"]) + (f" by the {daily.ordinal(p['day'])}" if p["is_partial"] else "")
+
+
+def _inside(picked, lens: str, month: str, p: dict, key: str, targets: list[dict], category: str) -> None:
+    """What's inside a category: the picker on its own row, then its sub-categories drawn like the categories."""
+    st.subheader("What's inside a category?")
+    names = list(daily.ranked(picked, lens, "primary_category", month=month)["name"])
+    if st.session_state.get(f"{key}_daily_inside") not in names:
+        st.session_state[f"{key}_daily_inside"] = category
+    category = st.pills("Look inside", names, key=f"{key}_daily_inside", label_visibility="collapsed") or category
+    rows = picked[picked["primary_category"] == category]
+    inside = daily.ranked(rows, lens, "sub_category", month=month)
+    if inside.empty:
+        st.caption(f"Nothing in {category} this month.")
+        return
+    tick = "previous" if p["has_last"] else None
+    if tick:
+        inside = daily.against_last_month(inside, rows, lens, "sub_category", month, p["day"])
+    sub_targets = category_targets.subs(targets, category)
+    inside = inside.assign(target=[sub_targets.get(n, 0.0) for n in inside["name"]])
+    if inside["target"].gt(0).any():
+        st.caption("Dark tick: the sub-category's own target (Settings).")
+    where.bars_and_change(inside, st.session_state.get(f"{key}_daily_change_mode") or "R$", tick, target="target",
+                          room=1.5, change_title=f"Change vs {daily.month_name(p['previous'])}")
 
 
 def _biggest_days(df, lens: str, month: str, p: dict, sources: list[str], token: str, filters, key: str) -> None:
@@ -322,7 +350,10 @@ def render(token: str, lens: str, key: str, show_view: bool = False) -> None:
             st.altair_chart(charts.months_chart(months, refs), use_container_width=True)
 
     with ui.card("where"):
-        _where(picked, lens, month, p, key, targets)
+        category = _where(picked, lens, month, p, key, target_rows)
+    if category:
+        with ui.card("inside"):
+            _inside(picked, lens, month, p, key, target_rows, category)
 
     # --- Where the difference comes from ---
     if p["has_last"]:

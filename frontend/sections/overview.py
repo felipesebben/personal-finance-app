@@ -1,10 +1,10 @@
 """
 Spending over time, from the whole month down to a category: four KPI
-cards against earlier months, the monthly trend, where the money goes
-(categories against last month, and inside the picked one its
-sub-categories), where the difference comes from, a category x month
-heatmap (how each category moved), and fixed vs day-to-day. Charts only,
-no tables.
+cards against earlier months, the monthly trend, whether the costs we
+control are changing (day-to-day spending and bills that vary, each
+against its usual month), where the money goes (categories with their
+change beside them), what's inside a category, and two compact cards for
+fixed costs and one-offs. Charts only, no tables.
 
 It opens with the same one-line control row as This month
 (sections/filters.py); with show_view (My expenses) it has "Show", which
@@ -14,7 +14,7 @@ of shared plus my personal spending). On Our expenses it's always
 "shared". `lens` picks the amount: "Household" (full prices, on Our
 expenses) or "My share" (the caller's part). Each section is a card with
 its question as the title. Data shaping lives in analytics_shaping (and
-filtering), the Altair specs in analytics_charts.
+filtering), the Altair specs in analytics_charts and sections/where.
 """
 from __future__ import annotations
 
@@ -29,8 +29,9 @@ import daily_charts
 import filtering
 import targets as category_targets
 import ui
-from common import SAO_PAULO, get_data, md
+from common import SAO_PAULO, get_data
 from money import format_brl
+from sections import where
 from sections.filters import FilterRow
 
 # scope -> (endpoints, what the rows are called)
@@ -40,6 +41,8 @@ SCOPES = {
     "all": (["analytics/shared", "analytics/personal"], "expenses"),
 }
 CARD_HEIGHT = 240  # a minimum: a card whose text wraps grows rather than clipping
+COMPACT_HEIGHT = 150  # fixed costs and one-offs: text only, no chart
+CONTROL_CARDS = 9  # categories drawn in "Are the costs we control changing?", biggest first
 
 
 _FAILED = object()
@@ -210,82 +213,145 @@ def render(token: str, lens: str, key: str, show_view: bool = False) -> None:
         if notes:
             st.caption(" ".join(notes))
 
+    # --- The costs we control ---
+    with ui.card(f"{key}_control"):
+        _control(df, months, selected, is_partial, lens, since)
+
+    targets = []
+    if lens == "Household":  # targets are for the household's shared spending
+        targets = get_data("category_targets/", token, default=[]) or []
     with ui.card(f"{key}_where"):
-        targets = []
-        if lens == "Household":  # targets are for the household's shared spending
-            targets = get_data("category_targets/", token, default=[]) or []
-        _where(df, comparison, selected, selected_label, previous_title, is_partial, lens, key, comparable, targets)
+        category = _where(comparison, selected_label, previous_title, comparable, targets, key)
+    if category:
+        with ui.card(f"{key}_inside"):
+            _inside(df, selected, is_partial, lens, previous_title, comparable, targets, key, category)
 
-    changes = shape.as_changes(comparison, "primary_category")
-    if comparable and not changes.empty:
-        with ui.card(f"{key}_changes"):
-            st.subheader("Where does the difference come from?")
-            st.caption(f"Each category against {previous_title}.")
-            st.altair_chart(daily_charts.changes_chart(changes.head(10)), use_container_width=True)
-
-    with ui.card(f"{key}_heatmap"):
-        st.subheader("Which categories are growing over the months?")
-        st.caption("Darker is a bigger month for that category.")
-        st.altair_chart(charts.heatmap_chart(shape.heatmap_frame(df, trend_months, lens), trend_months),
-                        use_container_width=True)
-
-    with ui.card(f"{key}_fixed"):
-        _fixed_vs_variable(df, selected, is_partial, lens, previous, previous_title, noun, selected_label)
+    # --- Fixed costs and one-offs: a compact card each ---
+    fixed_col, offs_col = st.columns(2, gap="small")
+    with fixed_col, ui.card(f"{key}_fixed", height="stretch", min_height=COMPACT_HEIGHT):
+        _fixed(df, selected, is_partial, lens, previous_title, comparable)
+    with offs_col, ui.card(f"{key}_one_offs", height="stretch", min_height=COMPACT_HEIGHT):
+        _one_offs(df, selected, lens, filters)
 
 
-def _where(df, comparison, selected, selected_label, previous_title, is_partial, lens, key, comparable,
-           targets: list[dict]) -> None:
+def _control(df, months, selected, is_partial, lens, since) -> None:
     """
-    Where is the money going? Categories against last month (a grey tick
-    and the change at the tip, when last month was logged in full; shares
-    otherwise), and what's inside the picked one.
+    Are the costs we control changing? Day-to-day spending and the bills
+    that vary, one-offs left out, each category against its usual month:
+    the answer in sentences, then a small KPI per category with its months.
     """
-    st.subheader(f"Where is the money going in {selected_label}?")
+    st.subheader("Are the costs we control changing?")
+    st.caption("Day-to-day spending and bills that vary (cost type Variable in Settings), one-offs left out. "
+               "Each is set against its usual month, the average of up to three months logged in full"
+               + (" over the same days" if is_partial else "") + ": the dashed line.")
+    rows = shape.control_rows(df, months, selected, lens, is_partial, since)
+    if not rows:
+        st.caption("Nothing here among what's being counted: the filters may leave it out.")
+        return
+    ui.kpi_lines(shape.control_lines(rows))
+    shown = rows[:CONTROL_CARDS]
+    for start in range(0, len(shown), 3):
+        for col, r in zip(st.columns(3, gap="medium"), shown[start:start + 3]):
+            with col:
+                if r["usual"] is None:
+                    lines = [("No usual month yet", None)]
+                else:
+                    lines = [_delta_line(r["change"], r["pct"], "usual")]
+                if r["streak"] >= 2:
+                    lines.append((f"Above usual {r['streak']} months running", "more"))
+                ui.kpi(r["name"], format_brl(r["current"]), lines)
+                st.altair_chart(daily_charts.spark_bars(shape.month_bars(r["series"], selected), "value", r["name"],
+                                                        reference=r["usual"]), use_container_width=True)
+    if len(rows) > CONTROL_CARDS:
+        st.caption(f"The {CONTROL_CARDS} biggest of {len(rows)}; Filters › Categories narrows it.")
+
+
+def _where(comparison, selected_label, previous_title, comparable, targets: list[dict], key) -> str | None:
+    """
+    Where is the money going? Categories as bars (a grey tick for last
+    month, a dark one for the target) with their change beside them.
+    Returns the category to look inside, picked in the card below.
+    """
+    title, control = st.columns([3, 1], vertical_alignment="bottom")
+    title.subheader(f"Where is the money going in {selected_label}?")
     if comparison.empty:
         st.caption(f"Nothing in {selected_label} or the month before.")
-        return
+        return None
     bars = shape.ranked_comparison(comparison[comparison["current"] > 0], "primary_category")
     if bars.empty:
         st.caption(f"Nothing in {selected_label} yet.")
-        return
-    tick = "previous" if comparable else None
+        return None
+    mode = where.change_mode(control, f"{key}_change_mode") if comparable else "R$"
     if not comparable:
         bars = shape.with_share_text(bars)
     # The household's monthly targets (Settings), as a dark tick: for the whole month.
     whole = category_targets.whole(targets)
     bars = bars.assign(target=[whole.get(n, 0.0) for n in bars["name"]])
-    notes = ([f"Grey tick: {previous_title}."] if comparable else []) + (
+    notes = ([f"Grey tick and change: against {previous_title}."] if comparable else []) + (
         ["Dark tick: the monthly target."] if bars["target"].gt(0).any() else [])
     if notes:
         st.caption(" ".join(notes))
-    left, right = st.columns([1, 1], gap="medium")
-    with right:
-        category = st.pills("Look inside", list(bars["name"]), default=bars["name"].iloc[0],
-                            key=f"{key}_inside") or bars["name"].iloc[0]
-    with left:
-        st.altair_chart(charts.ranked_bars(bars, picked=category, previous=tick, room=1.7, target="target"),
-                        use_container_width=True)
-    with right:
-        sub = shape.compare(df, selected, is_partial, lens, by="sub_category", where={"primary_category": category})
-        inside = shape.ranked_comparison(sub[sub["current"] > 0], "sub_category")
-        if not inside.empty:
-            if not comparable:
-                inside = shape.with_share_text(inside)
-            sub_targets = category_targets.subs(targets, category)
-            inside = inside.assign(target=[sub_targets.get(n, 0.0) for n in inside["name"]])
-            st.altair_chart(charts.ranked_bars(inside, previous=tick, room=1.7, target="target"),
-                            use_container_width=True)
+    names = list(bars["name"])
+    category = st.session_state.get(f"{key}_inside")
+    category = category if category in names else names[0]
+    where.bars_and_change(bars, mode, "previous" if comparable else None, picked=category, target="target",
+                          change_title=f"Change vs {previous_title}")
+    return category
 
 
-def _fixed_vs_variable(df, selected, is_partial, lens, previous, previous_title, noun, selected_label) -> None:
-    st.subheader("How much is fixed, how much is day-to-day?")
-    split = shape.cost_type_split(df, selected, is_partial, lens)
-    if split.empty:
-        st.caption(f"No {noun} in {selected_label} or {shape.month_label(previous)}.")
+def _inside(df, selected, is_partial, lens, previous_title, comparable, targets, key, category) -> None:
+    """What's inside a category: the picker on its own row, then its sub-categories drawn like the categories."""
+    st.subheader("What's inside a category?")
+    names = list(shape.compare(df, selected, is_partial, lens).query("current > 0")["primary_category"])
+    if category not in names:
+        names = [category] + names
+    if st.session_state.get(f"{key}_inside") not in names:
+        st.session_state[f"{key}_inside"] = category
+    category = st.pills("Look inside", names, key=f"{key}_inside", label_visibility="collapsed") or category
+    sub = shape.compare(df, selected, is_partial, lens, by="sub_category", where={"primary_category": category})
+    inside = shape.ranked_comparison(sub[sub["current"] > 0], "sub_category")
+    if inside.empty:
+        st.caption(f"Nothing in {category} this month.")
         return
-    this_title = f"{shape.month_label(selected, short=True)}{' so far' if is_partial else ''}"
-    names = {"Fixed": "Fixed", "Variable": "Day-to-day"}
-    st.caption(md(" · ".join(f"{names.get(t, t)}: {format_brl(c)} ({s:.0%})"
-                             for t, c, s in zip(split["cost_type"], split["current"], split["current_share"])
-                             if c)))
-    st.altair_chart(charts.cost_type_chart(split, this_title, previous_title), use_container_width=True)
+    if not comparable:
+        inside = shape.with_share_text(inside)
+    sub_targets = category_targets.subs(targets, category)
+    inside = inside.assign(target=[sub_targets.get(n, 0.0) for n in inside["name"]])
+    if inside["target"].gt(0).any():
+        st.caption("Dark tick: the sub-category's own target (Settings).")
+    mode = st.session_state.get(f"{key}_change_mode") or "R$"
+    where.bars_and_change(inside, mode, "previous" if comparable else None, target="target",
+                          change_title=f"Change vs {previous_title}")
+
+
+def _fixed(df, selected, is_partial, lens, previous_title, comparable) -> None:
+    """Fixed costs, compact: the month's total and which ones moved (a price rise shows here)."""
+    fixed = shape.fixed_costs(df)
+    total = shape.compare_total(fixed, selected, is_partial, lens)
+    lines = [_delta_line(total["change"], total["pct"], previous_title)] if comparable else []
+    if comparable:
+        moved = shape.biggest_changes(shape.compare(fixed, selected, is_partial, lens, by="sub_category"),
+                                      "sub_category")
+        for _, r in moved.head(3).iterrows():
+            arrow, tone = ("▲", "more") if r["change"] > 0 else ("▼", "less")
+            lines.append((f"{r['sub_category']}: {arrow} {shape.signed_brl(r['change'])}", tone))
+    ui.kpi("Fixed costs" + (" so far" if is_partial else ""), format_brl(total["current"]), lines,
+           help="What recurs at a set price: rent, condo, internet, subscriptions, insurance. One-offs are "
+                "counted apart. A bill not logged yet this month shows as a drop.")
+    if fixed.empty:
+        st.caption("No fixed costs among what's being counted.")
+
+
+def _one_offs(df, selected, lens, filters) -> None:
+    """One-offs, compact: annual and extraordinary costs this month, the biggest named."""
+    if filters.without_one_offs:
+        ui.kpi("One-offs", "—", [("Left out by the filters", None)])
+        return
+    month = shape.one_offs(df)
+    month = month[month["month"] == selected]
+    column = shape.lens_column(lens)
+    by_sub = month.groupby("sub_category")[column].sum().sort_values(ascending=False)
+    lines = [(f"{name}: {format_brl(v)}", None) for name, v in by_sub.head(3).items() if v]
+    ui.kpi("One-offs", format_brl(round(float(month[column].sum()), 2)), lines or [("None this month", None)],
+           help="Annual and extraordinary costs (IPVA, a vet emergency): counted apart, since they say little "
+                "about how you live.")
