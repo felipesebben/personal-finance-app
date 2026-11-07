@@ -10,6 +10,8 @@ tested without Streamlit.
 """
 from dataclasses import dataclass, field
 
+import targets
+
 
 @dataclass(frozen=True)
 class Table:
@@ -181,7 +183,8 @@ def household_payload(shares_pct: dict[int, float]) -> tuple[list[dict], str | N
 
 def suggest_targets(analytics: dict | None, n: int = 3, step: int = 50) -> tuple[dict[str, float], list[str]]:
     """
-    A starting target per primary category from history: the average of
+    A starting target per primary category (and per sub-category, keyed
+    "Primary › Sub" and rounded to R$ 10) from history: the average of
     the last `n` months logged in full before this one (shared spending at
     full price, from an /analytics/shared payload whose window ends last
     month), rounded up to the next R$ `step`. Returns the suggestions and
@@ -199,31 +202,44 @@ def suggest_targets(analytics: dict | None, n: int = 3, step: int = 50) -> tuple
     months = [m for m in analytics["months"] if m >= since][-n:]
     if not months:
         return {}, []
-    totals = df[df["month"].isin(months)].groupby("primary_category")["household"].sum()
+    recent = df[df["month"].isin(months)]
+    totals = recent.groupby("primary_category")["household"].sum()
     suggested = {c: float(math.ceil(v / len(months) / step) * step) for c, v in totals.items() if v > 0}
+    # Sub-categories too, by label ("Pets › Grooming"), rounded to R$ 10: they're smaller.
+    for (c, s), v in recent.groupby(["primary_category", "sub_category"])["household"].sum().items():
+        if v > 0:
+            suggested[targets.label(c, s)] = float(math.ceil(v / len(months) / 10) * 10)
     return suggested, months
 
 
-def target_rows(categories: list[dict], targets: list[dict], suggested: dict[str, float] | None = None,
+def target_rows(categories: list[dict], rows: list[dict], suggested: dict[str, float] | None = None,
                 fill_blanks: bool = False) -> "pd.DataFrame":
     """
-    One row per primary category, A–Z: `Category`, its `Target` as typed
-    text ("3.000,00"; blank = no target) and the `Suggested` one from
-    history (suggest_targets), for Settings' targets table. With
-    `fill_blanks`, a blank target starts at its suggestion, to review
-    before saving.
+    One row per primary category, A–Z, each followed by its sub-categories
+    ("Pets › Grooming"): `Category`, its `Target` as typed text ("3.000,00";
+    blank = no target) and the `Suggested` one from history
+    (suggest_targets), for Settings' targets table. With `fill_blanks`, a
+    blank whole-category target starts at its suggestion, to review before
+    saving; sub-categories are left for a decision to fill in.
     """
     import pandas as pd
     from money import format_brl
 
     suggested = suggested or {}
-    current = {t["primary_category"]: t["amount"] for t in targets or []}
-    names = sorted({c["primary_category"] for c in categories or []}, key=str.lower)
+    current = {targets.label(t["primary_category"], t.get("sub_category")): t["amount"] for t in rows or []}
+    subs = {}
+    for c in categories or []:
+        subs.setdefault(c["primary_category"], set())
+        if c.get("sub_category"):
+            subs[c["primary_category"]].add(c["sub_category"])
+    names = [n for p in sorted(subs, key=str.lower)
+             for n in [p] + [targets.label(p, s) for s in sorted(subs[p], key=str.lower)]]
 
     def target(n):
         if n in current:
             return format_brl(current[n], symbol=False)
-        return format_brl(suggested[n], symbol=False) if fill_blanks and n in suggested else ""
+        whole = targets.SEPARATOR not in n
+        return format_brl(suggested[n], symbol=False) if fill_blanks and whole and n in suggested else ""
 
     return pd.DataFrame({"Category": names, "Target": [target(n) for n in names],
                          "Suggested": [format_brl(suggested[n]) if n in suggested else "—" for n in names]})
@@ -236,7 +252,7 @@ def targets_payload(edited: "pd.DataFrame") -> tuple[list[dict], list[str]]:
     """
     from money import parse_brl
 
-    targets, errors = [], []
+    found, errors = [], []
     for name, text in zip(edited["Category"], edited["Target"].fillna("")):  # "Suggested" is only a hint
         text = str(text).strip()
         if not text:
@@ -249,5 +265,6 @@ def targets_payload(edited: "pd.DataFrame") -> tuple[list[dict], list[str]]:
         if amount <= 0:
             errors.append(f"{name}: a target must be more than zero (leave it blank for none).")
             continue
-        targets.append({"primary_category": name, "amount": str(amount)})
-    return targets, errors
+        primary, sub = targets.split_label(name)
+        found.append({"primary_category": primary, "sub_category": sub, "amount": str(amount)})
+    return found, errors

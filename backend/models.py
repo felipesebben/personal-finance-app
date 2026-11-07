@@ -38,13 +38,16 @@ class HouseholdSetting(Base):
 
 class CategoryTarget(Base):
     """
-    What the household means to spend a month in a primary category (shared
-    expenses, full price): the bullet charts' dark tick on Our expenses.
-    Keyed by the primary category's name, as the analytics group by it; a
-    category without a row has no target.
+    What the household means to spend a month in a primary category, or in
+    one sub-category of it (shared expenses, full price): the bullet charts'
+    dark tick on Our expenses. Keyed by name, as the analytics group by it;
+    sub_category '' is the whole primary category. A category without a row
+    has no target. A sub-category target follows a decision ("half as much
+    grooming") and stands apart from its category's.
     """
     __tablename__ = "category_target"
     primary_category = Column(String(255), primary_key=True)
+    sub_category = Column(String(255), primary_key=True, server_default="")
     amount = Column(Numeric(10, 2), nullable=False)
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 

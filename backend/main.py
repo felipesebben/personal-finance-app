@@ -536,8 +536,13 @@ def update_household_settings(payload: schemas.HouseholdSettingsUpdate, db: Sess
 @app.get("/category_targets/", response_model=List[schemas.CategoryTargetItem],
          dependencies=[Depends(get_current_user)])
 def get_category_targets(db: Session = Depends(get_db)):
-    """Every primary category's monthly target, by name."""
-    return db.query(models.CategoryTarget).order_by(models.CategoryTarget.primary_category).all()
+    """Every monthly target, by name: whole primary categories (sub_category null) and sub-categories."""
+    return ordered_targets(db)
+
+
+def ordered_targets(db: Session) -> list:
+    target = models.CategoryTarget
+    return db.query(target).order_by(target.primary_category, target.sub_category).all()
 
 
 @app.put("/category_targets/", response_model=List[schemas.CategoryTargetItem],
@@ -545,20 +550,22 @@ def get_category_targets(db: Session = Depends(get_db)):
 def update_category_targets(payload: schemas.CategoryTargetsUpdate, db: Session = Depends(get_db)):
     """
     Replaces the whole set of targets in one transaction (a category left
-    out has none). Each must name an existing primary category, once.
+    out has none). Each must name an existing primary category, or an
+    existing sub-category of it, once.
     """
-    names = [t.primary_category for t in payload.targets]
-    if len(set(names)) != len(names):
+    keys = [(t.primary_category, t.sub_category or "") for t in payload.targets]
+    if len(set(keys)) != len(keys):
         raise HTTPException(status_code=400, detail="A category appears twice.")
-    known = {c for (c,) in db.query(models.DimCategory.primary_category).distinct()}
-    unknown = sorted(set(names) - known)
+    pairs = set(db.query(models.DimCategory.primary_category, models.DimCategory.sub_category).all())
+    known = {(p, "") for p, _ in pairs} | pairs
+    unknown = sorted(f"{p} › {s}" if s else p for p, s in set(keys) - known)
     if unknown:
         raise HTTPException(status_code=400, detail=f"Unknown category: {', '.join(unknown)}")
     db.query(models.CategoryTarget).delete()
-    for t in payload.targets:
-        db.add(models.CategoryTarget(primary_category=t.primary_category, amount=t.amount))
+    for (primary, sub), t in zip(keys, payload.targets):
+        db.add(models.CategoryTarget(primary_category=primary, sub_category=sub, amount=t.amount))
     db.commit()
-    return db.query(models.CategoryTarget).order_by(models.CategoryTarget.primary_category).all()
+    return ordered_targets(db)
 
 
 # Everything ExpenditureRead nests, loaded up front.
