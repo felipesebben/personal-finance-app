@@ -167,13 +167,20 @@ def test_month_by_month_counts_only_what_the_filters_keep():
 
 
 def test_a_partly_logged_last_month_is_named_not_compared():
-    # Logging began on 26 September: October can't be judged against it.
+    # Logging began on the 26th of last month: this month can't be judged against it.
+    import datetime
+    from zoneinfo import ZoneInfo
+
+    from analytics_shaping import month_label, shift_month
+    last = shift_month(datetime.datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m"), -1)
+
     def payload(month):
-        return {**sample_payload(month), "first_date": "2026-09-26"}
+        return {**sample_payload(month), "first_date": f"{last}-26"}
     at = run_page(fake_api(payload))
     assert not at.exception
     cards = kpi_cards(at)
-    assert cards["Shared total so far"]["lines"] == ["Sep 26: R$ 2.980,00, logged from the 26th only"]
+    assert cards["Shared total so far"]["lines"] == [f"{month_label(last, short=True)}: R$ 2.980,00, "
+                                                      "logged from the 26th only"]
     assert cards["Biggest increase"]["value"] == "—"
     assert not any("Where does the difference come from?" in s.value for s in at.subheader)
     assert any("logged from the 26th only" in c.value for c in at.caption)  # the trend's footnote
