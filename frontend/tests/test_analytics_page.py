@@ -243,3 +243,10 @@ def test_the_change_beside_the_bars_can_be_read_in_percent():
     assert not at.exception
     specs = [c.proto.spec for c in at.get("arrow_vega_lite_chart")]
     assert any("format(datum.value, '.0%')" in s for s in specs)
+
+
+def test_this_month_leaves_out_the_separate_change_and_weekday_cards():
+    at = run_page(fake_api(lambda month: sample_payload(month)))
+    assert not at.exception
+    titles = [s.value for s in at.subheader]
+    assert not any(t.startswith(("Where does the difference", "Which weekdays")) for t in titles)

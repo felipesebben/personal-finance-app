@@ -7,10 +7,12 @@ Top to bottom, from the whole month down to single days:
 - the answer: a hero card (spent so far, with its running total) beside
   this month's calendar as a reference, then four equal KPI cards;
 - one card per question: how the month built up; where the money goes
-  (categories, then inside the picked one its sub-categories: day by day
-  says little for what's bought once a month, like electricity, so it
-  stops there); where the difference comes from; what went on the
-  biggest days (a picked day's purchases as bars); the weekday pattern.
+  (categories, each with its change beside it, then inside the picked one
+  its sub-categories: day by day says little for what's bought once a
+  month, like electricity, so it stops there); what went on the biggest
+  days (a picked day's purchases as bars). The separate "where does the
+  difference come from" and weekday cards were removed on 2026-11-07, to
+  keep the view uncrowded.
 
 Charts only: no tables here (Entries is where expenses are listed). On Our
 expenses it reads the shared endpoints; on My expenses (show_view=True)
@@ -51,7 +53,6 @@ ENDPOINTS = {
 VIEW_SOURCES = {"all": ["shared", "personal"], "personal": ["personal"], "shared": ["shared"]}
 NOUNS = {"all": "expenses", "personal": "personal expenses", "shared": "shared expenses"}
 MONTHS = 13  # the month and twelve before: last month, usual, the 12-month average, the same month last year
-TOP_CHANGES = 10
 CARD_HEIGHT = 232  # a minimum: a card whose text wraps grows rather than clipping its chart
 TOP_HEIGHT = 352  # the hero and the calendar beside it, so the top row lines up
 EMPTY = {
@@ -355,49 +356,6 @@ def render(token: str, lens: str, key: str, show_view: bool = False) -> None:
         with ui.card("inside"):
             _inside(picked, lens, month, p, key, target_rows, category)
 
-    # --- Where the difference comes from ---
-    if p["has_last"]:
-        with ui.card("changes"):
-            st.subheader("Where does the difference come from?")
-            against_names = daily.comparison_options(df, data, since=since) or {previous: "last"}
-            c1, c2 = st.columns([3, 2])
-            first = next(iter(against_names))
-            against_label = c1.segmented_control("Compare with", list(against_names), default=first,
-                                                 key=f"{key}_daily_against") or first
-            level = c2.segmented_control("Group by", ["Category", "Sub-category"], default="Category",
-                                         key=f"{key}_daily_level") or "Category"
-            against = against_names.get(against_label, "last")
-            changes = daily.category_changes(picked, data, lens, against=against,
-                                             level="primary_category" if level == "Category" else "sub_category",
-                                             since=since)
-            if changes.empty or not changes["change"].any():
-                st.caption("No change by category to show.")
-            else:
-                st.markdown(md(daily.change_summary(changes, previous if against == "last"
-                                                    else against_label.lower())))
-                # What drove it: behaviour (day-to-day) or fixed costs.
-                ui.kpi_lines(daily.cause_lines(picked, data, lens, against, since=since))
-                moved = changes[changes["change"] != 0]
-                st.altair_chart(charts.changes_chart(moved.head(TOP_CHANGES)), use_container_width=True)
-                same = changes.loc[changes["change"] == 0, "name"]
-                notes = [f"The {TOP_CHANGES} biggest moves of {len(moved)}."] if len(moved) > TOP_CHANGES else []
-                if not same.empty:
-                    notes.append(f"Unchanged: {', '.join(same)}.")
-                if notes:
-                    st.caption(" ".join(notes))
-
     with ui.card("biggest"):
         _biggest_days(df, lens, month, p, sources, token, filters, key)
 
-    # --- Patterns ---
-    with ui.card("weekdays"):
-        st.subheader("Which weekdays cost most?")
-        start = rows["date"].min()  # the first day anything was logged, whatever is filtered
-        profile = daily.weekday_profile(df, data, lens, today, since=start)
-        if profile.empty or profile["average"].max() == 0:
-            st.caption("Not enough days yet.")
-        else:
-            busiest = profile.loc[profile["average"].idxmax()]
-            st.caption(md(f"Average per day since {start:%d %b}, quiet days included: "
-                          f"{daily.WEEKDAY_NAMES[int(busiest['weekday'])]}s cost most."))
-            st.altair_chart(charts.weekday_chart(profile), use_container_width=True)
