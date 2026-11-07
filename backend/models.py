@@ -100,6 +100,12 @@ class FactExpenditure(Base):
     # share, but the payer treated, so nobody owes them for it.
     is_treat = Column(Boolean, nullable=False, server_default="false", default=False)
 
+    # When it was logged, as opposed to transaction_timestamp (the day it's
+    # for: a bill paid early is dated on its due date). The joint account's
+    # balance counts an expense from the earlier of the two, the moment the
+    # money left. NULL on expenses logged before this column existed.
+    created_at = Column(DateTime(timezone=True), nullable=True, server_default=func.now())
+
     # The trace of the last edit (PATCH /expenditures/{id}): when and by
     # whom. Both NULL on an expense never edited since it was logged.
     # Deleting that account keeps the edit's time and forgets who.
