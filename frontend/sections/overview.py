@@ -231,7 +231,7 @@ def render(token: str, lens: str, key: str, show_view: bool = False) -> None:
     with fixed_col, ui.card(f"{key}_fixed", height="stretch", min_height=COMPACT_HEIGHT):
         _fixed(df, selected, is_partial, lens, previous_title, comparable)
     with offs_col, ui.card(f"{key}_one_offs", height="stretch", min_height=COMPACT_HEIGHT):
-        _one_offs(df, selected, lens, filters)
+        _one_offs(df, months, selected, lens, filters, since)
 
 
 def _control(df, months, selected, is_partial, lens, since) -> None:
@@ -342,8 +342,12 @@ def _fixed(df, selected, is_partial, lens, previous_title, comparable) -> None:
         st.caption("No fixed costs among what's being counted.")
 
 
-def _one_offs(df, selected, lens, filters) -> None:
-    """One-offs, compact: annual and extraordinary costs this month, the biggest named."""
+def _one_offs(df, months, selected, lens, filters, since) -> None:
+    """
+    One-offs, compact: annual and extraordinary costs this month, the
+    biggest named, then how much to set aside a month for them and the
+    annual bills coming round again.
+    """
     if filters.without_one_offs:
         ui.kpi("One-offs", "—", [("Left out by the filters", None)])
         return
@@ -352,6 +356,9 @@ def _one_offs(df, selected, lens, filters) -> None:
     column = shape.lens_column(lens)
     by_sub = month.groupby("sub_category")[column].sum().sort_values(ascending=False)
     lines = [(f"{name}: {format_brl(v)}", None) for name, v in by_sub.head(3).items() if v]
-    ui.kpi("One-offs", format_brl(round(float(month[column].sum()), 2)), lines or [("None this month", None)],
+    lines = (lines or [("None this month", None)]) + shape.reserve_lines(shape.reserve(df, months, selected, lens,
+                                                                                       since))
+    ui.kpi("One-offs", format_brl(round(float(month[column].sum()), 2)), lines,
            help="Annual and extraordinary costs (IPVA, a vet emergency): counted apart, since they say little "
-                "about how you live.")
+                "about how you live. The amount to set aside is what they averaged per month over the months "
+                "logged in full, rounded up to R$ 50.")
