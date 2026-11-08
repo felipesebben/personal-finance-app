@@ -410,3 +410,45 @@ def control_lines(rows: list[dict]) -> list[tuple[str, str | None]]:
 
 def _names(names: list[str]) -> str:
     return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+
+
+RESERVE_ROUND = 50   # the suggested monthly reserve, rounded up to R$ 50
+RESERVE_SOLID = 6    # months logged in full before the reserve is more than a rough guess
+
+
+def reserve(df: pd.DataFrame, months: list[str], selected: str, lens: str, since: str | None) -> dict | None:
+    """
+    How much to set aside a month for one-offs: what annual and
+    extraordinary costs averaged per month over the months logged in full
+    before `selected` (`monthly`, rounded up to R$ 50; `rough` while fewer
+    than six), and the annual bills of the last year that come round again
+    (`coming`: name, the month they're next due, what they cost last time),
+    soonest first. None before a whole month has been logged.
+    """
+    import math
+
+    full = [m for m in months if m < selected and (since is None or m >= since)]
+    if not full:
+        return None
+    offs = one_offs(df)
+    column = lens_column(lens)
+    total = float(offs.loc[offs["month"].isin(full), column].sum())
+    monthly = float(math.ceil(total / len(full) / RESERVE_ROUND) * RESERVE_ROUND)
+    annual = offs[(offs["nature"] == "Annual") & offs["month"].isin(months)]
+    last = annual.groupby(["sub_category", "month"])[column].sum().reset_index()
+    last = last.sort_values("month").groupby("sub_category").tail(1)  # the latest time each was paid
+    coming = sorted(((r["sub_category"], shift_month(r["month"], 12), round(float(r[column]), 2))
+                     for _, r in last.iterrows() if r[column] > 0), key=lambda c: (c[1], c[0]))
+    return {"monthly": monthly, "months": len(full), "rough": len(full) < RESERVE_SOLID, "coming": coming}
+
+
+def reserve_lines(r: dict | None) -> list[tuple[str, str | None]]:
+    """The reserve as the One-offs card says it, (text, tone)."""
+    if r is None:
+        return [("A reserve to set aside appears once a whole month has been logged.", None)]
+    span = f"{r['months']} month{'s' if r['months'] != 1 else ''}"
+    lines = [(f"Set aside about {format_brl(r['monthly'])} a month for them"
+              + (f" (a rough guess from {span} logged)" if r["rough"] else f" (from the last {span})"), None)]
+    for name, month, amount in r["coming"][:3]:
+        lines.append((f"Coming round: {name} in {month_label(month, short=True)}, {format_brl(amount)} last time", None))
+    return lines

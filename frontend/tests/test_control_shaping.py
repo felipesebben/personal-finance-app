@@ -72,3 +72,23 @@ def test_change_frame_in_reais_or_percent():
     pct = charts.change_frame(bars, "%")
     assert list(pct["value"]) == [0.5, -0.2, 0.0]
     assert list(pct["label"]) == ["▲ 50%", "▼ 20%", "new"]
+
+
+def test_the_reserve_averages_one_offs_over_full_months_and_names_annual_bills():
+    rows = [row("2026-08", "Transport", 1200, nature="Annual"), row("2026-08", "Food", 500),
+            row("2026-09", "Pets", 610, nature="Extraordinary"),
+            row("2026-10", "Food", 400), row("2026-11", "Health", 9999, nature="Extraordinary")]  # this month
+    df = frame(rows).assign(sub_category=["IPVA", "Groceries", "Vet", "Groceries", "Surgery"])
+    r = shape.reserve(df, MONTHS, "2026-11", "Household", since="2026-08")
+    assert r["months"] == 3 and r["rough"]
+    assert r["monthly"] == 650.0  # (1200 + 610) / 3 = 603,33, rounded up to R$ 50
+    assert r["coming"] == [("IPVA", "2027-08", 1200.0)]
+    lines = [t for t, _ in shape.reserve_lines(r)]
+    assert lines[0] == "Set aside about R$ 650,00 a month for them (a rough guess from 3 months logged)"
+    assert lines[1] == "Coming round: IPVA in Aug 27, R$ 1.200,00 last time"
+
+
+def test_no_reserve_before_a_whole_month():
+    df = frame([row("2026-11", "Health", 100, nature="Extraordinary")])
+    assert shape.reserve(df, MONTHS, "2026-11", "Household", since="2026-11") is None
+    assert shape.reserve_lines(None)[0][0].startswith("A reserve to set aside appears")
