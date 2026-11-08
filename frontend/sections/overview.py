@@ -27,6 +27,7 @@ import analytics_charts as charts
 import analytics_shaping as shape
 import daily_charts
 import filtering
+import targets as category_targets
 import ui
 from common import SAO_PAULO, get_data, md
 from money import format_brl
@@ -210,10 +211,9 @@ def render(token: str, lens: str, key: str, show_view: bool = False) -> None:
             st.caption(" ".join(notes))
 
     with ui.card(f"{key}_where"):
-        targets = {}
+        targets = []
         if lens == "Household":  # targets are for the household's shared spending
-            rows = get_data("category_targets/", token, default=[])
-            targets = {t["primary_category"]: float(t["amount"]) for t in rows or [] if isinstance(t, dict)}
+            targets = get_data("category_targets/", token, default=[]) or []
         _where(df, comparison, selected, selected_label, previous_title, is_partial, lens, key, comparable, targets)
 
     changes = shape.as_changes(comparison, "primary_category")
@@ -234,7 +234,7 @@ def render(token: str, lens: str, key: str, show_view: bool = False) -> None:
 
 
 def _where(df, comparison, selected, selected_label, previous_title, is_partial, lens, key, comparable,
-           targets: dict[str, float]) -> None:
+           targets: list[dict]) -> None:
     """
     Where is the money going? Categories against last month (a grey tick
     and the change at the tip, when last month was logged in full; shares
@@ -252,7 +252,8 @@ def _where(df, comparison, selected, selected_label, previous_title, is_partial,
     if not comparable:
         bars = shape.with_share_text(bars)
     # The household's monthly targets (Settings), as a dark tick: for the whole month.
-    bars = bars.assign(target=[targets.get(n, 0.0) for n in bars["name"]])
+    whole = category_targets.whole(targets)
+    bars = bars.assign(target=[whole.get(n, 0.0) for n in bars["name"]])
     notes = ([f"Grey tick: {previous_title}."] if comparable else []) + (
         ["Dark tick: the monthly target."] if bars["target"].gt(0).any() else [])
     if notes:
@@ -270,7 +271,10 @@ def _where(df, comparison, selected, selected_label, previous_title, is_partial,
         if not inside.empty:
             if not comparable:
                 inside = shape.with_share_text(inside)
-            st.altair_chart(charts.ranked_bars(inside, previous=tick, room=1.7), use_container_width=True)
+            sub_targets = category_targets.subs(targets, category)
+            inside = inside.assign(target=[sub_targets.get(n, 0.0) for n in inside["name"]])
+            st.altair_chart(charts.ranked_bars(inside, previous=tick, room=1.7, target="target"),
+                            use_container_width=True)
 
 
 def _fixed_vs_variable(df, selected, is_partial, lens, previous, previous_title, noun, selected_label) -> None:

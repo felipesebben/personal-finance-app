@@ -208,7 +208,9 @@ st.divider()
 st.subheader("Monthly targets")
 ui.lede("What you mean to spend a month, per category.",
         " Our expenses draws it as a dark tick on each category's bar, next to last month's grey one. "
-        "For shared spending, at full price. Leave a category blank for no target.")
+        "For shared spending, at full price. Leave a category blank for no target. A sub-category "
+        "(Pets › Grooming) can have its own, to follow a decision like fewer sessions: This month "
+        "warns when it's passed.")
 # A starting point from history: the last full months before this one.
 last_month = shift_month(datetime.datetime.now(SAO_PAULO).strftime("%Y-%m"), -1)
 history = common_get(f"analytics/shared?month={last_month}&months=12", token, default=None)

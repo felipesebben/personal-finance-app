@@ -87,9 +87,18 @@ class PaymentMethod(BaseModel):
 # The household split ratio: one row per user, snapshotted onto each
 # expenditure's allocation rows at write time (see notes/02).
 class CategoryTargetItem(BaseModel):
-    """A primary category's monthly target (the household's shared spending, full price)."""
+    """
+    A monthly target (the household's shared spending, full price) for a
+    primary category, or with `sub_category` for one sub-category of it.
+    """
     primary_category: str = Field(min_length=1)
+    sub_category: str | None = None  # None: the whole primary category (stored as '')
     amount: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
+
+    @field_validator("sub_category", mode="before")
+    @classmethod
+    def _blank_is_whole(cls, v):
+        return v or None
 
     class Config:
         from_attributes = True

@@ -12,6 +12,7 @@ import streamlit as st
 
 import analytics_shaping as shape
 import recap_shaping
+import targets as category_targets
 import ui
 from common import SAO_PAULO, get_data
 from sections.settle import settle_box
@@ -36,8 +37,7 @@ def render(token: str) -> None:
     if not isinstance(data, dict):
         return
     df = shape.to_frame(data)
-    targets = {t["primary_category"]: float(t["amount"])
-               for t in get_data("category_targets/", token, default=[]) or [] if isinstance(t, dict)}
+    targets = category_targets.whole(get_data("category_targets/", token, default=[]))
     summary = recap_shaping.month_recap(df, data["months"], month, data["is_partial"], data.get("first_date"), targets)
 
     if df[df["month"] == month].empty:

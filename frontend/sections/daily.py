@@ -35,6 +35,7 @@ import daily_shaping as daily
 import filtering
 import notices
 import ui
+import targets as category_targets
 import upcoming
 from common import SAO_PAULO, get_data, md
 from money import format_brl
@@ -130,12 +131,11 @@ def _cards(p: dict, cards: list[dict], hist, this_cal, last_cal) -> None:
                 st.altair_chart(chart, use_container_width=True)
 
 
-def _targets(token: str, lens: str) -> dict[str, float]:
-    """The household's monthly targets by category; only for the Household lens (they're for shared spending)."""
+def _targets(token: str, lens: str) -> list[dict]:
+    """The household's monthly targets (rows); only for the Household lens (they're for shared spending)."""
     if lens != "Household":
-        return {}
-    rows = get_data("category_targets/", token, default=[])
-    return {t["primary_category"]: float(t["amount"]) for t in rows or [] if isinstance(t, dict)}
+        return []
+    return get_data("category_targets/", token, default=[]) or []
 
 
 def _due(token: str, month: str, view: str, lens: str, filters: filtering.Filters):
@@ -267,18 +267,24 @@ def render(token: str, lens: str, key: str, show_view: bool = False) -> None:
     hist = daily.history(df, data, lens, since=since)
     this_cal = daily.calendar_frame(df, month, lens, today)
 
-    targets = _targets(token, lens)
+    target_rows = _targets(token, lens)
+    targets = category_targets.whole(target_rows)
     target = daily.target_total(targets, picked, filters.active)
     month_rows = picked[picked["month"] == month]
     spent = month_rows.groupby("primary_category")[shape.lens_column(lens)].sum().to_dict()
+    # Sub-category targets follow a decision (e.g. less grooming): noticed like a category's.
+    sub_spent = {category_targets.label(c, s): v for (c, s), v in
+                 month_rows.groupby(["primary_category", "sub_category"])[shape.lens_column(lens)].sum().items()}
     top_category = max(spent, key=spent.get) if spent else None
 
     bills = cards = None
     if p["is_partial"]:
         bills, cards = _due(token, month, view, lens, filters)
         # In-app notices, never pushed: past or near a target, a recurring bill late.
-        ui.notices(notices.notices({c: v for c, v in targets.items() if c in spent or not filters.active}, spent,
-                                   bills, p["day"], p["days"]))
+        followed = {**{c: v for c, v in targets.items() if c in spent or not filters.active},
+                    **{s: v for s, v in category_targets.subs(target_rows).items()
+                       if s in sub_spent or not filters.active}}
+        ui.notices(notices.notices(followed, {**spent, **sub_spent}, bills, p["day"], p["days"]))
 
     track = daily.track_frame(df, data, lens, since=since, started=started, target=target)
     spark = charts.hero_spark(*track, daily.days_in(month))
