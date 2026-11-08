@@ -85,34 +85,34 @@
   <Message tone="info">Nothing logged yet. <a href={href('add')}>Add your first expense</a>.</Message>
 {:else}
   <div class="stack">
-    <div class="filters">
+    <div class="toolbar filters">
       <label class="field">
-        <span>Month</span>
-        <select bind:value={month}>
+        <span class="sr-only">Month</span>
+        <select class="compact" bind:value={month}>
           <option value="">All months</option>
           {#each months as m}<option value={m}>{monthLabel(m)}</option>{/each}
         </select>
       </label>
       <label class="field">
-        <span>Show</span>
-        <select bind:value={kind}>
+        <span class="sr-only">Show</span>
+        <select class="compact" bind:value={kind}>
           {#each Object.entries(KINDS) as [id, text]}<option value={id}>{text}</option>{/each}
         </select>
       </label>
       <label class="field">
-        <span>Logged by</span>
-        <select bind:value={loggedBy}>
+        <span class="sr-only">Logged by</span>
+        <select class="compact" bind:value={loggedBy}>
           <option value="">Anyone</option>
           {#each people as p}<option value={p}>{p}</option>{/each}
         </select>
       </label>
       <label class="field search">
-        <span>Search</span>
-        <input type="search" bind:value={search} placeholder="e.g. groceries, Nubank, 45,90" />
+        <span class="sr-only">Search</span>
+        <input class="compact" type="search" bind:value={search} placeholder="Search: groceries, Nubank, 45,90" />
       </label>
     </div>
-    <div class="field">
-      <span>Categories</span>
+    <div class="field cats">
+      <span class="sr-only">Categories</span>
       <div class="chips">
         {#each primaries as c}
           <button type="button" class="chip" class:active={categories.includes(c)} aria-pressed={categories.includes(c)}
@@ -187,11 +187,12 @@
 {/if}
 
 <style>
-  .filters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.75rem; align-items: end; }
+  .search { flex: 1 1 14rem; max-width: 20rem; }
+  .cats .chips { justify-content: flex-end; }
   .chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
-  .chip { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 0.3rem 0.75rem;
-    cursor: pointer; font-size: 0.88rem; }
-  .chip.active { background: var(--brand-soft); border-color: var(--brand); color: var(--brand-strong); font-weight: 500; }
+  .chip { border: none; background: var(--fill); border-radius: 999px; padding: 0.2rem 0.7rem;
+    cursor: pointer; font-size: var(--t-footnote); color: var(--ink); }
+  .chip.active { background: var(--brand); color: var(--on-brand); font-weight: 500; }
   .nowrap { white-space: nowrap; }
   .cards { display: none; list-style: none; margin: 0; padding: 0; }
   .entry { display: flex; flex-direction: column; gap: 0.15rem; width: 100%; text-align: left; background: none;
@@ -199,14 +200,12 @@
   .entry.selected { background: var(--brand-soft); border-radius: 0.5rem; }
   .top { display: flex; justify-content: space-between; gap: 0.75rem; }
   .what { font-weight: 500; }
-  .amount { font-weight: 600; white-space: nowrap; }
-  .meta { font-size: 0.8rem; color: var(--ink-2); }
+  .amount { font-weight: 500; white-space: nowrap; }
+  .meta { font-size: var(--t-footnote); color: var(--ink-2); }
   .edit { scroll-margin-top: 70px; }
   .delete { border-top: 1px solid var(--hairline); padding-top: 1rem; margin-top: 0.5rem; display: flex;
     flex-direction: column; gap: 0.6rem; }
-  @media (max-width: 900px) {
-    .filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  }
+  @media (max-width: 560px) { .cats .chips { justify-content: flex-start; } }
   @media (max-width: 600px) {
     .wide { display: none; }
     .cards { display: block; }

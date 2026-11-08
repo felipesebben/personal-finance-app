@@ -47,6 +47,21 @@
   --heat-empty: #efeff4;
   --heat-low: #d6ece2;
 
+  /*
+    Type scale, after Apple's text styles (sizes in px at a 16px root). Use these, never a one-off size.
+    Weight is for attention, used sparingly: 700 for the page title and the big numbers, 600 for a card's
+    question and the one thing picked, 500 for the active control; everything else regular (400).
+  */
+  --t-large-title: 2.125rem;  /* 34: page title */
+  --t-title: 1.375rem;        /* 22: section title */
+  --t-headline: 1.0625rem;    /* 17: a card's question (600) */
+  --t-body: 1rem;             /* 16: body text, form inputs */
+  --t-callout: 0.9375rem;     /* 15: a card's summary under its question */
+  --t-subhead: 0.875rem;      /* 14: KPI context, list rows */
+  --t-footnote: 0.8125rem;    /* 13: labels, captions, compact controls */
+  --t-caption: 0.75rem;       /* 12: chart annotations, legends */
+  --t-chart: 11px;            /* axis tick labels inside charts */
+
   --radius: 10px;
   --radius-card: 16px;
   --shadow-card: none;
@@ -113,9 +128,9 @@ body { margin: 0; background: var(--page); min-width: 320px; }
 
 h1, h2, h3, h4 { margin: 0; line-height: 1.2; color: var(--ink); }
 /* Large Title, Title 2, Headline. */
-h1 { font-size: 2.125rem; font-weight: 700; letter-spacing: -0.022em; }
-h2 { font-size: 1.375rem; font-weight: 700; letter-spacing: -0.018em; }
-h3 { font-size: 1.0625rem; font-weight: 600; letter-spacing: -0.014em; }
+h1 { font-size: var(--t-large-title); font-weight: 700; letter-spacing: -0.022em; }
+h2 { font-size: var(--t-title); font-weight: 700; letter-spacing: -0.018em; }
+h3 { font-size: var(--t-headline); font-weight: 600; letter-spacing: -0.014em; }
 p { margin: 0; }
 
 a { color: var(--brand); text-decoration: none; }
@@ -125,9 +140,9 @@ button, input, select, textarea { font: inherit; color: inherit; letter-spacing:
 
 /* Form controls: filled, borderless, one look everywhere. */
 .field { display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; }
-.field > span, .field-label { font-size: 0.8125rem; font-weight: 500; color: var(--muted); }
-.field .hint { font-size: 0.8125rem; color: var(--muted); }
-.field .error { font-size: 0.8125rem; color: var(--more); }
+.field > span, .field-label { font-size: var(--t-footnote); font-weight: 400; color: var(--muted); }
+.field .hint { font-size: var(--t-footnote); color: var(--muted); }
+.field .error { font-size: var(--t-footnote); color: var(--more); }
 
 input[type='text'], input[type='email'], input[type='password'], input[type='date'], input[type='time'],
 input[type='number'], input[type='search'], select, textarea {
@@ -148,6 +163,13 @@ select {
   background-position: right 0.75rem center;
 }
 select option { background: var(--surface); color: var(--ink); }
+/* A toolbar: a section's own pickers, small and on the right (left on a phone, where they wrap). */
+.toolbar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; justify-content: flex-end; }
+@media (max-width: 560px) { .toolbar { justify-content: flex-start; } }
+input.compact { min-height: 1.85rem; padding: 0.2rem 0.7rem; font-size: var(--t-footnote); border-radius: 8px; }
+/* A compact select for toolbars and a card's top-right corner. */
+select.compact { width: auto; min-height: 1.85rem; padding: 0.2rem 1.75rem 0.2rem 0.7rem; font-size: var(--t-footnote);
+  border-radius: 8px; background-position: right 0.55rem center; }
 input::placeholder, textarea::placeholder { color: var(--muted); opacity: 0.8; }
 input:focus-visible, select:focus-visible, textarea:focus-visible {
   outline: none;
@@ -162,7 +184,7 @@ input:disabled, select:disabled { opacity: 0.55; }
   display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
   min-height: 2.75rem; padding: 0.5rem 1.15rem;
   border-radius: 999px; border: none;
-  background: var(--brand-soft); color: var(--brand); font-weight: 600; cursor: pointer;
+  background: var(--brand-soft); color: var(--brand); font-weight: 500; cursor: pointer;
   text-decoration: none; transition: filter 0.15s ease, transform 0.1s ease, background 0.15s ease;
 }
 .btn:hover { filter: brightness(0.96); text-decoration: none; }
@@ -170,14 +192,16 @@ input:disabled, select:disabled { opacity: 0.55; }
 .btn.primary { background: var(--brand); color: var(--on-brand); }
 .btn.primary:hover { filter: brightness(1.06); }
 .btn.danger { background: var(--more-soft); color: var(--more); }
-.btn.small { min-height: 2rem; padding: 0.25rem 0.8rem; font-size: 0.875rem; }
+.btn.primary { font-weight: 600; }
+.btn.small { min-height: 2rem; padding: 0.25rem 0.8rem; font-size: var(--t-subhead); }
+.btn.compact { min-height: 1.85rem; padding: 0.2rem 0.75rem; font-size: var(--t-footnote); gap: 0.3rem; }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
 
 .check { display: inline-flex; align-items: center; gap: 0.55rem; cursor: pointer; }
 .check input { width: 1.2rem; height: 1.2rem; accent-color: var(--brand); }
 
 .muted { color: var(--muted); }
-.caption { font-size: 0.875rem; color: var(--muted); }
+.caption { font-size: var(--t-footnote); color: var(--muted); }
 .more { color: var(--more); }
 .less { color: var(--less); }
 
@@ -199,7 +223,7 @@ input:disabled, select:disabled { opacity: 0.55; }
 
 /* Tables (only where rows are managed: Entries, joint entries, payments): a plain list with hairlines. */
 table.data { width: 100%; border-collapse: collapse; font-size: 0.9375rem; }
-table.data th { text-align: left; font-weight: 500; color: var(--muted); font-size: 0.8125rem;
+table.data th { text-align: left; font-weight: 400; color: var(--muted); font-size: var(--t-footnote);
   padding: 0.5rem 0.6rem; border-bottom: 0.5px solid var(--line); }
 table.data td { padding: 0.65rem 0.6rem; border-bottom: 0.5px solid var(--hairline); vertical-align: top; }
 table.data tr:last-child td { border-bottom: none; }

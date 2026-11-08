@@ -22,12 +22,17 @@
   import Segmented from '../lib/ui/Segmented.svelte'
   import RankedBars from '../lib/charts/RankedBars.svelte'
   import ChangeBars from '../lib/charts/ChangeBars.svelte'
+  import Legend, { type LegendItem } from '../lib/charts/Legend.svelte'
+  import { shortBrl } from '../lib/money'
 
   let {
     title,
     items,
     note = '',
     changeTitle = 'Change',
+    tickLabel = 'Last month',
+    targetLabel = 'Monthly target',
+    subTargetLabel = 'Sub-category target',
     inside,
     insideNote,
     memoryKey = '',
@@ -37,6 +42,10 @@
     items: WhereItem[]
     note?: string
     changeTitle?: string
+    /** Legend names for the grey tick (the comparison) and the dark tick (the target). */
+    tickLabel?: string
+    targetLabel?: string
+    subTargetLabel?: string
     inside?: (category: string) => WhereItem[]
     insideNote?: (category: string, items: WhereItem[]) => string
     memoryKey?: string
@@ -60,25 +69,48 @@
   $effect(() => {
     if (memoryKey) memory.set(memoryKey, { mode, picked: chosen })
   })
+
+  // The change axis in the unit picked: "+R$ 500" or "+20%".
+  const changeFormat = $derived((v: number) => {
+    const sign = v > 0 ? '+' : v < 0 ? '−' : ''
+    return mode === '%' ? `${sign}${Math.round(Math.abs(v) * 100)}%` : `${sign}${shortBrl(Math.abs(v))}`
+  })
+  // A legend for the marks that aren't labelled where they are.
+  const legendFor = (data: ReturnType<typeof whereBars>, target: string): LegendItem[] => [
+    ...(data.bars.some((b) => b.tick) ? [{ mark: 'tick' as const, label: tickLabel }] : []),
+    ...(data.bars.some((b) => b.target) ? [{ mark: 'target' as const, label: target }] : []),
+  ]
 </script>
 
 <div class="where" bind:clientWidth={width}>
   <Card {title} subtitle={items.length ? note : ''}>
     {#snippet actions()}
       {#if compared && items.length}
-        <Segmented label="Change in" options={MODES} bind:value={mode} />
+        <Segmented compact label="Change in" options={MODES} bind:value={mode} />
       {/if}
     {/snippet}
     {#if !items.length}
       <p class="caption">{empty}</p>
     {:else}
       {@render pair(main, inside ? (n: string) => (chosen = n) : undefined)}
+      <Legend items={legendFor(main, targetLabel)} />
     {/if}
   </Card>
 
   {#if inside && items.length && picked}
     <Card title="What's inside a category?">
-      <Segmented label="Look inside" options={names} value={picked} onchange={(v) => (chosen = v)} />
+      {#snippet actions()}
+        {#if names.length <= 4}
+          <Segmented compact label="Look inside" options={names} value={picked} onchange={(v) => (chosen = v)} />
+        {:else}
+          <label class="field">
+            <span class="sr-only">Look inside</span>
+            <select class="compact" value={picked} onchange={(e) => (chosen = e.currentTarget.value)}>
+              {#each names as n}<option value={n}>{n}</option>{/each}
+            </select>
+          </label>
+        {/if}
+      {/snippet}
       {#if !subItems.length}
         <p class="caption">Nothing in {picked} this month.</p>
       {:else}
@@ -87,6 +119,7 @@
           {#if text}<p class="caption">{text}</p>{/if}
         {/if}
         {@render pair(sub)}
+        <Legend items={legendFor(sub, subTargetLabel)} />
       {/if}
     </Card>
   {/if}
@@ -97,11 +130,11 @@
     <div class="pair">
       <div>
         <div class="col-head">Spent</div>
-        <RankedBars rows={data.bars} {onpick} />
+        <RankedBars rows={data.bars} {onpick} description="Bar chart of what was spent" />
       </div>
       <div>
         <div class="col-head">{changeTitle}</div>
-        <ChangeBars rows={data.changes} />
+        <ChangeBars rows={data.changes} format={changeFormat} />
       </div>
     </div>
   {:else}
@@ -112,6 +145,6 @@
 <style>
   .where { display: flex; flex-direction: column; gap: 1rem; }
   .pair { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 1.5rem; }
-  .col-head { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em;
-    color: var(--ink-2); margin-bottom: 0.25rem; height: 1rem; }
+  .col-head { font-size: var(--t-footnote); font-weight: 400;
+    color: var(--muted); margin-bottom: 0.25rem; height: 1rem; }
 </style>

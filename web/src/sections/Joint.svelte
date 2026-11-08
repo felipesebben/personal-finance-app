@@ -110,12 +110,14 @@
     <Message tone="error">Couldn't load the joint account: {error}</Message>
   {:else if status}
     {#if statuses.length > 1}
-      <label class="field account">
-        <span>Account</span>
-        <select bind:value={picked}>
-          {#each statuses as s}<option value={s.payment_method_id}>{s.label}</option>{/each}
-        </select>
-      </label>
+      <div class="toolbar">
+        <label class="field">
+          <span class="sr-only">Account</span>
+          <select class="compact" bind:value={picked}>
+            {#each statuses as s}<option value={s.payment_method_id}>{s.label}</option>{/each}
+          </select>
+        </label>
+      </div>
     {/if}
 
     <div class="grid cols-3">
@@ -179,5 +181,4 @@
 </div>
 
 <style>
-  .account { max-width: 20rem; }
 </style>

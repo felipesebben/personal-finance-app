@@ -7,11 +7,13 @@
   target (`target`). An optional dashed `reference` line (e.g. the month's
   average day) with its label. Values are numbers in any unit (cents).
   Clicking a row calls `onpick` (the picker is still a pill row beside it,
-  this is a convenience).
+  this is a convenience). The value axis runs along the bottom with a few
+  tick labels in short reais (`format`), so the grid lines read as values.
 -->
 <script lang="ts">
   import { scaleLinear } from 'd3-scale'
-  import { AXIS, BAR_ROW, BRAND, barPath, BRAND_LIGHT, GREY, GRID, INK, INK_2, MUTED, clip, textWidth } from './palette'
+  import { shortBrl } from '../money'
+  import { AXIS, BAR_ROW, BRAND, X_AXIS, barPath, fittedTicks, BRAND_LIGHT, GREY, GRID, INK, INK_2, MUTED, clip, textWidth } from './palette'
 
   export interface Bar {
     label: string
@@ -23,12 +25,18 @@
     title?: string
   }
 
-  let { rows, reference = null, referenceLabel = '', onpick, maxLabel = 22 }: {
+  let { rows, reference = null, referenceLabel = '', onpick, maxLabel = 22, axis = true, format = shortBrl,
+    description = 'Bar chart' }: {
     rows: Bar[]
     reference?: number | null
     referenceLabel?: string
     onpick?: (label: string) => void
     maxLabel?: number
+    /** Tick labels along the value axis (off for a tiny chart). */
+    axis?: boolean
+    format?: (v: number) => string
+    /** What the chart is, for screen readers (the values follow). */
+    description?: string
   } = $props()
 
   let width = $state(320)
@@ -40,8 +48,9 @@
   const max = $derived(Math.max(...rows.flatMap((r) => [r.value, r.tick ?? 0, r.target ?? 0]), reference ?? 0, 1))
   const x = $derived(scaleLinear().domain([0, max]).range([nameWidth, Math.max(nameWidth + 40, width - textRoom)]))
   const top = $derived(reference !== null && referenceLabel ? 18 : 4)
-  const height = $derived(rows.length * BAR_ROW + top + 4)
-  const ticks = $derived(x.ticks(4).filter((t) => t > 0))
+  const plotBottom = $derived(top + rows.length * BAR_ROW)
+  const height = $derived(plotBottom + (axis ? X_AXIS : 4))
+  const ticks = $derived(fittedTicks(x, 0, max, format))
   const barH = 20
   const barY = (BAR_ROW - barH) / 2
 
@@ -57,11 +66,18 @@
 </script>
 
 <div class="wrap" bind:clientWidth={width}>
-  <svg {width} {height} role="img" aria-label={rows.map((r) => `${r.label}: ${r.text}`).join('; ')}>
+  <svg {width} {height} role="img"
+    aria-label="{description}, from 0 to {format(max)}. {rows.map((r) => `${r.label}: ${r.text}`).join('; ')}">
     {#each ticks as t}
-      <line x1={x(t)} x2={x(t)} y1={top} y2={height - 2} stroke={GRID} />
+      <line x1={x(t)} x2={x(t)} y1={top} y2={plotBottom + (axis ? 3 : 0)} stroke={GRID} />
     {/each}
-    <line x1={nameWidth} x2={nameWidth} y1={top} y2={height - 2} stroke={AXIS} />
+    <line x1={nameWidth} x2={nameWidth} y1={top} y2={plotBottom + (axis ? 3 : 0)} stroke={AXIS} />
+    {#if axis}
+      <text x={nameWidth} y={plotBottom + 15} font-size="11" fill={MUTED}>0</text>
+      {#each ticks as t}
+        <text x={x(t)} y={plotBottom + 15} font-size="11" fill={MUTED} text-anchor="middle">{format(t)}</text>
+      {/each}
+    {/if}
     {#each rows as row, i}
       {@const y = top + i * BAR_ROW}
       <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
@@ -81,11 +97,11 @@
           <line x1={x(row.target)} x2={x(row.target)} y1={y + barY - 5} y2={y + barY + barH + 5} stroke={INK} stroke-width="2.5" />
         {/if}
         <text x={textX(row)} y={y + BAR_ROW / 2}
-          dominant-baseline="central" font-size="11.5" fill={row.picked ? INK : INK_2} font-weight={row.picked ? 600 : 400}>{row.text}</text>
+          dominant-baseline="central" font-size="11.5" fill={row.picked ? INK : INK_2} font-weight={row.picked ? 500 : 400}>{row.text}</text>
       </g>
     {/each}
     {#if reference !== null}
-      <line x1={x(reference)} x2={x(reference)} y1={top - 2} y2={height - 2} stroke={MUTED} stroke-dasharray="4 3" />
+      <line x1={x(reference)} x2={x(reference)} y1={top - 2} y2={plotBottom} stroke={MUTED} stroke-dasharray="4 3" />
       {#if referenceLabel}
         <text x={x(reference)} y="11" font-size="11" fill={MUTED} text-anchor="middle">{referenceLabel}</text>
       {/if}

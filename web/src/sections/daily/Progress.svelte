@@ -26,6 +26,6 @@
   .fill { height: 100%; border-radius: 6px; background: var(--brand); }
   .fill.ahead { background: var(--more); }
   .tick { position: absolute; top: -5px; width: 2px; height: 22px; background: var(--ink); transform: translateX(-1px); }
-  .labels { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--ink-2); margin-top: 0.45rem; }
-  .labels .ahead { color: var(--more); font-weight: 600; }
+  .labels { display: flex; justify-content: space-between; font-size: var(--t-caption); color: var(--ink-2); margin-top: 0.45rem; }
+  .labels .ahead { color: var(--more); }
 </style>

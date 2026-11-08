@@ -76,6 +76,6 @@
 <style>
   .explain { background: var(--surface); border-radius: var(--radius); padding: 0.7rem 0.9rem; }
   .explain summary { cursor: pointer; font-weight: 500; }
-  .explain p { margin-top: 0.5rem; color: var(--ink-2); font-size: 0.92rem; }
+  .explain p { margin-top: 0.5rem; color: var(--ink-2); font-size: var(--t-callout); }
   .backfill { display: flex; flex-direction: column; gap: 0.3rem; }
 </style>

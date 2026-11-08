@@ -67,17 +67,17 @@
     background: var(--material); -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px);
     border-bottom: 0.5px solid var(--line);
     padding: env(safe-area-inset-top) max(var(--gutter), calc((100vw - 1200px) / 2)) 0; height: calc(52px + env(safe-area-inset-top)); }
-  .brand { display: flex; align-items: center; gap: 0.55rem; font-weight: 600; font-size: 1.0625rem; color: var(--ink);
+  .brand { display: flex; align-items: center; gap: 0.55rem; font-weight: 600; font-size: var(--t-headline); color: var(--ink);
     text-decoration: none; flex: none; letter-spacing: -0.015em; }
   .brand:hover { text-decoration: none; }
   .brand img { border-radius: 7px; }
   .top-nav { display: flex; gap: 0.15rem; flex: 1; overflow-x: auto; scrollbar-width: none; }
   .top-nav a { color: var(--ink-2); text-decoration: none; padding: 0.4rem 0.8rem; border-radius: 999px;
-    font-size: 0.9375rem; font-weight: 500; white-space: nowrap; transition: background 0.15s ease, color 0.15s ease; }
+    font-size: var(--t-callout); font-weight: 500; white-space: nowrap; transition: background 0.15s ease, color 0.15s ease; }
   .top-nav a:hover { color: var(--ink); background: var(--fill-2); }
-  .top-nav a.active { color: var(--ink); background: var(--fill); font-weight: 600; }
+  .top-nav a.active { color: var(--ink); background: var(--fill); font-weight: 500; }
   .logout { display: flex; align-items: center; gap: 0.35rem; border: none; background: none; color: var(--brand);
-    cursor: pointer; padding: 0.4rem 0.6rem; border-radius: 999px; flex: none; font-size: 0.9375rem; }
+    cursor: pointer; padding: 0.4rem 0.6rem; border-radius: 999px; flex: none; font-size: var(--t-callout); }
   .logout:hover { background: var(--brand-soft); }
 
   main { max-width: 1200px; margin: 0 auto; padding: 1rem var(--gutter) 3rem; }
@@ -87,7 +87,7 @@
   @media (max-width: 760px) {
     .top-nav { display: none; }
     .topbar { justify-content: space-between; height: calc(48px + env(safe-area-inset-top)); }
-    .brand { font-size: 1rem; }
+    .brand { font-size: var(--t-body); }
     .logout span { display: none; }
     main.with-nav { padding-bottom: calc(var(--nav-height) + 2rem + env(safe-area-inset-bottom)); }
     .bottom-nav { display: grid; grid-template-columns: repeat(6, 1fr); position: fixed; left: 0; right: 0; bottom: 0;

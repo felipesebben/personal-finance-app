@@ -200,14 +200,14 @@
 
 <style>
   .narrow { max-width: 30rem; margin: 0 auto; }
-  details summary { cursor: pointer; color: var(--brand); font-size: 0.92rem; }
+  details summary { cursor: pointer; color: var(--brand); font-size: var(--t-callout); }
   details[open] summary { margin-bottom: 0.75rem; }
   .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; }
   .link-card { display: flex; flex-direction: column; gap: 0.4rem; background: var(--surface); border-radius: var(--radius-card);
     box-shadow: var(--shadow-card); padding: 1.1rem 1.2rem; color: var(--ink); text-decoration: none;
     border: 1px solid transparent; transition: border-color 0.15s; }
   .link-card:hover { border-color: var(--brand); }
-  .link-card p { color: var(--ink-2); font-size: 0.9rem; }
+  .link-card p { color: var(--ink-2); font-size: var(--t-subhead); }
   .icon { width: 2.4rem; height: 2.4rem; border-radius: 0.7rem; background: var(--brand-soft); color: var(--brand);
     display: grid; place-items: center; }
 </style>

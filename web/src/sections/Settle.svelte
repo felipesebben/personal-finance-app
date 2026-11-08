@@ -96,12 +96,14 @@
   <Lede headline="Who owes whom, and recording the payment."
     body=" Compares what each of you paid for shared expenses with what the household ratio says you should have paid, minus payments already recorded. The joint account never counts: you've both already paid into it." />
 
-  <label class="field period" title="Usually the month you're squaring up. “All time” is the running balance across every month.">
-    <span>Period</span>
-    <select bind:value={period}>
-      {#each periods as p}<option value={p}>{periodLabel(p)}</option>{/each}
-    </select>
-  </label>
+  <div class="toolbar">
+    <label class="field" title="Usually the month you're squaring up. “All time” is the running balance across every month.">
+      <span class="sr-only">Period</span>
+      <select class="compact" bind:value={period}>
+        {#each periods as p}<option value={p}>{periodLabel(p)}</option>{/each}
+      </select>
+    </label>
+  </div>
 
   <SettleBox {period} key="settle" onreport={(r) => (report = r)} />
 
@@ -172,7 +174,6 @@
 </div>
 
 <style>
-  .period { max-width: 16rem; }
   .expander { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow-card); padding: 0.8rem 1rem; }
   .expander summary { cursor: pointer; font-weight: 500; }
   .expander[open] summary { margin-bottom: 0.75rem; }

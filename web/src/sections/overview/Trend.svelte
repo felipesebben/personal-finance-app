@@ -8,6 +8,7 @@
   import Card from '../../lib/ui/Card.svelte'
   import Segmented from '../../lib/ui/Segmented.svelte'
   import Columns from '../../lib/charts/Columns.svelte'
+  import Legend from '../../lib/charts/Legend.svelte'
   import { MUTED } from '../../lib/charts/palette'
   import { formatBrl, shortBrl } from '../../lib/money'
   import { monthLabel, monthlyTotals, ordinal, previousFullAverage } from '../../lib/overview/shaping'
@@ -30,16 +31,20 @@
   }))
   const references = $derived(average === null ? [] : [{ name: `Usual ${shortBrl(average)}`, value: average, color: MUTED }])
   const notes = $derived([
-    ...(ctx.isPartial ? ['The faded month is still going: shown so far, never projected.'] : []),
     ...(starred && ctx.firstDate ? [`* ${monthLabel(starred)} was logged from the ${ordinal(Number(ctx.firstDate.slice(8, 10)))} only.`] : []),
-    ...(average !== null ? ['Dashed line: the usual month, the average of the three before this one.'] : []),
+  ])
+  const legend = $derived([
+    { mark: 'bar' as const, label: 'Picked month' },
+    ...(ctx.isPartial ? [{ mark: 'partial' as const, label: 'Still going: so far, never projected' }] : []),
+    ...(average !== null ? [{ mark: 'dash' as const, label: 'Usual month: the average of the three before' }] : []),
   ])
 </script>
 
 <Card title="How does each month compare?">
   {#snippet actions()}
-    <Segmented options={['6', '12']} bind:value={window} labels={{ '6': '6 months', '12': '12 months' }} />
+    <Segmented compact label="Months shown" options={['6', '12']} bind:value={window} labels={{ '6': '6 months', '12': '12 months' }} />
   {/snippet}
   <Columns {columns} {references} height={290} />
+  <Legend items={legend} />
   {#if notes.length}<p class="caption">{notes.join(' ')}</p>{/if}
 </Card>

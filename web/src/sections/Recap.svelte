@@ -56,12 +56,14 @@
 </script>
 
 <div class="stack">
-  <label class="field picker">
-    <span>Month to review</span>
-    <select bind:value={month}>
+  <div class="toolbar">
+  <label class="field">
+    <span class="sr-only">Month to review</span>
+    <select class="compact" bind:value={month}>
       {#each options as m}<option value={m}>{monthLabel(m)}</option>{/each}
     </select>
   </label>
+  </div>
 
   {#if error}
     <Message tone="error">Couldn't load the recap: {error}</Message>
@@ -92,5 +94,4 @@
 </div>
 
 <style>
-  .picker { max-width: 14rem; }
 </style>

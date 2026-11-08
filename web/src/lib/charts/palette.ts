@@ -39,6 +39,25 @@ export function textWidth(text: string, px = 12): number {
   return Math.ceil(text.length * px * 0.58)
 }
 
+/**
+ * Tick values for a value axis that fit their labels: as many round steps as the plot's width allows,
+ * then any label that would touch its neighbour (or zero's) is dropped. Familiar sequences only (d3's ticks).
+ */
+export function fittedTicks(scale: { ticks: (n: number) => number[]; (v: number): number }, from: number, to: number,
+  format: (v: number) => string): number[] {
+  const span = Math.abs(scale(to) - scale(from))
+  const half = (v: number) => (v === 0 ? 4 : textWidth(format(v), 11) / 2)
+  const kept: number[] = []
+  const candidates = scale.ticks(Math.max(1, Math.floor(span / 90))).filter((t) => t !== 0)
+    .sort((a, b) => Math.abs(a) - Math.abs(b))
+  for (const t of candidates) {
+    // The nearest label towards zero on the same side (or zero itself).
+    const prev = kept.filter((k) => Math.sign(k) === Math.sign(t)).at(-1) ?? 0
+    if (Math.abs(scale(t) - scale(prev)) >= half(t) + half(prev) + 8) kept.push(t)
+  }
+  return kept.sort((a, b) => a - b)
+}
+
 /** Shortens a label to `max` characters with an ellipsis. */
 export function clip(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text
