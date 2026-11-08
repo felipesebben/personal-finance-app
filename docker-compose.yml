@@ -112,12 +112,30 @@ services:
       db:
         condition: service_healthy
 
-  frontend:
-    build: ./frontend
-    container_name: personal_finance_frontend
+  # --------------------------------------------------------
+  #  Frontend (Svelte, built and served by nginx on 8501, the address phones
+  #  use). nginx forwards /api/ to the backend. Not bind-mounted: after
+  #  editing web/src run `docker compose up -d --build web`, or `npm run dev`
+  #  in web/ for hot reload.
+  # --------------------------------------------------------
+  web:
+    build: ./web
+    container_name: personal_finance_web
     restart: unless-stopped # come back after a reboot or crash; `docker compose stop` still stops it
     ports:
       - "8501:8501"
+    depends_on:
+      - backend
+
+  # The old Streamlit frontend, kept for one release as a fallback while the
+  # Svelte app settles in. Off by default; start it with
+  # `docker compose --profile legacy up -d frontend` and open :8502.
+  frontend:
+    build: ./frontend
+    container_name: personal_finance_frontend
+    profiles: ["legacy"]
+    ports:
+      - "8502:8501"
     volumes:
       - ./frontend:/app # Hot Reload for streamlit. Change code, refresh browser, and see changes.
     env_file:

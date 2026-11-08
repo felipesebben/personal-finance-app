@@ -1,6 +1,6 @@
 ---
 name: screenshot-check
-description: Look at a Home Finances page the way a person sees it — a logged-in copy of the frontend on its own port, screenshot in the installed Chrome at desktop and phone width — before handing UI work over. Use after any change to frontend/ pages, sections, ui.py or charts, and whenever a layout question can't be settled from code or AppTest.
+description: Look at a Home Finances page the way a person sees it — a logged-in build of the web app on its own port, screenshot in the installed Chrome at desktop and phone width — before handing UI work over. Use after any change to web/ pages, sections, ui components or charts, and whenever a layout question can't be settled from code or unit tests.
 ---
 
 # Screenshot check
@@ -18,7 +18,25 @@ python -m venv "$LOCALAPPDATA/Temp/pwv"
 
 Check: `"$LOCALAPPDATA/Temp/pwv/Scripts/python.exe" -c "import playwright.sync_api, PIL; print('ok')"` prints `ok`.
 
-## Each time
+## Each time (the Svelte app, web/)
+
+1. **Start a build** (the backend and db must be up): `bash .claude/skills/screenshot-check/scripts/start_web.sh` (port 8599). It builds `web/`, serves it with `vite preview` forwarding `/api` to the API on localhost:8000 (real data), and mints a token for the first account (`SHOT_EMAIL=...` to pick another) into `$SHOT_DIR/session.json`. Expected last line: `running: http://localhost:8599/ ...`. Re-run it after editing `web/`: it serves a build, not the sources.
+
+2. **Shoot** each page and tab you changed, at desktop and phone width (the route is the URL hash):
+
+   ```bash
+   PW="$LOCALAPPDATA/Temp/pwv/Scripts/python.exe"
+   OUT=<the session scratchpad>/shots
+   "$PW" .claude/skills/screenshot-check/scripts/shoot_web.py "$OUT" our_month ours/month
+   "$PW" .claude/skills/screenshot-check/scripts/shoot_web.py "$OUT" our_trend_phone ours/trend --width 390
+   "$PW" .claude/skills/screenshot-check/scripts/shoot_web.py "$OUT" login home --logged-out
+   ```
+
+   Each writes `NAME.png` (full page) and parts `NAME_0.png`... of 1400px, and prints any browser error (`browser error: ...`), which means a page broke. On a phone-width shot the fixed bottom tab bar is drawn once, part-way down the full-page capture: that's the capture, not the layout.
+
+3. **Read the parts** and check them as below. 4. **Stop:** `bash .claude/skills/screenshot-check/scripts/stop.sh`.
+
+## Each time (the legacy Streamlit app, frontend/)
 
 1. **Start the copy** (the backend and db must be up):
 
