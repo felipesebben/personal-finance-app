@@ -294,9 +294,14 @@ def test_settle_up_takes_a_different_amount_in_one_step(api):
 
 
 def test_the_monthly_recap_reads_the_month_and_offers_to_settle(api):
+    import datetime
+    from zoneinfo import ZoneInfo
+
+    from analytics_shaping import shift_month
     from conftest import sample_payload
     get, _ = api
-    get.side_effect = answering({"/analytics/shared?": sample_payload("2026-09", is_partial=False, as_of_day=30),
+    last = shift_month(datetime.datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y-%m"), -1)  # the recap's month
+    get.side_effect = answering({"/analytics/shared?": sample_payload(last, is_partial=False, as_of_day=30),
                                  "/balances/": BALANCES,
                                  "/category_targets": [{"primary_category": "Food", "amount": "500.00"}]})
     at = open_page(OURS)

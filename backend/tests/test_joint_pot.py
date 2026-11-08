@@ -82,6 +82,37 @@ def test_a_new_balance_check_resets_the_count(client, pot):
     assert D(status(client, pot)["balance"]) == D("600.00")
 
 
+def test_a_bill_paid_early_is_not_taken_off_a_check_made_after_paying_it(client, pot, monkeypatch):
+    # Paid on 1 Dec, dated on its due date (the 20th); the bank shows it gone by the check on the 5th.
+    class PaidOnTheFirst(FrozenDatetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 12, 1, 12, 0, tzinfo=SAO_PAULO).astimezone(tz)
+    monkeypatch.setattr(main, "datetime", PaidOnTheFirst)
+    spend(client, pot, "120.00", "2026-12-20T10:00:00-03:00")
+    monkeypatch.setattr(main, "datetime", FrozenDatetime)
+    entry(client, pot, "balance", "500.00", "2026-12-05T10:00:00-03:00")
+    spend(client, pot, "30.00", "2026-12-06T10:00:00-03:00")  # an ordinary one, after the check
+    s = status(client, pot)
+    assert D(s["balance"]) == D("470.00")
+    assert D(s["spent_since"]) == D("30.00")
+
+
+def test_a_bill_paid_early_after_the_check_still_counts(client, pot):
+    entry(client, pot, "balance", "500.00", "2026-12-05T10:00:00-03:00")
+    spend(client, pot, "120.00", "2026-12-28T10:00:00-03:00")  # logged (and paid) on the 10th, due the 28th
+    assert D(status(client, pot)["balance"]) == D("380.00")
+
+
+def test_older_expenses_without_created_at_count_from_their_date(client, pot):
+    entry(client, pot, "balance", "500.00", "2026-12-05T10:00:00-03:00")
+    spend(client, pot, "100.00", "2026-12-07T10:00:00-03:00")
+    with database.SessionLocal() as db:
+        db.query(main.models.FactExpenditure).update({"created_at": None})
+        db.commit()
+    assert D(status(client, pot)["balance"]) == D("400.00")
+
+
 def test_without_a_check_counting_starts_at_the_first_deposit(client, pot):
     spend(client, pot, "40.00", "2026-11-30T10:00:00-03:00")  # before any deposit
     entry(client, pot, "deposit", "500.00", "2026-12-01T10:00:00-03:00")
