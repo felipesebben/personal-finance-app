@@ -32,8 +32,11 @@
 
   let width = $state(480)
   const right = $derived(references.length ? Math.max(...references.map((r) => textWidth(r.name, 11))) + 10 : 6)
-  const margin = $derived({ top: 18, right, bottom: 24, left: 6 })
   const max = $derived(Math.max(...columns.map((c) => c.value), ...references.map((r) => r.value), 1))
+  // The y axis on the leading edge: a few round values in short reais, so the grid lines read as amounts.
+  const yTicks = $derived(scaleLinear().domain([0, max * 1.08]).ticks(3).filter((t) => t > 0))
+  const left = $derived(Math.max(...yTicks.map((t) => textWidth(shortBrl(t), 11)), 0) + 8)
+  const margin = $derived({ top: 18, right, bottom: 24, left })
   const x = $derived(scaleBand<string>().domain(columns.map((c) => c.label)).range([margin.left, width - margin.right])
     .paddingInner(0.25).paddingOuter(0.1))
   const y = $derived(scaleLinear().domain([0, max * 1.08]).range([height - margin.bottom, margin.top]))
@@ -48,10 +51,12 @@
 </script>
 
 <div class="wrap" bind:clientWidth={width}>
-  <svg {width} {height} role="img" aria-label={columns.map((c) => `${c.label}: ${formatBrl(c.value)}`).join('; ')}>
-    {#each y.ticks(3) as t}
-      {#if t > 0}<line x1={margin.left} x2={width - margin.right} y1={y(t)} y2={y(t)} stroke={GRID} />{/if}
+  <svg {width} {height} role="img" aria-label="Column chart, one column per month{references.length ? `, with ${references.map((r) => r.name).join(' and ')} as reference lines` : ''}. {columns.map((c) => `${c.label}: ${formatBrl(c.value)}`).join('; ')}">
+    {#each yTicks as t}
+      <line x1={margin.left} x2={width - margin.right} y1={y(t)} y2={y(t)} stroke={GRID} />
+      <text x="0" y={y(t)} dominant-baseline="central" font-size="11" fill={MUTED}>{shortBrl(t)}</text>
     {/each}
+    <text x="0" y={y(0)} dominant-baseline="central" font-size="11" fill={MUTED}>0</text>
     {#each columns as c, i}
       <g>
         <title>{c.title ?? `${c.label}: ${formatBrl(c.value)}`}</title>

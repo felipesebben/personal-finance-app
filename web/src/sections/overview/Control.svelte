@@ -6,6 +6,7 @@
 -->
 <script lang="ts">
   import Card from '../../lib/ui/Card.svelte'
+  import Legend from '../../lib/charts/Legend.svelte'
   import Kpi from '../../lib/ui/Kpi.svelte'
   import MonthSpark from '../../lib/charts/MonthSpark.svelte'
   import { formatBrl } from '../../lib/money'
@@ -26,7 +27,7 @@
 
 <Card title="Are the costs we control changing?"
   subtitle={'Day-to-day spending and bills that vary (cost type Variable in Settings), one-offs left out, each against its usual month' +
-    (ctx.isPartial ? ' over the same days' : '') + ': the dashed line.'}>
+    (ctx.isPartial ? ' over the same days' : '') + '.'}>
   {#if !rows.length}
     <p class="caption">Nothing here among what's being counted: the filters may leave it out.</p>
   {:else}
@@ -40,6 +41,7 @@
         </div>
       {/each}
     </div>
+    <Legend items={[{ mark: 'dash', label: 'Usual month' }, ...(ctx.isPartial ? [{ mark: 'partial' as const, label: 'This month so far' }] : [])]} />
     {#if rows.length > CONTROL_CARDS}
       <p class="caption">The {CONTROL_CARDS} biggest of {rows.length}; Filters › Categories narrows it.</p>
     {/if}

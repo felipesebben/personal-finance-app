@@ -42,10 +42,11 @@
     min-height: var(--min-height, 0);
   }
   .card.compact { padding: 0.95rem 1.05rem; gap: 0.5rem; }
-  header { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem; flex-wrap: wrap; }
-  /* The question as a headline, the answer under it as the chart's summary. */
-  header p { margin-top: 0.2rem; font-size: 0.9375rem; color: var(--muted); }
-  .actions { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+  /* The question as a headline, the answer under it as the chart's summary; the card's own pickers top right. */
+  header { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem 1rem; flex-wrap: wrap; }
+  header > div:first-child { flex: 1 1 16rem; min-width: 0; }
+  header p { margin-top: 0.2rem; font-size: var(--t-callout); color: var(--muted); }
+  .actions { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; justify-content: flex-end; margin-left: auto; }
   @media (max-width: 560px) {
     /* One card per row on a phone: no row to line up with, so no reserved height. */
     .card { padding: 1rem; border-radius: 14px; min-height: 0; }

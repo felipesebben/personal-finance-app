@@ -83,7 +83,7 @@
 </script>
 
 <div class="wrap" bind:clientWidth={width}>
-  <svg {width} {height} role="img" aria-label={named.map((s) => `${s.name}: ${shortBrl(s.points.at(-1)?.y ?? 0)}`).join('; ')}
+  <svg {width} {height} role="img" aria-label="Line chart over {xTitle ? xTitle.toLowerCase() : 'time'}, {xMin} to {xMax}. {named.map((s) => `${s.name}: ${shortBrl(s.points.at(-1)?.y ?? 0)}`).join('; ')}"
     onpointermove={move} onpointerdown={move} onpointerleave={() => (hover = null)}>
     {#each yTicks as t}
       {#if t > 0}
@@ -95,7 +95,7 @@
     {#each ticksX as t}
       <text x={x(t)} y={height - margin.bottom + 15} text-anchor="middle" font-size="11" fill={MUTED}>{xLabel(t)}</text>
     {/each}
-    {#if yTitle}<text x="0" y="11" font-size="11" font-weight="600" fill={MUTED}>{yTitle}</text>{/if}
+    {#if yTitle}<text x="0" y="11" font-size="11" fill={MUTED}>{yTitle}</text>{/if}
     {#if xTitle}<text x={width - margin.right} y={height - 2} text-anchor="end" font-size="11" fill={MUTED}>{xTitle}</text>{/if}
     {#each series as s, i}
       {#if s.area && s.points.length > 1}
@@ -122,7 +122,7 @@
       {/if}
     {/each}
     {#each labels as l}
-      <text x={l.x + 10} y={l.y} dominant-baseline="central" font-size="11" fill={l.color} font-weight="600">{l.name}</text>
+      <text x={l.x + 10} y={l.y} dominant-baseline="central" font-size="11" fill={l.color} font-weight="500">{l.name}</text>
     {/each}
     {#if hover !== null}
       <line x1={x(hover)} x2={x(hover)} y1={margin.top} y2={height - margin.bottom} stroke={INK_2} stroke-opacity="0.35" />
@@ -146,8 +146,8 @@
   svg { display: block; overflow: visible; }
   /* Scrubbing anywhere on the plot reads every line at that day: a popover on a translucent material. */
   .readout { position: absolute; top: 0; background: var(--material); -webkit-backdrop-filter: blur(20px);
-    backdrop-filter: blur(20px); border-radius: 10px; padding: 0.5rem 0.7rem; font-size: 0.8125rem;
+    backdrop-filter: blur(20px); border-radius: 10px; padding: 0.5rem 0.7rem; font-size: var(--t-footnote);
     pointer-events: none; min-width: 170px; box-shadow: var(--shadow-float); color: var(--ink); line-height: 1.5; }
-  .readout b { display: block; color: var(--muted); font-size: 0.75rem; font-weight: 600; }
+  .readout b { display: block; color: var(--muted); font-size: var(--t-caption); font-weight: 500; }
   .sw { display: inline-block; width: 0.55rem; height: 0.55rem; border-radius: 50%; margin-right: 0.4rem; }
 </style>

@@ -52,6 +52,7 @@
   import RankedBars from '../lib/charts/RankedBars.svelte'
   import Calendar from './daily/Calendar.svelte'
   import Progress from './daily/Progress.svelte'
+  import Legend from '../lib/charts/Legend.svelte'
   import Where from './Where.svelte'
 
   let { lens, key, showView = false }: { lens: string; key: string; showView?: boolean } = $props()
@@ -200,14 +201,11 @@
       target: targets.get(m.name) ?? null }))
   }
   const categoryItems = $derived(ready ? whereItems(picked, 'primary_category', wholeTargets) : [])
-  const whereNote = $derived([
-    p?.has_last ? `Grey tick and change: against ${lastBy}.` : '',
-    categoryItems.some((i) => i.target) ? 'Dark tick: the monthly target.' : '',
-  ].filter(Boolean).join(' '))
+  // The ticks are named in the chart's legend; the summary says what the change is against.
+  const whereNote = $derived(p?.has_last ? `Change against ${lastBy}.` : '')
   const inside = (category: string) =>
     whereItems(picked.filter((r) => r.primary_category === category), 'sub_category', subs(targetRows, category))
-  const insideNote = (_: string, items: WhereItem[]) =>
-    items.some((i) => i.target) ? "Dark tick: the sub-category's own target (Settings)." : ''
+  const insideNote = (_: string, __: WhereItem[]) => ''
 
   // --- the biggest days --------------------------------------------------------------------
   const big = $derived(ready ? biggestDays(days, month, L) : [])
@@ -270,20 +268,23 @@
         <p class="h-meta" title="Darker days cost more; tap one to see what it held.">
           <b>{monthName(month)} · {p.is_partial ? `day ${p.day} of ${p.days}` : `all ${p.days} days`}</b>
           <span>{topCategory ? `Mostly ${topCategory} · ` : ''}tap a day</span>
+          <span class="scale"><Legend items={[{ mark: 'scale', label: 'less → more spent' }]} /></span>
         </p>
         <div class="h-kpi">
           <Kpi label={hero.label} value={hero.amount} lines={hero.lines} hero
             help="Everything counted so far this month, against the same days of earlier months. The calendar shades each day by what was spent; tap one to see what it held." />
         </div>
+      </div>
+      <!-- The chart's own header: what the y axis counts on the left, its picker top right. -->
+      <div class="chart-head">
+        <span>Spent so far</span>
         {#if comparisons.length > 1}
-          <div class="h-cmp">
-            <Segmented label="Compare with" options={comparisons.map((s) => s.name)} value={compare ?? ''}
-              onchange={(v) => (compareChoice = v)} />
-          </div>
+          <Segmented compact label="Compare with" options={comparisons.map((s) => s.name)} value={compare ?? ''}
+            onchange={(v) => (compareChoice = v)} />
         {/if}
       </div>
       <LineChart series={shown} xMax={p.days} height={320} xTicks={[1, 5, 10, 15, 20, 25, p.days]}
-        xTitle="Day of the month" yTitle="Spent so far" readoutLabel={(d) => `Day ${d}`} />
+        xTitle="Day of the month" readoutLabel={(d) => `Day ${d}`} />
       <p class="caption">{trackNote}</p>
     </Card>
 
@@ -346,11 +347,22 @@
     {/if}
 
     <Where title="Where is the money going in {monthName(month)}?" items={categoryItems} note={whereNote}
-      changeTitle="Change vs {monthName(p.previous)}" {inside} {insideNote} memoryKey="{key}-daily" />
+      changeTitle="Change vs {monthName(p.previous)}" tickLabel={p.has_last ? lastBy.replace(/^./, (c) => c.toUpperCase()) : 'Last month'}
+      {inside} {insideNote} memoryKey="{key}-daily" />
 
     <div id="{key}-biggest">
       <Card title="What went on the biggest days of {monthName(month)}?"
         subtitle={averageDay ? `The dashed line is the month's average day, ${formatBrl(averageDay)}, quiet days included.` : ''}>
+        {#snippet actions()}
+          {#if big.length}
+            <label class="field">
+              <span class="sr-only">Look inside</span>
+              <select class="compact" value={day} onchange={(e) => (pickedDay = e.currentTarget.value)}>
+                {#each dayOptions as o}<option value={o.key}>{o.name}</option>{/each}
+              </select>
+            </label>
+          {/if}
+        {/snippet}
         {#if !big.length}
           <p class="caption">Nothing spent yet this month.</p>
         {:else}
@@ -360,12 +372,7 @@
               reference={averageDay} referenceLabel="average day {shortBrl(averageDay ?? 0)}"
               onpick={(name) => (pickedDay = big.find((d) => d.name === name)?.key ?? pickedDay)} />
             <div class="stack day-items">
-              <label class="field">
-                <span>Look inside</span>
-                <select value={day} onchange={(e) => (pickedDay = e.currentTarget.value)}>
-                  {#each dayOptions as o}<option value={o.key}>{o.name}</option>{/each}
-                </select>
-              </label>
+              <div class="sub-head">{dayOptions.find((o) => o.key === day)?.name ?? ''}</div>
               {#if items === null}
                 <Loading height={80} />
               {:else if !dayBars.length}
@@ -386,21 +393,22 @@
   .daily { display: flex; flex-direction: column; gap: 1rem; transition: opacity 0.15s; }
   .daily.dim { opacity: 0.6; }
   /* The hero: question and number on the left, the calendar widget top right (a small chart, like an Apple widget). */
-  .hero { display: grid; grid-template-columns: minmax(0, 1fr) 13.5rem; column-gap: 2rem; row-gap: 0.35rem;
-    grid-template-areas: 'title cal' 'kpi cal' 'cmp meta'; align-items: start; }
-  .h-cmp { grid-area: cmp; align-self: end; margin-top: 0.75rem; }
+  .hero { display: grid; grid-template-columns: minmax(0, 1fr) 12rem; column-gap: 2rem; row-gap: 0.35rem;
+    grid-template-areas: 'title cal' 'kpi cal' '. meta'; align-items: start; }
+  .chart-head { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap;
+    margin-top: 0.5rem; font-size: var(--t-footnote); color: var(--muted); }
   .h-title { grid-area: title; }
   .h-cal { grid-area: cal; }
   .h-kpi { grid-area: kpi; margin-top: 0.4rem; }
-  .h-meta { grid-area: meta; display: flex; flex-direction: column; font-size: 0.75rem; color: var(--muted); }
-  .h-meta b { font-weight: 600; color: var(--ink-2); }
-  .sub-head { font-weight: 600; font-size: 0.9rem; margin-bottom: 0.4rem; }
+  .h-meta { grid-area: meta; display: flex; flex-direction: column; font-size: var(--t-caption); color: var(--muted); }
+  .h-meta b { font-weight: 500; color: var(--ink-2); }
+  .h-meta .scale { margin-top: 0.3rem; }
+  .sub-head { font-weight: 500; font-size: var(--t-subhead); margin-bottom: 0.4rem; }
   .day-items { gap: 0.6rem; }
-  .day-items .field { max-width: 14rem; }
   @media (max-width: 560px) {
     /* On a phone the widget sits beside the question and its caption; the number gets the full width below. */
     .hero { grid-template-columns: minmax(0, 1fr) 9.5rem; column-gap: 1rem;
-      grid-template-areas: 'title cal' 'meta cal' 'kpi kpi' 'cmp cmp'; }
+      grid-template-areas: 'title cal' 'meta cal' 'kpi kpi'; }
     .h-meta { align-self: end; padding-bottom: 0.2rem; }
   }
 </style>

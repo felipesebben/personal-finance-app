@@ -15,10 +15,10 @@
 
 <style>
   .lines { display: flex; flex-direction: column; gap: 0.25rem; }
-  h4 { font-size: 0.78rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-2);
+  h4 { font-size: var(--t-footnote); font-weight: 400; letter-spacing: 0; color: var(--ink-2);
     margin: 0.35rem 0 0.1rem; }
-  p { font-size: 0.95rem; }
-  p.more { color: var(--more); font-weight: 600; }
-  p.less { color: var(--less); font-weight: 600; }
-  p.empty { color: var(--muted); font-size: 0.88rem; }
+  p { font-size: var(--t-callout); }
+  p.more { color: var(--more); }
+  p.less { color: var(--less); }
+  p.empty { color: var(--muted); font-size: var(--t-subhead); }
 </style>

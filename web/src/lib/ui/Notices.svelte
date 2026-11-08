@@ -12,6 +12,6 @@
 <style>
   .notices { background: var(--more-soft); border-radius: 14px; padding: 0.7rem 1rem; display: flex;
     flex-direction: column; gap: 0.2rem; }
-  .notice { font-size: 0.9375rem; line-height: 1.45; color: var(--ink); }
-  .notice.more { color: var(--more-ink); font-weight: 600; }
+  .notice { font-size: var(--t-callout); line-height: 1.45; color: var(--ink); }
+  .notice.more { color: var(--more-ink); font-weight: 500; }
 </style>

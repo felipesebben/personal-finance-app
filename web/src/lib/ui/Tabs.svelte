@@ -22,9 +22,9 @@
     max-width: 100%; background: var(--fill); border-radius: 9px; scrollbar-width: none; }
   .tabs::-webkit-scrollbar { display: none; }
   button { flex: none; border: none; background: none; padding: 0.4rem 1rem; cursor: pointer; color: var(--ink);
-    font-size: 0.875rem; font-weight: 500; border-radius: 7px; white-space: nowrap;
+    font-size: var(--t-subhead); font-weight: 500; border-radius: 7px; white-space: nowrap;
     transition: background 0.2s ease, box-shadow 0.2s ease; }
   button:hover:not(.active) { background: var(--fill-2); }
-  button.active { background: var(--thumb); font-weight: 600;
+  button.active { background: var(--thumb); font-weight: 500;
     box-shadow: 0 3px 8px rgba(0, 0, 0, 0.12), 0 3px 1px rgba(0, 0, 0, 0.04); }
 </style>

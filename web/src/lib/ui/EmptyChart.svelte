@@ -7,5 +7,5 @@
 
 <style>
   .empty { display: grid; place-items: center; text-align: center; background: var(--fill-2);
-    border-radius: 10px; color: var(--muted); font-size: 0.8125rem; padding: 0 0.75rem; }
+    border-radius: 10px; color: var(--muted); font-size: var(--t-footnote); padding: 0 0.75rem; }
 </style>

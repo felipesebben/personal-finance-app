@@ -57,28 +57,29 @@
   })
 </script>
 
+<!-- A quiet toolbar on the right: the controls name themselves (the month, "Everything"), labels are for screen readers. -->
 <div class="filter-row">
   <label class="field month">
-    <span>Month</span>
-    <select bind:value={month}>
+    <span class="sr-only">Month</span>
+    <select class="compact" bind:value={month}>
       {#each months as m}<option value={m}>{monthLabel(m)}</option>{/each}
     </select>
   </label>
   {#if showView}
     <label class="field view">
-      <span>Show</span>
-      <select bind:value={view} title="Everything I spent = my share of shared expenses + my personal ones.">
+      <span class="sr-only">Show</span>
+      <select class="compact" bind:value={view} title="Everything I spent = my share of shared expenses + my personal ones.">
         {#each Object.entries(VIEWS) as [id, text]}<option value={id}>{text}</option>{/each}
       </select>
     </label>
   {/if}
   <div class="focus">
-    <Segmented label="What to count" options={[...FOCUSES]} value={filters.focus}
+    <Segmented compact label="What to count" options={[...FOCUSES]} value={filters.focus}
       onchange={(v) => (filters = { ...filters, focus: v })} />
   </div>
   <div class="more">
-    <button type="button" class="btn" class:on={on > 0} aria-expanded={open} onclick={() => (open = !open)}>
-      <Icon name="filter" size={18} />{on ? `Filters · ${on}` : 'Filters'}
+    <button type="button" class="btn compact" class:on={on > 0} aria-expanded={open} onclick={() => (open = !open)}>
+      <Icon name="filter" size={15} />{on ? `Filters · ${on}` : 'Filters'}
     </button>
   </div>
 </div>
@@ -115,22 +116,21 @@
 {/if}
 
 <style>
-  .filter-row { display: flex; flex-wrap: wrap; gap: 0.75rem 1rem; align-items: flex-end; margin-bottom: 0.75rem; }
-  .month { width: 11.5rem; }
-  .view { width: 12.5rem; }
-  .focus { flex: 1 1 auto; min-width: 0; }
-  .btn { background: var(--fill); color: var(--ink); font-weight: 500; min-height: 2.75rem; }
-  .btn.on { background: var(--brand-soft); color: var(--brand); font-weight: 600; }
+  .filter-row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; justify-content: flex-end;
+    margin-bottom: 0.75rem; }
+  .focus { min-width: 0; }
+  .btn { background: var(--fill); color: var(--ink); font-weight: 400; }
+  .btn.on { background: var(--brand-soft); color: var(--brand); font-weight: 500; }
   .panel { background: var(--surface); border-radius: 14px; box-shadow: var(--shadow-float);
     padding: 1rem 1.1rem; display: flex; flex-direction: column; gap: 0.9rem; margin-bottom: 1rem;
     animation: panel-in 0.2s ease; }
   @keyframes panel-in { from { opacity: 0; transform: translateY(-4px); } }
   .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
   .chip { border: none; background: var(--fill); border-radius: 999px; padding: 0.35rem 0.85rem;
-    cursor: pointer; font-size: 0.875rem; font-weight: 500; color: var(--ink); }
-  .chip.active { background: var(--brand); color: var(--on-brand); font-weight: 600; }
-  .hint { font-size: 0.8125rem; color: var(--muted); }
+    cursor: pointer; font-size: var(--t-subhead); font-weight: 400; color: var(--ink); }
+  .chip.active { background: var(--brand); color: var(--on-brand); font-weight: 500; }
+  .hint { font-size: var(--t-footnote); color: var(--muted); }
   @media (max-width: 560px) {
-    .month, .view { width: calc(50% - 0.5rem); }
+    .filter-row { justify-content: flex-start; }
   }
 </style>

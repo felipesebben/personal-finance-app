@@ -16,3 +16,17 @@ describe('barPath', () => {
     expect(barPath(0, 0, 10, 0, 6, 'top')).toBe('')
   })
 })
+
+describe('fittedTicks', () => {
+  it('keeps only labels that fit beside each other and beside zero', async () => {
+    const { scaleLinear } = await import('d3-scale')
+    const { fittedTicks } = await import('./palette')
+    const fmt = (v: number) => `R$ ${v}`
+    const narrow = scaleLinear().domain([0, 1000]).range([0, 160])
+    const ticks = fittedTicks(narrow, 0, 1000, fmt)
+    for (let i = 1; i < ticks.length; i++) expect(narrow(ticks[i]) - narrow(ticks[i - 1])).toBeGreaterThan(40)
+    expect(ticks.length).toBeLessThanOrEqual(2)
+    const wide = scaleLinear().domain([-1000, 1000]).range([0, 600])
+    expect(fittedTicks(wide, -1000, 1000, fmt)).toEqual([-1000, -500, 500, 1000])
+  })
+})

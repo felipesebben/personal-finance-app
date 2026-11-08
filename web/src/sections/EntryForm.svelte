@@ -431,21 +431,21 @@
   .price { max-width: 24rem; }
   .price input { font-size: 1.35rem; font-weight: 600; min-height: 3rem; }
   .narrow { max-width: 16rem; }
-  .preview { font-size: 0.88rem; color: var(--brand-strong); font-weight: 500; }
-  .hint { font-size: 0.82rem; color: var(--muted); }
+  .preview { font-size: var(--t-subhead); color: var(--brand-strong); font-weight: 500; }
+  .hint { font-size: var(--t-footnote); color: var(--muted); }
   .nature { margin-top: 0.3rem; }
-  .error { font-size: 0.85rem; color: var(--more); }
+  .error { font-size: var(--t-footnote); color: var(--more); }
   .who { display: flex; flex-direction: column; gap: 0.5rem; }
   .who .check { min-height: 2.2rem; }
   .shares { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.75rem; max-width: 24rem; }
   .chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
   .chip { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 0.4rem 0.8rem;
-    min-height: 2.3rem; cursor: pointer; font-size: 0.88rem; text-align: left; }
+    min-height: 2.3rem; cursor: pointer; font-size: var(--t-subhead); text-align: left; }
   .chip:hover { border-color: var(--brand); }
   .chip.active { background: var(--brand-soft); border-color: var(--brand); color: var(--brand-strong); }
   .duplicate { display: flex; flex-direction: column; gap: 0.6rem; border: 1px solid var(--line);
     border-radius: var(--radius); padding: 0.8rem; }
-  .duplicate ul { margin: 0; padding-left: 1.2rem; font-size: 0.9rem; }
+  .duplicate ul { margin: 0; padding-left: 1.2rem; font-size: var(--t-subhead); }
   .submit { min-height: 3rem; font-size: 1.05rem; align-self: flex-start; min-width: 12rem; }
   @media (max-width: 560px) {
     .pair { grid-template-columns: minmax(0, 1fr); }
