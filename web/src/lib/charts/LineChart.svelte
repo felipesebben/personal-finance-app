@@ -41,7 +41,8 @@
   let hover = $state<number | null>(null)
 
   const named = $derived(series.filter((s) => !s.quiet && s.points.length))
-  const endRoom = $derived(Math.min(Math.max(...named.map((s) => textWidth(s.name, 11)), 0) + 12, width * 0.35))
+  // On a phone the plot keeps most of the width; long end names may run into the card's padding.
+  const endRoom = $derived(Math.min(Math.max(...named.map((s) => textWidth(s.name, 11)), 0) + 12, width * (width < 480 ? 0.2 : 0.3)))
   // The y labels sit inside the plot on the leading edge (above their grid line), so the chart lines up
   // with the card's text and the plot spans the card's width (Apple's chart guidelines).
   const margin = $derived({ top: yTitle ? 34 : 14, right: endRoom, bottom: xTitle ? 38 : 24, left: 2 })

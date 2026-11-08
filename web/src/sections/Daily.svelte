@@ -64,8 +64,8 @@
   const NOUNS: Record<string, string> = { all: 'expenses', personal: 'personal expenses', shared: 'shared expenses' }
   /** The month and twelve before: last month, usual, the 12-month average, the same month last year. */
   const MONTHS = 13
-  const TOP_HEIGHT = 380
-  const CARD_HEIGHT = 230
+  const TOP_HEIGHT = 420
+  const CARD_HEIGHT = 250
   // This month brand green and thick; comparisons greys told apart by their dash; the target ink, dotted.
   const STYLE: Record<Role, { color: string; width: number; dash?: string }> = {
     this: { color: BRAND, width: 3 },
@@ -269,7 +269,7 @@
           <Segmented label="Compare with" options={comparisons.map((s) => s.name)} value={compare ?? ''}
             onchange={(v) => (compareChoice = v)} />
         {/if}
-        <LineChart series={shown} xMax={p.days} height={230} xTicks={[1, 5, 10, 15, 20, 25, p.days]}
+        <LineChart series={shown} xMax={p.days} height={300} xTicks={[1, 5, 10, 15, 20, 25, p.days]}
           xTitle="Day of the month" yTitle="Spent so far" readoutLabel={(d) => `Day ${d}`} />
         <p class="caption">{trackNote}</p>
       </Card>

@@ -13,6 +13,7 @@
 import { addMonths, ordinal } from '../dates'
 import { formatBrl, signedBrl } from '../money'
 import { cents } from '../money'
+import { delta } from '../delta'
 
 export type Lens = 'Household' | 'My share'
 export type Amount = 'household' | 'mine' | 'household_to_day' | 'mine_to_day'
@@ -251,10 +252,11 @@ export function deltaText(change: number, p: number | null): string {
 
 export type Line = [string, 'more' | 'less' | null]
 
-/** '▲ +R$ 120,00 (+12,0%) vs Sep 26', toned: spending up is "more" (orange). */
+/** '▲ R$ 120 (12%) vs Sep 26', toned: spending up is "more" (orange). One short line (lib/delta.ts). */
 export function deltaLine(change: number, p: number | null, against: string): Line {
-  if (change === 0) return [`Same as ${against}`, null]
-  return [`${change > 0 ? '▲' : '▼'} ${deltaText(change, p)} vs ${against}`, change > 0 ? 'more' : 'less']
+  if (p === null || Number.isNaN(p)) return delta(change, null, against)
+  // delta() wants the earlier amount; recover it from the change and its share.
+  return delta(change, p ? change / p : null, against)
 }
 
 // --- what we control, fixed costs, one-offs ----------------------------------------

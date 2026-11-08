@@ -68,7 +68,7 @@ describe('joint account', () => {
   it('builds the three cards', () => {
     const [left, spent, runs] = jointCards(status())
     expect(left[1]).toBe('R$ 500,00')
-    expect(spent[2][0]).toEqual(['▲ +R$ 100,00 vs usual', 'more'])
+    expect(spent[2][0]).toEqual(['▲ R$ 100 vs usual', 'more'])
     expect(runs[1]).toBe('20/12')
   })
 

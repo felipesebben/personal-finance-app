@@ -180,9 +180,9 @@ input:disabled, select:disabled { opacity: 0.55; }
 .less { color: var(--less); }
 
 /* Layout helpers. */
-.stack { display: flex; flex-direction: column; gap: 1rem; }
+.stack { display: flex; flex-direction: column; gap: 1.25rem; }
 .row { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end; }
-.grid { display: grid; gap: 1rem; }
+.grid { display: grid; gap: 1.25rem; }
 .grid.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .grid.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }

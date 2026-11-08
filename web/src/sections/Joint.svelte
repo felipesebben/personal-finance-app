@@ -120,13 +120,13 @@
 
     <div class="grid cols-3">
       {#each jointCards(status) as [label, value, lines]}
-        <Card minHeight={150}><Kpi {label} {value} {lines} /></Card>
+        <Card minHeight={140}><Kpi {label} {value} {lines} /></Card>
       {/each}
     </div>
 
     <Card title="Is the account going faster than usual?" subtitle={paceSentence(status)}>
       {#if series.length}
-        <LineChart {series} xMax={status.days_in_month} height={280} yTitle="Spent so far" xTitle="Day of the month"
+        <LineChart {series} xMax={status.days_in_month} height={300} yTitle="Spent so far" xTitle="Day of the month"
           readoutLabel={(d) => `Day ${d}`} xTicks={[1, 5, 10, 15, 20, 25, status.days_in_month]} />
         {#if !series.some((s) => s.name === 'Usual')}
           <p class="caption">The usual line appears after a full month of spending on this account.</p>

@@ -22,7 +22,7 @@
 
 <style>
   .progress { margin-top: 0.75rem; }
-  .track { position: relative; height: 12px; border-radius: 6px; background: var(--hairline); }
+  .track { position: relative; height: 12px; border-radius: 6px; background: var(--fill); }
   .fill { height: 100%; border-radius: 6px; background: var(--brand); }
   .fill.ahead { background: var(--more); }
   .tick { position: absolute; top: -5px; width: 2px; height: 22px; background: var(--ink); transform: translateX(-1px); }

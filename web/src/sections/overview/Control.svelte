@@ -20,7 +20,7 @@
   const shown = $derived(rows.slice(0, CONTROL_CARDS))
   const lines = (r: (typeof rows)[number]): Line[] => [
     r.usual === null ? ['No usual month yet', null] : deltaLine(r.change ?? 0, r.pct, 'usual'),
-    ...(r.streak >= 2 ? [[`Above usual ${r.streak} months running`, 'more'] as Line] : []),
+    ...(r.streak >= 2 ? [[`${r.streak} months above usual`, null] as Line] : []),
   ]
 </script>
 
@@ -36,7 +36,7 @@
         <div class="mini">
           <Kpi label={r.name} value={formatBrl(r.current)} lines={lines(r)} />
           <MonthSpark bars={sparkBars(new Map(r.series), ctx, formatBrl)} reference={r.usual}
-            referenceName={r.usual === null ? '' : `Usual: ${formatBrl(r.usual)}`} height={50} />
+            referenceName={r.usual === null ? '' : `Usual: ${formatBrl(r.usual)}`} height={64} />
         </div>
       {/each}
     </div>

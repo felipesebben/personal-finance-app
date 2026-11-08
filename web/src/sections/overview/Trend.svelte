@@ -40,6 +40,6 @@
   {#snippet actions()}
     <Segmented options={['6', '12']} bind:value={window} labels={{ '6': '6 months', '12': '12 months' }} />
   {/snippet}
-  <Columns {columns} {references} height={240} />
+  <Columns {columns} {references} height={290} />
   {#if notes.length}<p class="caption">{notes.join(' ')}</p>{/if}
 </Card>

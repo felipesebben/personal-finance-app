@@ -109,7 +109,7 @@ describe('text', () => {
     expect(deltaText(22000, 220 / 150)).toBe('+R$ 220,00 (+146,7%)')
     expect(deltaText(5000, null)).toBe('+R$ 50,00 (new)')
     expect(deltaLine(0, null, 'Sep')).toEqual(['Same as Sep', null])
-    expect(deltaLine(-1000, -0.1, 'Sep')).toEqual(['▼ -R$ 10,00 (-10,0%) vs Sep', 'less'])
+    expect(deltaLine(-1000, -0.1, 'Sep')).toEqual(['▼ R$ 10 (10%) vs Sep', 'less'])
   })
 })
 
