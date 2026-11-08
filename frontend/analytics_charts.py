@@ -281,3 +281,62 @@ def ranked_bars(frame: pd.DataFrame, picked: str | None = None, previous: str | 
     return finish(alt.layer(*layers), BAR_ROW * max(len(frame), 1) + X_AXIS)
 
 
+
+
+MORE, LESS = "#b5470f", "#1f5fa8"  # spent more (orange) / less (blue), as ui.MORE / ui.LESS
+PCT_AXIS_EXPR = "(datum.value > 0 ? '+' : '') + format(datum.value, '.0%')"
+
+
+def change_frame(frame: pd.DataFrame, mode: str = "R$") -> pd.DataFrame:
+    """
+    ranked_bars' frame (name, amount, previous) as each row's change, for
+    change_bars: in reais (`mode` "R$") or as a share of before ("%"). A
+    name with nothing before has no percentage: no bar, "new" at zero.
+    """
+    out = frame[["name", "amount", "previous"]].copy()
+    out["change"] = (out["amount"] - out["previous"]).round(2)
+    if mode == "%":
+        out["value"] = [c / p if p > 0 else 0.0 for c, p in zip(out["change"], out["previous"])]
+        out["label"] = [("new" if p <= 0 else ("▲ " if c > 0 else "▼ " if c < 0 else "") + f"{abs(c / p):.0%}")
+                        for c, p in zip(out["change"], out["previous"])]
+    else:
+        out["value"] = out["change"]
+        out["label"] = [("▲ " if c > 0 else "▼ " if c < 0 else "") + short_brl(abs(c)) for c in out["change"]]
+    out["direction"] = ["more" if c > 0 else "less" if c < 0 else "same" for c in out["change"]]
+    out["now_brl"] = out["amount"].map(format_brl)
+    out["then_brl"] = out["previous"].map(format_brl)
+    out["change_brl"] = out["change"].map(signed_brl)
+    return out
+
+
+def change_bars(frame: pd.DataFrame, mode: str = "R$", x_label: str = "Change") -> alt.LayerChart:
+    """
+    The change beside ranked_bars: the same names in the same order and the
+    same row height, so on a wide screen each row lines up with its bar.
+    Orange to the right for more, blue to the left for less, the change at
+    the end (R$, or % with `mode` "%", where every row is on one scale).
+    """
+    data = change_frame(frame, mode)
+    order = list(data["name"])
+    y = alt.Y("name:N", sort=order, axis=name_axis(names_width(order)))
+    low, high = min(data["value"].min(), 0.0), max(data["value"].max(), 0.0)
+    pad = 0.45 * (high - low or 1.0)  # room past each end for its label
+    domain = [low - pad if low < 0 else 0.0, high + pad if high > 0 else 0.0]
+    if domain == [0.0, 0.0]:
+        domain = [-1.0, 1.0]
+    x = alt.X("value:Q", scale=alt.Scale(domain=domain, nice=False),
+              axis=alt.Axis(labelExpr=PCT_AXIS_EXPR if mode == "%" else BRL_AXIS_EXPR, tickCount=3, domain=False,
+                            ticks=False, labelFlush=True, **x_title(x_label)))
+    tooltip = [alt.Tooltip("name:N", title="What"), alt.Tooltip("now_brl:N", title="Now"),
+               alt.Tooltip("then_brl:N", title="Before"), alt.Tooltip("change_brl:N", title="Change")]
+    base = alt.Chart(data)
+    bars = base.mark_bar(cornerRadius=4, height=18).encode(
+        x=x, y=y, tooltip=tooltip,
+        color=alt.Color("direction:N", scale=alt.Scale(domain=["more", "less", "same"], range=[MORE, LESS, GREY]),
+                        legend=None))
+    right = base.transform_filter("datum.value >= 0").mark_text(align="left", dx=4, fontSize=11, color=INK).encode(
+        x=x, y=y, text="label:N")
+    left = base.transform_filter("datum.value < 0").mark_text(align="right", dx=-4, fontSize=11, color=INK).encode(
+        x=x, y=y, text="label:N")
+    zero = alt.Chart(pd.DataFrame({"z": [0]})).mark_rule(color=MUTED).encode(x="z:Q")
+    return finish(alt.layer(bars, zero, right, left), BAR_ROW * max(len(order), 1) + X_AXIS)

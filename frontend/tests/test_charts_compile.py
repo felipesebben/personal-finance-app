@@ -111,3 +111,12 @@ def test_a_target_tick_compiles():
     mix = daily.ranked(rows, "Household", "primary_category", month="2026-10")
     mix = mix.assign(target=[300.0] + [0.0] * (len(mix) - 1))
     compiles(analytics_charts.ranked_bars(mix, picked=mix["name"].iloc[0], target="target"))
+
+
+@pytest.mark.parametrize("mode", ["R$", "%"])
+def test_the_change_beside_the_bars_compiles(mode):
+    import pandas as pd
+    bars = pd.DataFrame({"name": ["Food", "Pets", "Gifts"], "amount": [150.0, 80.0, 40.0],
+                         "previous": [100.0, 100.0, 0.0]})
+    compiles(analytics_charts.change_bars(bars, mode))
+    compiles(analytics_charts.change_bars(bars.assign(amount=bars["previous"]), mode))  # nothing changed
