@@ -7,10 +7,12 @@ Top to bottom, from the whole month down to single days:
 - the answer: a hero card (spent so far, with its running total) beside
   this month's calendar as a reference, then four equal KPI cards;
 - one card per question: how the month built up; where the money goes
-  (categories, then inside the picked one its sub-categories: day by day
-  says little for what's bought once a month, like electricity, so it
-  stops there); where the difference comes from; what went on the
-  biggest days (a picked day's purchases as bars); the weekday pattern.
+  (categories, each with its change beside it, then inside the picked one
+  its sub-categories: day by day says little for what's bought once a
+  month, like electricity, so it stops there); what went on the biggest
+  days (a picked day's purchases as bars). The separate "where does the
+  difference come from" and weekday cards were removed on 2026-11-07, to
+  keep the view uncrowded.
 
 Charts only: no tables here (Entries is where expenses are listed). On Our
 expenses it reads the shared endpoints; on My expenses (show_view=True)
@@ -35,9 +37,11 @@ import daily_shaping as daily
 import filtering
 import notices
 import ui
+import targets as category_targets
 import upcoming
 from common import SAO_PAULO, get_data, md
 from money import format_brl
+from sections import where
 from sections.filters import FilterRow
 
 # source -> (daily endpoint, expense list endpoint)
@@ -49,7 +53,6 @@ ENDPOINTS = {
 VIEW_SOURCES = {"all": ["shared", "personal"], "personal": ["personal"], "shared": ["shared"]}
 NOUNS = {"all": "expenses", "personal": "personal expenses", "shared": "shared expenses"}
 MONTHS = 13  # the month and twelve before: last month, usual, the 12-month average, the same month last year
-TOP_CHANGES = 10
 CARD_HEIGHT = 232  # a minimum: a card whose text wraps grows rather than clipping its chart
 TOP_HEIGHT = 352  # the hero and the calendar beside it, so the top row lines up
 EMPTY = {
@@ -130,12 +133,11 @@ def _cards(p: dict, cards: list[dict], hist, this_cal, last_cal) -> None:
                 st.altair_chart(chart, use_container_width=True)
 
 
-def _targets(token: str, lens: str) -> dict[str, float]:
-    """The household's monthly targets by category; only for the Household lens (they're for shared spending)."""
+def _targets(token: str, lens: str) -> list[dict]:
+    """The household's monthly targets (rows); only for the Household lens (they're for shared spending)."""
     if lens != "Household":
-        return {}
-    rows = get_data("category_targets/", token, default=[])
-    return {t["primary_category"]: float(t["amount"]) for t in rows or [] if isinstance(t, dict)}
+        return []
+    return get_data("category_targets/", token, default=[]) or []
 
 
 def _due(token: str, month: str, view: str, lens: str, filters: filtering.Filters):
@@ -175,39 +177,66 @@ def _still_to_come(bills, cards) -> None:
                 st.altair_chart(analytics_charts.ranked_bars(cards, room=1.7), use_container_width=True)
 
 
-def _where(picked, lens: str, month: str, p: dict, key: str, targets: dict[str, float]) -> None:
-    """Where is the money going? The categories, then what's inside the picked one, each against last month."""
-    st.subheader(f"Where is the money going in {daily.month_name(month)}?")
+def _where(picked, lens: str, month: str, p: dict, key: str, targets: list[dict]) -> str | None:
+    """
+    Where is the money going? The categories, each with its change against
+    last month beside it. Returns the category to look inside, picked in
+    the card below (_inside).
+    """
+    title, control = st.columns([3, 1], vertical_alignment="bottom")
+    title.subheader(f"Where is the money going in {daily.month_name(month)}?")
     mix = daily.ranked(picked, lens, "primary_category", month=month)
     if mix.empty:
         st.caption("Nothing spent yet this month.")
-        return
+        return None
     # Last month by the same day as a grey tick, once it was logged in full (a partial month would mislead).
     tick = "previous" if p["has_last"] else None
+    mode = where.change_mode(control, f"{key}_daily_change_mode") if tick else "R$"
     notes = []
     if tick:
-        by = f" by the {daily.ordinal(p['day'])}" if p["is_partial"] else ""
-        notes.append(f"Grey tick: {daily.month_name(p['previous'])}{by}.")
+        notes.append(f"Grey tick and change: against {_last_by(p)}.")
         mix = daily.against_last_month(mix, picked, lens, "primary_category", month, p["day"])
     # The household's monthly targets (Settings), as a dark tick: for the whole month.
-    mix = mix.assign(target=[targets.get(n, 0.0) for n in mix["name"]])
+    whole = category_targets.whole(targets)
+    mix = mix.assign(target=[whole.get(n, 0.0) for n in mix["name"]])
     if mix["target"].gt(0).any():
         notes.append("Dark tick: the monthly target.")
     if notes:
         st.caption(" ".join(notes))
-    left, right = st.columns([1, 1], gap="medium")
-    with right:
-        category = st.pills("Look inside", list(mix["name"]), default=mix["name"].iloc[0],
-                            key=f"{key}_daily_inside") or mix["name"].iloc[0]
-    with left:
-        st.altair_chart(analytics_charts.ranked_bars(mix, picked=category, previous=tick, target="target"),
-                        use_container_width=True)
-    with right:
-        rows = picked[picked["primary_category"] == category]
-        inside = daily.ranked(rows, lens, "sub_category", month=month)
-        if tick:
-            inside = daily.against_last_month(inside, rows, lens, "sub_category", month, p["day"])
-        st.altair_chart(analytics_charts.ranked_bars(inside, previous=tick), use_container_width=True)
+    names = list(mix["name"])
+    category = st.session_state.get(f"{key}_daily_inside")
+    category = category if category in names else names[0]
+    where.bars_and_change(mix, mode, tick, picked=category, target="target", room=1.5,
+                          change_title=f"Change vs {daily.month_name(p['previous'])}")
+    return category
+
+
+def _last_by(p: dict) -> str:
+    """'October by the 7th' (or 'October' once this month is over)."""
+    return daily.month_name(p["previous"]) + (f" by the {daily.ordinal(p['day'])}" if p["is_partial"] else "")
+
+
+def _inside(picked, lens: str, month: str, p: dict, key: str, targets: list[dict], category: str) -> None:
+    """What's inside a category: the picker on its own row, then its sub-categories drawn like the categories."""
+    st.subheader("What's inside a category?")
+    names = list(daily.ranked(picked, lens, "primary_category", month=month)["name"])
+    if st.session_state.get(f"{key}_daily_inside") not in names:
+        st.session_state[f"{key}_daily_inside"] = category
+    category = st.pills("Look inside", names, key=f"{key}_daily_inside", label_visibility="collapsed") or category
+    rows = picked[picked["primary_category"] == category]
+    inside = daily.ranked(rows, lens, "sub_category", month=month)
+    if inside.empty:
+        st.caption(f"Nothing in {category} this month.")
+        return
+    tick = "previous" if p["has_last"] else None
+    if tick:
+        inside = daily.against_last_month(inside, rows, lens, "sub_category", month, p["day"])
+    sub_targets = category_targets.subs(targets, category)
+    inside = inside.assign(target=[sub_targets.get(n, 0.0) for n in inside["name"]])
+    if inside["target"].gt(0).any():
+        st.caption("Dark tick: the sub-category's own target (Settings).")
+    where.bars_and_change(inside, st.session_state.get(f"{key}_daily_change_mode") or "R$", tick, target="target",
+                          room=1.5, change_title=f"Change vs {daily.month_name(p['previous'])}")
 
 
 def _biggest_days(df, lens: str, month: str, p: dict, sources: list[str], token: str, filters, key: str) -> None:
@@ -267,18 +296,24 @@ def render(token: str, lens: str, key: str, show_view: bool = False) -> None:
     hist = daily.history(df, data, lens, since=since)
     this_cal = daily.calendar_frame(df, month, lens, today)
 
-    targets = _targets(token, lens)
+    target_rows = _targets(token, lens)
+    targets = category_targets.whole(target_rows)
     target = daily.target_total(targets, picked, filters.active)
     month_rows = picked[picked["month"] == month]
     spent = month_rows.groupby("primary_category")[shape.lens_column(lens)].sum().to_dict()
+    # Sub-category targets follow a decision (e.g. less grooming): noticed like a category's.
+    sub_spent = {category_targets.label(c, s): v for (c, s), v in
+                 month_rows.groupby(["primary_category", "sub_category"])[shape.lens_column(lens)].sum().items()}
     top_category = max(spent, key=spent.get) if spent else None
 
     bills = cards = None
     if p["is_partial"]:
         bills, cards = _due(token, month, view, lens, filters)
         # In-app notices, never pushed: past or near a target, a recurring bill late.
-        ui.notices(notices.notices({c: v for c, v in targets.items() if c in spent or not filters.active}, spent,
-                                   bills, p["day"], p["days"]))
+        followed = {**{c: v for c, v in targets.items() if c in spent or not filters.active},
+                    **{s: v for s, v in category_targets.subs(target_rows).items()
+                       if s in sub_spent or not filters.active}}
+        ui.notices(notices.notices(followed, {**spent, **sub_spent}, bills, p["day"], p["days"]))
 
     track = daily.track_frame(df, data, lens, since=since, started=started, target=target)
     spark = charts.hero_spark(*track, daily.days_in(month))
@@ -316,51 +351,11 @@ def render(token: str, lens: str, key: str, show_view: bool = False) -> None:
             st.altair_chart(charts.months_chart(months, refs), use_container_width=True)
 
     with ui.card("where"):
-        _where(picked, lens, month, p, key, targets)
-
-    # --- Where the difference comes from ---
-    if p["has_last"]:
-        with ui.card("changes"):
-            st.subheader("Where does the difference come from?")
-            against_names = daily.comparison_options(df, data, since=since) or {previous: "last"}
-            c1, c2 = st.columns([3, 2])
-            first = next(iter(against_names))
-            against_label = c1.segmented_control("Compare with", list(against_names), default=first,
-                                                 key=f"{key}_daily_against") or first
-            level = c2.segmented_control("Group by", ["Category", "Sub-category"], default="Category",
-                                         key=f"{key}_daily_level") or "Category"
-            against = against_names.get(against_label, "last")
-            changes = daily.category_changes(picked, data, lens, against=against,
-                                             level="primary_category" if level == "Category" else "sub_category",
-                                             since=since)
-            if changes.empty or not changes["change"].any():
-                st.caption("No change by category to show.")
-            else:
-                st.markdown(md(daily.change_summary(changes, previous if against == "last"
-                                                    else against_label.lower())))
-                # What drove it: behaviour (day-to-day) or fixed costs.
-                ui.kpi_lines(daily.cause_lines(picked, data, lens, against, since=since))
-                moved = changes[changes["change"] != 0]
-                st.altair_chart(charts.changes_chart(moved.head(TOP_CHANGES)), use_container_width=True)
-                same = changes.loc[changes["change"] == 0, "name"]
-                notes = [f"The {TOP_CHANGES} biggest moves of {len(moved)}."] if len(moved) > TOP_CHANGES else []
-                if not same.empty:
-                    notes.append(f"Unchanged: {', '.join(same)}.")
-                if notes:
-                    st.caption(" ".join(notes))
+        category = _where(picked, lens, month, p, key, target_rows)
+    if category:
+        with ui.card("inside"):
+            _inside(picked, lens, month, p, key, target_rows, category)
 
     with ui.card("biggest"):
         _biggest_days(df, lens, month, p, sources, token, filters, key)
 
-    # --- Patterns ---
-    with ui.card("weekdays"):
-        st.subheader("Which weekdays cost most?")
-        start = rows["date"].min()  # the first day anything was logged, whatever is filtered
-        profile = daily.weekday_profile(df, data, lens, today, since=start)
-        if profile.empty or profile["average"].max() == 0:
-            st.caption("Not enough days yet.")
-        else:
-            busiest = profile.loc[profile["average"].idxmax()]
-            st.caption(md(f"Average per day since {start:%d %b}, quiet days included: "
-                          f"{daily.WEEKDAY_NAMES[int(busiest['weekday'])]}s cost most."))
-            st.altair_chart(charts.weekday_chart(profile), use_container_width=True)

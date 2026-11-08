@@ -319,3 +319,136 @@ def as_changes(comparison: pd.DataFrame, by: str) -> pd.DataFrame:
     })
 
 
+# --- what we control, fixed costs, one-offs ------------------------------------
+
+ONE_OFFS = ("Annual", "Extraordinary")  # as filtering.ONE_OFFS
+ABOVE = 1.10  # "above usual": more than 10% over it
+
+
+def controllable(df: pd.DataFrame) -> pd.DataFrame:
+    """Spending that depends on how we live: cost type Variable (bills that vary included), one-offs left out."""
+    return df[(df["cost_type"] == "Variable") & ~df["nature"].isin(ONE_OFFS)]
+
+
+def fixed_costs(df: pd.DataFrame) -> pd.DataFrame:
+    """Fixed costs that recur (rent, internet, subscriptions), one-offs left out."""
+    return df[(df["cost_type"] == "Fixed") & ~df["nature"].isin(ONE_OFFS)]
+
+
+def one_offs(df: pd.DataFrame) -> pd.DataFrame:
+    """Annual and extraordinary costs: the surprises and the once-a-year bills."""
+    return df[df["nature"].isin(ONE_OFFS)]
+
+
+def usual_before(totals: pd.Series, month: str, since: str | None, n: int = 3) -> float | None:
+    """
+    The usual month before `month`: the average of up to `n` months before
+    it that were logged in full (from `since`), from a per-month series;
+    None before any. Fewer than `n` while history is short, so "usual" can
+    be said from the first whole month on.
+    """
+    before = [m for m in totals.index if m < month and (since is None or m >= since)][-n:]
+    return round(float(totals[before].mean()), 2) if before else None
+
+
+def control_rows(df: pd.DataFrame, months: list[str], selected: str, lens: str, is_partial: bool,
+                 since: str | None, shown: int = 6) -> list[dict]:
+    """
+    "Are the costs we control changing?": per primary category of
+    controllable() spending, biggest this month first: `current`, the
+    `usual` month (same days while the month is going), `change` and `pct`
+    against it, the last `shown` months (`series`, for sparkbars) and
+    `streak`, how many months in a row up to this one were above their own
+    usual (more than 10% over it: two or more is a habit, not a blip).
+    """
+    d = controllable(df)
+    window = months[-shown:]
+    out = []
+    for name, rows in d.groupby("primary_category"):
+        full = monthly_totals(rows, months, lens)
+        to_day = monthly_totals(rows, months, lens, to_day=True)
+        current = float(full.get(selected, 0.0))
+        series = full[window]
+        if not series.any():
+            continue
+        # This month against the same days of the usual month while it's going.
+        usual = usual_before(to_day if is_partial else full, selected, since)
+        streak = 0
+        for m in [m for m in months if m <= selected][::-1]:
+            base = usual_before(to_day if (m == selected and is_partial) else full, m, since)
+            if base is None or float(full[m]) <= base * ABOVE:
+                break
+            streak += 1
+        change = round(current - usual, 2) if usual is not None else None
+        out.append({"name": name, "current": round(current, 2), "usual": usual, "change": change,
+                    "pct": _pct(change, usual) if usual else math.nan, "series": series, "streak": streak})
+    return sorted(out, key=lambda r: (-r["current"], r["name"]))
+
+
+def control_lines(rows: list[dict]) -> list[tuple[str, str | None]]:
+    """
+    The control card's answer, in sentences (text, tone): what has been
+    above usual for two months or more (losing control), where the most
+    could be saved, or that everything is close to usual.
+    """
+    compared = [r for r in rows if r["usual"] is not None]
+    if not compared:
+        return [("The usual month appears once a whole month has been logged.", None)]
+    lines = []
+    habit = [r["name"] for r in compared if r["streak"] >= 2]
+    if habit:
+        lines.append((f"Above usual for two months or more: {_names(habit)}.", "more"))
+    over = sorted((r for r in compared if r["usual"] and r["current"] > r["usual"] * ABOVE),
+                  key=lambda r: -r["change"])[:3]
+    if over:
+        lines.append(("Where you could save: " + "; ".join(
+            f"{r['name']} {format_brl(r['change'])} above usual" for r in over) + ".", None))
+    if not lines:
+        lines.append(("Everything you control is within 10% of usual.", "less"))
+    return lines
+
+
+def _names(names: list[str]) -> str:
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+
+
+RESERVE_ROUND = 50   # the suggested monthly reserve, rounded up to R$ 50
+RESERVE_SOLID = 6    # months logged in full before the reserve is more than a rough guess
+
+
+def reserve(df: pd.DataFrame, months: list[str], selected: str, lens: str, since: str | None) -> dict | None:
+    """
+    How much to set aside a month for one-offs: what annual and
+    extraordinary costs averaged per month over the months logged in full
+    before `selected` (`monthly`, rounded up to R$ 50; `rough` while fewer
+    than six), and the annual bills of the last year that come round again
+    (`coming`: name, the month they're next due, what they cost last time),
+    soonest first. None before a whole month has been logged.
+    """
+    import math
+
+    full = [m for m in months if m < selected and (since is None or m >= since)]
+    if not full:
+        return None
+    offs = one_offs(df)
+    column = lens_column(lens)
+    total = float(offs.loc[offs["month"].isin(full), column].sum())
+    monthly = float(math.ceil(total / len(full) / RESERVE_ROUND) * RESERVE_ROUND)
+    annual = offs[(offs["nature"] == "Annual") & offs["month"].isin(months)]
+    last = annual.groupby(["sub_category", "month"])[column].sum().reset_index()
+    last = last.sort_values("month").groupby("sub_category").tail(1)  # the latest time each was paid
+    coming = sorted(((r["sub_category"], shift_month(r["month"], 12), round(float(r[column]), 2))
+                     for _, r in last.iterrows() if r[column] > 0), key=lambda c: (c[1], c[0]))
+    return {"monthly": monthly, "months": len(full), "rough": len(full) < RESERVE_SOLID, "coming": coming}
+
+
+def reserve_lines(r: dict | None) -> list[tuple[str, str | None]]:
+    """The reserve as the One-offs card says it, (text, tone)."""
+    if r is None:
+        return [("A reserve to set aside appears once a whole month has been logged.", None)]
+    span = f"{r['months']} month{'s' if r['months'] != 1 else ''}"
+    lines = [(f"Set aside about {format_brl(r['monthly'])} a month for them"
+              + (f" (a rough guess from {span} logged)" if r["rough"] else f" (from the last {span})"), None)]
+    for name, month, amount in r["coming"][:3]:
+        lines.append((f"Coming round: {name} in {month_label(month, short=True)}, {format_brl(amount)} last time", None))
+    return lines

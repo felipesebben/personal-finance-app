@@ -171,6 +171,7 @@ def create_expenditure(
     # is_shared and shares, which are instructions for the split below
     # rather than stored columns.
     expenditure_data = expenditure.model_dump(exclude={"user_id", "is_shared", "shares", "allow_duplicate"})
+    expenditure_data["created_at"] = datetime.now(timezone.utc)
     if expenditure.pet_id is not None:
         category = db.get(models.DimCategory, expenditure.category_id)
         if not category or not category.for_pets:
@@ -535,8 +536,13 @@ def update_household_settings(payload: schemas.HouseholdSettingsUpdate, db: Sess
 @app.get("/category_targets/", response_model=List[schemas.CategoryTargetItem],
          dependencies=[Depends(get_current_user)])
 def get_category_targets(db: Session = Depends(get_db)):
-    """Every primary category's monthly target, by name."""
-    return db.query(models.CategoryTarget).order_by(models.CategoryTarget.primary_category).all()
+    """Every monthly target, by name: whole primary categories (sub_category null) and sub-categories."""
+    return ordered_targets(db)
+
+
+def ordered_targets(db: Session) -> list:
+    target = models.CategoryTarget
+    return db.query(target).order_by(target.primary_category, target.sub_category).all()
 
 
 @app.put("/category_targets/", response_model=List[schemas.CategoryTargetItem],
@@ -544,20 +550,22 @@ def get_category_targets(db: Session = Depends(get_db)):
 def update_category_targets(payload: schemas.CategoryTargetsUpdate, db: Session = Depends(get_db)):
     """
     Replaces the whole set of targets in one transaction (a category left
-    out has none). Each must name an existing primary category, once.
+    out has none). Each must name an existing primary category, or an
+    existing sub-category of it, once.
     """
-    names = [t.primary_category for t in payload.targets]
-    if len(set(names)) != len(names):
+    keys = [(t.primary_category, t.sub_category or "") for t in payload.targets]
+    if len(set(keys)) != len(keys):
         raise HTTPException(status_code=400, detail="A category appears twice.")
-    known = {c for (c,) in db.query(models.DimCategory.primary_category).distinct()}
-    unknown = sorted(set(names) - known)
+    pairs = set(db.query(models.DimCategory.primary_category, models.DimCategory.sub_category).all())
+    known = {(p, "") for p, _ in pairs} | pairs
+    unknown = sorted(f"{p} › {s}" if s else p for p, s in set(keys) - known)
     if unknown:
         raise HTTPException(status_code=400, detail=f"Unknown category: {', '.join(unknown)}")
     db.query(models.CategoryTarget).delete()
-    for t in payload.targets:
-        db.add(models.CategoryTarget(primary_category=t.primary_category, amount=t.amount))
+    for (primary, sub), t in zip(keys, payload.targets):
+        db.add(models.CategoryTarget(primary_category=primary, sub_category=sub, amount=t.amount))
     db.commit()
-    return db.query(models.CategoryTarget).order_by(models.CategoryTarget.primary_category).all()
+    return ordered_targets(db)
 
 
 # Everything ExpenditureRead nests, loaded up front.
@@ -937,7 +945,12 @@ def joint_status(db: Session, method: models.DimPaymentMethod, today: date) -> s
     zero = Decimal("0.00")
 
     # What's left: the latest balance check, plus deposits and minus spending
-    # after it. Without a check, count from the first deposit.
+    # after it. Without a check, count from the first deposit. Spending counts
+    # from when the money left: the earlier of its date and when it was
+    # logged, so a bill paid early but dated on its due date isn't taken off
+    # a balance the bank already showed without it. (LEAST skips a NULL
+    # created_at, so older expenses count from their date.)
+    money_left = func.least(fact.transaction_timestamp, fact.created_at)
     check = (
         db.query(entry)
         .filter(entry.payment_method_id == method.payment_method_id, entry.kind == "balance")
@@ -954,10 +967,10 @@ def joint_status(db: Session, method: models.DimPaymentMethod, today: date) -> s
     if check is not None or first_deposit is not None:
         if check is not None:
             start, counted_from = check.amount, check.entry_at
-            after_entry, after_spend = entry.entry_at > check.entry_at, fact.transaction_timestamp > check.entry_at
+            after_entry, after_spend = entry.entry_at > check.entry_at, money_left > check.entry_at
         else:
             start = zero
-            after_entry, after_spend = entry.entry_at >= first_deposit, fact.transaction_timestamp >= first_deposit
+            after_entry, after_spend = entry.entry_at >= first_deposit, money_left >= first_deposit
         deposits_since = db.query(func.coalesce(func.sum(entry.amount), 0)).filter(
             entry.payment_method_id == method.payment_method_id, entry.kind == "deposit", after_entry,
         ).scalar()
