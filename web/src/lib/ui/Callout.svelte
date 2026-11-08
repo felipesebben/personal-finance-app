@@ -16,5 +16,5 @@
     background: var(--owed-soft); border-radius: 14px; padding: 1rem 1.15rem; }
   .label { font-size: 1.0625rem; font-weight: 600; letter-spacing: -0.014em; }
   .detail { color: var(--muted); font-size: 0.875rem; margin-top: 0.1rem; }
-  .amount { font-family: var(--font-rounded); font-size: 1.75rem; font-weight: 700; white-space: nowrap; letter-spacing: -0.02em; }
+  .amount { font-family: var(--font-display); font-size: 1.75rem; font-weight: 700; white-space: nowrap; letter-spacing: -0.02em; }
 </style>

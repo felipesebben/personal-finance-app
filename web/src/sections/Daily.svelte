@@ -64,11 +64,10 @@
   const NOUNS: Record<string, string> = { all: 'expenses', personal: 'personal expenses', shared: 'shared expenses' }
   /** The month and twelve before: last month, usual, the 12-month average, the same month last year. */
   const MONTHS = 13
-  const TOP_HEIGHT = 420
   const CARD_HEIGHT = 250
   // This month brand green and thick; comparisons greys told apart by their dash; the target ink, dotted.
-  const STYLE: Record<Role, { color: string; width: number; dash?: string }> = {
-    this: { color: BRAND, width: 3 },
+  const STYLE: Record<Role, { color: string; width: number; dash?: string; area?: boolean }> = {
+    this: { color: BRAND, width: 3, area: true },
     last: { color: COMPARE, width: 2 },
     usual: { color: COMPARE, width: 2, dash: '6 4' },
     year: { color: COMPARE, width: 2, dash: '2 3' },
@@ -261,24 +260,32 @@
   <div class="daily" class:dim={loading}>
     <Notices lines={notices} />
 
-    <div class="top">
-      <Card title="Are we on track this month?" minHeight={TOP_HEIGHT}>
-        <Kpi label={hero.label} value={hero.amount} lines={hero.lines} hero
-          help="Everything counted so far this month, against the same days of earlier months." />
+    <!-- One card: the answer and a calendar widget side by side, then the running total across the full width. -->
+    <Card>
+      <div class="hero">
+        <h3 class="h-title">Are we on track this month?</h3>
+        <div class="h-cal">
+          <Calendar days={cal} top={calTop} picked={pickedDay} onpick={pickCalendarDay} small />
+        </div>
+        <p class="h-meta" title="Darker days cost more; tap one to see what it held.">
+          <b>{monthName(month)} · {p.is_partial ? `day ${p.day} of ${p.days}` : `all ${p.days} days`}</b>
+          <span>{topCategory ? `Mostly ${topCategory} · ` : ''}tap a day</span>
+        </p>
+        <div class="h-kpi">
+          <Kpi label={hero.label} value={hero.amount} lines={hero.lines} hero
+            help="Everything counted so far this month, against the same days of earlier months. The calendar shades each day by what was spent; tap one to see what it held." />
+        </div>
         {#if comparisons.length > 1}
-          <Segmented label="Compare with" options={comparisons.map((s) => s.name)} value={compare ?? ''}
-            onchange={(v) => (compareChoice = v)} />
+          <div class="h-cmp">
+            <Segmented label="Compare with" options={comparisons.map((s) => s.name)} value={compare ?? ''}
+              onchange={(v) => (compareChoice = v)} />
+          </div>
         {/if}
-        <LineChart series={shown} xMax={p.days} height={300} xTicks={[1, 5, 10, 15, 20, 25, p.days]}
-          xTitle="Day of the month" yTitle="Spent so far" readoutLabel={(d) => `Day ${d}`} />
-        <p class="caption">{trackNote}</p>
-      </Card>
-      <Card minHeight={TOP_HEIGHT}>
-        <div class="cal-label">{monthName(month)} · {p.is_partial ? `day ${p.day} of ${p.days}` : `all ${p.days} days`}</div>
-        <Calendar days={cal} top={calTop} picked={pickedDay} onpick={pickCalendarDay} />
-        <p class="caption">{topCategory ? `Mostly ${topCategory}. ` : ''}Darker days cost more; tap one to see what it held.</p>
-      </Card>
-    </div>
+      </div>
+      <LineChart series={shown} xMax={p.days} height={320} xTicks={[1, 5, 10, 15, 20, 25, p.days]}
+        xTitle="Day of the month" yTitle="Spent so far" readoutLabel={(d) => `Day ${d}`} />
+      <p class="caption">{trackNote}</p>
+    </Card>
 
     <div class="grid cols-3">
       {#each kpis as card (card.key)}
@@ -378,12 +385,22 @@
 <style>
   .daily { display: flex; flex-direction: column; gap: 1rem; transition: opacity 0.15s; }
   .daily.dim { opacity: 0.6; }
-  .top { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 1rem; }
-  .cal-label { color: var(--ink-2); font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+  /* The hero: question and number on the left, the calendar widget top right (a small chart, like an Apple widget). */
+  .hero { display: grid; grid-template-columns: minmax(0, 1fr) 13.5rem; column-gap: 2rem; row-gap: 0.35rem;
+    grid-template-areas: 'title cal' 'kpi cal' 'cmp meta'; align-items: start; }
+  .h-cmp { grid-area: cmp; align-self: end; margin-top: 0.75rem; }
+  .h-title { grid-area: title; }
+  .h-cal { grid-area: cal; }
+  .h-kpi { grid-area: kpi; margin-top: 0.4rem; }
+  .h-meta { grid-area: meta; display: flex; flex-direction: column; font-size: 0.75rem; color: var(--muted); }
+  .h-meta b { font-weight: 600; color: var(--ink-2); }
   .sub-head { font-weight: 600; font-size: 0.9rem; margin-bottom: 0.4rem; }
   .day-items { gap: 0.6rem; }
   .day-items .field { max-width: 14rem; }
-  @media (max-width: 900px) {
-    .top { grid-template-columns: minmax(0, 1fr); }
+  @media (max-width: 560px) {
+    /* On a phone the widget sits beside the question and its caption; the number gets the full width below. */
+    .hero { grid-template-columns: minmax(0, 1fr) 9.5rem; column-gap: 1rem;
+      grid-template-areas: 'title cal' 'meta cal' 'kpi kpi' 'cmp cmp'; }
+    .h-meta { align-self: end; padding-bottom: 0.2rem; }
   }
 </style>

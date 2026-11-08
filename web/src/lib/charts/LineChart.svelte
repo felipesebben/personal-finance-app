@@ -3,12 +3,15 @@
   totals and paces: each series styled by its role (colour, width, dash),
   named at its end rather than in a legend, with a quiet y axis in short
   reais. Hovering (or tapping) shows every series' value at that x.
+  After Apple's Weather charts: smooth lines (monotone, so a running total
+  never dips), a soft gradient under the line that matters (`area`), and
+  "now" as a dot with a halo.
   Points are { x, y } with y in cents; `xLabel(x)` names an x for the
   readout and the axis ticks.
 -->
 <script lang="ts">
   import { scaleLinear } from 'd3-scale'
-  import { line } from 'd3-shape'
+  import { area as d3area, curveMonotoneX, line } from 'd3-shape'
   import { AXIS, GRID, INK, INK_2, MUTED, textWidth } from './palette'
   import { formatBrl, shortBrl } from '../money'
 
@@ -22,6 +25,8 @@
     dot?: boolean
     /** Leave its name off the end (shown in the readout only). */
     quiet?: boolean
+    /** Fill a soft gradient under the line (the series that matters, e.g. this month). */
+    area?: boolean
   }
 
   let { series, xMin = 1, xMax, height = 240, xLabel = (x: number) => String(x), xTicks = [], yTitle = '', xTitle = '', readoutLabel }: {
@@ -39,6 +44,7 @@
 
   let width = $state(480)
   let hover = $state<number | null>(null)
+  const uid = $props.id()
 
   const named = $derived(series.filter((s) => !s.quiet && s.points.length))
   // On a phone the plot keeps most of the width; long end names may run into the card's padding.
@@ -52,7 +58,9 @@
   const yTicks = $derived(y.ticks(4))
   const ticksX = $derived(xTicks.length ? xTicks : x.ticks(Math.min(6, xMax - xMin)).filter(Number.isInteger))
   const path = $derived((pts: { x: number; y: number }[]) =>
-    line<{ x: number; y: number }>().x((p) => x(p.x)).y((p) => y(p.y))(pts) ?? '')
+    line<{ x: number; y: number }>().curve(curveMonotoneX).x((p) => x(p.x)).y((p) => y(p.y))(pts) ?? '')
+  const fill = $derived((pts: { x: number; y: number }[]) =>
+    d3area<{ x: number; y: number }>().curve(curveMonotoneX).x((p) => x(p.x)).y0(y(0)).y1((p) => y(p.y))(pts) ?? '')
 
   // End labels, nudged apart so they don't overlap.
   const labels = $derived.by(() => {
@@ -89,6 +97,17 @@
     {/each}
     {#if yTitle}<text x="0" y="11" font-size="11" font-weight="600" fill={MUTED}>{yTitle}</text>{/if}
     {#if xTitle}<text x={width - margin.right} y={height - 2} text-anchor="end" font-size="11" fill={MUTED}>{xTitle}</text>{/if}
+    {#each series as s, i}
+      {#if s.area && s.points.length > 1}
+        <defs>
+          <linearGradient id="{uid}-area-{i}" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0" style:stop-color={s.color} stop-opacity="0.22" />
+            <stop offset="1" style:stop-color={s.color} stop-opacity="0" />
+          </linearGradient>
+        </defs>
+        <path class="mark-fade" d={fill(s.points)} fill="url(#{uid}-area-{i})" />
+      {/if}
+    {/each}
     {#each series as s}
       {#if s.points.length > 1}
         <path class="mark-fade" d={path(s.points)} fill="none" stroke={s.color} stroke-width={s.width ?? 2} stroke-dasharray={s.dash}
@@ -96,11 +115,14 @@
       {/if}
       {#if s.dot || s.points.length === 1}
         {@const last = s.points[s.points.length - 1]}
-        {#if last}<circle cx={x(last.x)} cy={y(last.y)} r="4" fill={s.color} />{/if}
+        {#if last}
+          <circle cx={x(last.x)} cy={y(last.y)} r="9" fill={s.color} fill-opacity="0.18" />
+          <circle cx={x(last.x)} cy={y(last.y)} r="4.5" fill={s.color} stroke="var(--surface)" stroke-width="2" />
+        {/if}
       {/if}
     {/each}
     {#each labels as l}
-      <text x={l.x + 6} y={l.y} dominant-baseline="central" font-size="11" fill={l.color} font-weight="600">{l.name}</text>
+      <text x={l.x + 10} y={l.y} dominant-baseline="central" font-size="11" fill={l.color} font-weight="600">{l.name}</text>
     {/each}
     {#if hover !== null}
       <line x1={x(hover)} x2={x(hover)} y1={margin.top} y2={height - margin.bottom} stroke={INK_2} stroke-opacity="0.35" />

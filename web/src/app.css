@@ -1,6 +1,7 @@
 /*
-  Home Finances look, after Apple's Human Interface Guidelines: the system
-  font (SF on Apple devices, Inter elsewhere), a grouped grey page with flat
+  Home Finances look, after Apple's Human Interface Guidelines: Geist on
+  every device (the same on the iPhones and the Windows laptops; tabular
+  figures through font-variant-numeric), a grouped grey page with flat
   white cards, filled controls, translucent bars, and light and dark modes
   that follow the device.
 
@@ -53,8 +54,9 @@
   --gutter: 16px;
   --nav-height: 56px;
 
-  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', Inter, system-ui, 'Segoe UI', Roboto, sans-serif;
-  --font-rounded: ui-rounded, 'SF Pro Rounded', -apple-system, BlinkMacSystemFont, Inter, system-ui, sans-serif;
+  --font: Geist, -apple-system, BlinkMacSystemFont, system-ui, 'Segoe UI', Roboto, sans-serif;
+  /* The big numbers: one typeface throughout (HIG: minimise typefaces), proportional digits at display size. */
+  --font-display: var(--font);
 
   font-family: var(--font);
   font-size: 16px;

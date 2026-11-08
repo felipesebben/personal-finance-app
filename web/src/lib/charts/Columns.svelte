@@ -7,7 +7,7 @@
 -->
 <script lang="ts">
   import { scaleBand, scaleLinear } from 'd3-scale'
-  import { AXIS, BRAND, BRAND_LIGHT, BRAND_PALE, GRID, INK_2, MUTED, textWidth } from './palette'
+  import { AXIS, BRAND, BRAND_LIGHT, BRAND_PALE, GRID, INK_2, MUTED, barPath, textWidth } from './palette'
   import { formatBrl, shortBrl } from '../money'
 
   export interface Column {
@@ -55,8 +55,8 @@
     {#each columns as c, i}
       <g>
         <title>{c.title ?? `${c.label}: ${formatBrl(c.value)}`}</title>
-        <rect class="mark-grow-y" style:animation-delay="{i * 25}ms" x={x(c.label)} y={y(c.value)} width={x.bandwidth()}
-          height={Math.max(0, y(0) - y(c.value))} rx={Math.min(6, x.bandwidth() / 4)}
+        <path class="mark-grow-y" style:animation-delay="{i * 25}ms"
+          d={barPath(x(c.label) ?? 0, y(c.value), x.bandwidth(), Math.max(0, y(0) - y(c.value)), Math.min(6, x.bandwidth() / 4), 'top')}
           fill={c.partial ? BRAND_PALE : c.picked ? BRAND : BRAND_LIGHT}
           stroke={c.partial ? BRAND : 'none'} stroke-dasharray={c.partial ? '4 3' : undefined} />
         {#if showValues || c.picked}
