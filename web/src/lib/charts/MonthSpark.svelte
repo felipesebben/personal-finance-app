@@ -30,14 +30,14 @@
     {#each bars as b, i}
       <g>
         <title>{b.title}</title>
-        <rect x={i * (bw + gap)} y={y(b.value)} width={bw} height={Math.max(1.5, plot - y(b.value))} rx="2"
+        <rect class="mark-grow-y" style:animation-delay="{i * 20}ms" x={i * (bw + gap)} y={y(b.value)} width={bw} height={Math.max(1.5, plot - y(b.value))} rx="2"
           fill={b.partial ? BRAND_PALE : b.picked ? BRAND : BRAND_LIGHT}
           stroke={b.partial ? BRAND : 'none'} stroke-dasharray={b.partial ? '3 2' : undefined} />
         <text x={i * (bw + gap) + bw / 2} y={height - 2} text-anchor="middle" font-size="9.5"
           fill={b.picked ? BRAND : MUTED} font-weight={b.picked ? 600 : 400}>{b.label}</text>
       </g>
     {/each}
-    <line x1="0" x2={width} y1={plot} y2={plot} stroke="#aab2ac" />
+    <line x1="0" x2={width} y1={plot} y2={plot} stroke="var(--axis)" />
     {#if reference !== null}
       <line x1="0" x2={width} y1={y(reference)} y2={y(reference)} stroke={INK} stroke-width="1.2" stroke-dasharray="3 2">
         <title>{referenceName}</title>

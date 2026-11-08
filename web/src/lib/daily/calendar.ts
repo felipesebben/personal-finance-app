@@ -7,19 +7,19 @@
 import { formatBrl } from '../money'
 import type { CalDay } from './shaping'
 
-export const EMPTY_DAY = '#f1f3f0'
-export const HEAT = ['#d7ebe2', '#1f6f5c'] as const
+export const EMPTY_DAY = 'var(--heat-empty)'
+/** The two ends of the scale, as theme tokens (so the calendar follows light and dark mode). */
+export const HEAT = ['var(--heat-low)', 'var(--brand)'] as const
 export const WEEKDAY_LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
 export const WHITE_FROM = 0.55 // share of the scale above which a day's number turns white
-
-const rgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))
 
 /** A day's colour: pale grey with nothing spent, then light green to brand green at `top` or more. */
 export function shade(amount: number, top: number): string {
   if (amount <= 0) return EMPTY_DAY
-  const t = Math.min(amount / Math.max(top, 1), 1)
-  const [a, b] = [rgb(HEAT[0]), rgb(HEAT[1])]
-  return `#${a.map((v, i) => Math.round(v + (b[i] - v) * t).toString(16).padStart(2, '0')).join('')}`
+  const pct = Math.round(Math.min(amount / Math.max(top, 1), 1) * 100)
+  if (pct <= 0) return HEAT[0]
+  if (pct >= 100) return HEAT[1]
+  return `color-mix(in oklab, ${HEAT[1]} ${pct}%, ${HEAT[0]})`
 }
 
 /** Whether a day's number should be white (on a dark green). */

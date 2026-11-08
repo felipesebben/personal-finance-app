@@ -5,7 +5,9 @@
 <div class="loading" style:min-height="{height}px" aria-busy="true"><span class="dot"></span>{text}</div>
 
 <style>
-  .loading { display: flex; align-items: center; justify-content: center; gap: 0.6rem; color: var(--muted); font-size: 0.9rem; }
-  .dot { width: 0.6rem; height: 0.6rem; border-radius: 50%; background: var(--brand-light); animation: pulse 1s infinite alternate; }
-  @keyframes pulse { from { opacity: 0.3 } to { opacity: 1 } }
+  .loading { display: flex; align-items: center; justify-content: center; gap: 0.6rem; color: var(--muted); font-size: 0.9375rem; }
+  /* An activity indicator. */
+  .dot { width: 1.1rem; height: 1.1rem; border-radius: 50%; border: 2px solid var(--fill); border-top-color: var(--muted);
+    animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
 </style>

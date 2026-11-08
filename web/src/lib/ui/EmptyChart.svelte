@@ -6,6 +6,6 @@
 <div class="empty" style:height="{height}px">{text}</div>
 
 <style>
-  .empty { display: grid; place-items: center; text-align: center; border: 1px dashed var(--line);
-    border-radius: 0.5rem; color: var(--ink-2); font-size: 0.82rem; padding: 0 0.75rem; }
+  .empty { display: grid; place-items: center; text-align: center; background: var(--fill-2);
+    border-radius: 10px; color: var(--muted); font-size: 0.8125rem; padding: 0 0.75rem; }
 </style>

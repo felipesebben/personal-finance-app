@@ -35,21 +35,23 @@
 
 <style>
   .kpi { line-height: 1.3; min-width: 0; }
-  .label { display: flex; align-items: center; gap: 0.35rem; color: var(--ink-2); font-size: 0.72rem;
-    font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
-  .hero .label { color: var(--ink); font-size: 1rem; text-transform: none; letter-spacing: 0; }
-  .help { width: 1.05rem; height: 1.05rem; border-radius: 50%; border: 1px solid var(--line); background: none;
-    font-size: 0.65rem; font-weight: 700; color: var(--muted); cursor: pointer; padding: 0; line-height: 1;
-    text-transform: none; }
-  .help-text { font-size: 0.8rem; color: var(--ink-2); margin: 0.3rem 0; }
-  .value { font-size: 1.75rem; font-weight: 700; white-space: nowrap; margin: 0.15rem 0 0.25rem;
-    font-variant-numeric: proportional-nums; letter-spacing: -0.01em; }
-  .hero .value { font-size: 2.75rem; line-height: 1.1; letter-spacing: -0.02em; margin: 0.2rem 0 0.35rem; }
-  .line { font-size: 0.85rem; color: var(--ink-2); }
-  .hero .line { font-size: 0.92rem; }
+  .label { display: flex; align-items: center; gap: 0.35rem; color: var(--muted); font-size: 0.8125rem;
+    font-weight: 600; letter-spacing: -0.005em; }
+  .hero .label { color: var(--ink); font-size: 1.0625rem; }
+  .help { width: 1.1rem; height: 1.1rem; border-radius: 50%; border: none; background: var(--fill);
+    font-size: 0.68rem; font-weight: 700; color: var(--muted); cursor: pointer; padding: 0; line-height: 1;
+    font-family: Georgia, serif; font-style: italic; }
+  .help[aria-expanded='true'] { background: var(--brand-soft); color: var(--brand); }
+  .help-text { font-size: 0.8125rem; color: var(--ink-2); margin: 0.3rem 0; }
+  /* Numbers in the rounded face, as Apple's Health and Fitness summaries. */
+  .value { font-family: var(--font-rounded); font-size: 1.75rem; font-weight: 700; white-space: nowrap;
+    margin: 0.2rem 0 0.25rem; font-variant-numeric: proportional-nums; letter-spacing: -0.02em; }
+  .hero .value { font-size: 2.75rem; line-height: 1.1; letter-spacing: -0.03em; margin: 0.25rem 0 0.35rem; }
+  .line { font-size: 0.875rem; color: var(--muted); }
+  .hero .line { font-size: 0.9375rem; }
   .line.more { color: var(--more); font-weight: 600; }
   .line.less { color: var(--less); font-weight: 600; }
   @media (max-width: 560px) {
-    .hero .value { font-size: 2.2rem; }
+    .hero .value { font-size: 2.25rem; }
   }
 </style>

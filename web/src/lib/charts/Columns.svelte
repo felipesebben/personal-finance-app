@@ -55,7 +55,8 @@
     {#each columns as c, i}
       <g>
         <title>{c.title ?? `${c.label}: ${formatBrl(c.value)}`}</title>
-        <rect x={x(c.label)} y={y(c.value)} width={x.bandwidth()} height={Math.max(0, y(0) - y(c.value))} rx="3"
+        <rect class="mark-grow-y" style:animation-delay="{i * 25}ms" x={x(c.label)} y={y(c.value)} width={x.bandwidth()}
+          height={Math.max(0, y(0) - y(c.value))} rx={Math.min(6, x.bandwidth() / 4)}
           fill={c.partial ? BRAND_PALE : c.picked ? BRAND : BRAND_LIGHT}
           stroke={c.partial ? BRAND : 'none'} stroke-dasharray={c.partial ? '4 3' : undefined} />
         {#if showValues || c.picked}

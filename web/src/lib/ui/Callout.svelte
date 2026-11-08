@@ -13,9 +13,8 @@
 
 <style>
   .callout { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.75rem;
-    background: var(--owed-soft); border-left: 4px solid var(--brand); border-radius: var(--radius);
-    padding: 0.9rem 1rem; }
-  .label { font-size: 1.15rem; font-weight: 700; }
-  .detail { color: var(--ink-2); font-size: 0.85rem; }
-  .amount { font-size: 1.6rem; font-weight: 700; white-space: nowrap; }
+    background: var(--owed-soft); border-radius: 14px; padding: 1rem 1.15rem; }
+  .label { font-size: 1.0625rem; font-weight: 600; letter-spacing: -0.014em; }
+  .detail { color: var(--muted); font-size: 0.875rem; margin-top: 0.1rem; }
+  .amount { font-family: var(--font-rounded); font-size: 1.75rem; font-weight: 700; white-space: nowrap; letter-spacing: -0.02em; }
 </style>

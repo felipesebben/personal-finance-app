@@ -17,10 +17,14 @@
 </div>
 
 <style>
-  .tabs { display: flex; gap: 0.25rem; overflow-x: auto; border-bottom: 1px solid var(--line); margin-bottom: 1.25rem;
-    scrollbar-width: none; }
-  button { flex: none; border: none; background: none; padding: 0.65rem 0.9rem; cursor: pointer; color: var(--ink-2);
-    font-weight: 500; border-bottom: 3px solid transparent; margin-bottom: -1px; white-space: nowrap; }
-  button:hover { color: var(--ink); }
-  button.active { color: var(--brand); border-bottom-color: var(--brand); }
+  /* A segmented control (iOS): a grey track and a raised thumb on the picked tab. Scrolls sideways on a phone. */
+  .tabs { display: flex; gap: 2px; overflow-x: auto; margin-bottom: 1.25rem; padding: 2px; width: fit-content;
+    max-width: 100%; background: var(--fill); border-radius: 9px; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+  button { flex: none; border: none; background: none; padding: 0.4rem 1rem; cursor: pointer; color: var(--ink);
+    font-size: 0.875rem; font-weight: 500; border-radius: 7px; white-space: nowrap;
+    transition: background 0.2s ease, box-shadow 0.2s ease; }
+  button:hover:not(.active) { background: var(--fill-2); }
+  button.active { background: var(--thumb); font-weight: 600;
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.12), 0 3px 1px rgba(0, 0, 0, 0.04); }
 </style>

@@ -9,9 +9,11 @@
 </div>
 
 <style>
-  .lede { display: flex; gap: 0.6rem; align-items: flex-start; background: var(--brand-soft);
-    border-radius: var(--radius); padding: 0.65rem 0.8rem; color: var(--ink); }
-  .i { flex: none; width: 1.35rem; height: 1.35rem; border-radius: 50%; background: var(--brand); color: #fff;
-    font-weight: 700; font-size: 0.8rem; display: grid; place-items: center; margin-top: 0.1rem; }
-  b { display: block; }
+  /* Plain secondary text with an info glyph, as Apple's explanatory headers; no box competing with the cards. */
+  .lede { display: flex; gap: 0.6rem; align-items: flex-start; color: var(--muted); padding: 0 0.15rem;
+    font-size: 0.9375rem; }
+  .i { flex: none; width: 1.25rem; height: 1.25rem; border-radius: 50%; background: var(--brand-soft); color: var(--brand);
+    font-weight: 700; font-size: 0.75rem; display: grid; place-items: center; margin-top: 0.1rem;
+    font-family: Georgia, serif; font-style: italic; }
+  b { display: block; color: var(--ink); font-weight: 600; }
 </style>

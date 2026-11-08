@@ -1,24 +1,32 @@
 /**
- * Chart palette and anatomy, shared by every chart (keep in step with app.css).
+ * Chart palette and anatomy, shared by every chart.
  *
- * One job per colour: brand green marks the household and what's picked
- * (lighter green for the rest); orange = spent more, blue = spent less, and
- * they never encode plain magnitude. Grey is for comparisons (last month's
- * tick), ink for targets. Every chart: no frame or background, a quiet axis
- * line, hairline grid, muted labels, values labelled directly rather than
- * through a legend, axis titles at the end of their axis.
+ * The colours are the CSS tokens in app.css (var(--…)), so charts follow the
+ * light and dark themes. One job per colour: brand green marks the household
+ * and what's picked (lighter green for the rest); orange = spent more, blue =
+ * spent less, and they never encode plain magnitude. Grey is for comparisons
+ * (last month's tick), ink for targets.
+ *
+ * Anatomy, after Apple's chart guidelines: the data is the most prominent
+ * thing, axes and grid stay quiet (hairline grid, light labels, few ticks in
+ * familiar steps), the y labels sit inside the plot on the leading edge so
+ * the chart lines up with the card's text and the plot gets the full width,
+ * values are labelled directly rather than through a legend, and the whole
+ * plot area is the hit target for reading values.
  */
-export const BRAND = '#1f6f5c'
-export const BRAND_LIGHT = '#9cc5b7'
-export const BRAND_PALE = '#dcece6'
-export const MORE = '#b5470f'
-export const LESS = '#1f5fa8'
-export const INK = '#17201c'
-export const INK_2 = '#4d5a53'
-export const MUTED = '#6f7a74'
-export const GREY = '#b9c0ba'
-export const AXIS = '#aab2ac'
-export const GRID = '#e9ece8'
+export const BRAND = 'var(--brand)'
+export const BRAND_LIGHT = 'var(--brand-light)'
+export const BRAND_PALE = 'var(--brand-pale)'
+export const MORE = 'var(--more)'
+export const LESS = 'var(--less)'
+export const INK = 'var(--ink)'
+export const INK_2 = 'var(--ink-2)'
+export const MUTED = 'var(--muted)'
+export const GREY = 'var(--compare-2)'
+/** Comparison lines (last month, the usual month): grey, told apart by dash. */
+export const COMPARE = 'var(--compare)'
+export const AXIS = 'var(--axis)'
+export const GRID = 'var(--grid)'
 
 /** Height of one ranked bar row, and of an x axis under it (heights are rows + axis). */
 export const BAR_ROW = 30

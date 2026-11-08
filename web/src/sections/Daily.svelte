@@ -38,7 +38,7 @@
   import { notices as noticeLines } from '../lib/daily/notices'
   import { installmentsDue, LOOKBACK, recurringDue, type Expense } from '../lib/daily/upcoming'
   import type { WhereItem } from '../lib/daily/where'
-  import { BRAND, INK, SPARK_HEIGHT } from '../lib/charts/palette'
+  import { BRAND, COMPARE, INK, SPARK_HEIGHT } from '../lib/charts/palette'
   import FilterRow from '../lib/ui/FilterRow.svelte'
   import Card from '../lib/ui/Card.svelte'
   import Kpi from '../lib/ui/Kpi.svelte'
@@ -69,10 +69,10 @@
   // This month brand green and thick; comparisons greys told apart by their dash; the target ink, dotted.
   const STYLE: Record<Role, { color: string; width: number; dash?: string }> = {
     this: { color: BRAND, width: 3 },
-    last: { color: '#7d8780', width: 2 },
-    usual: { color: '#8f9892', width: 2, dash: '6 4' },
-    year: { color: '#8f9892', width: 2, dash: '2 3' },
-    last_year: { color: '#8f9892', width: 2, dash: '9 3 2 3' },
+    last: { color: COMPARE, width: 2 },
+    usual: { color: COMPARE, width: 2, dash: '6 4' },
+    year: { color: COMPARE, width: 2, dash: '2 3' },
+    last_year: { color: COMPARE, width: 2, dash: '9 3 2 3' },
     target: { color: INK, width: 1.5, dash: '1 3' },
   }
 

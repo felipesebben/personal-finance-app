@@ -10,8 +10,8 @@
 {/if}
 
 <style>
-  .notices { background: var(--warn-bg); border-left: 4px solid var(--more); border-radius: var(--radius);
-    padding: 0.55rem 0.9rem; }
-  .notice { font-size: 0.92rem; line-height: 1.45; }
-  .notice.more { color: var(--more); font-weight: 600; }
+  .notices { background: var(--more-soft); border-radius: 14px; padding: 0.7rem 1rem; display: flex;
+    flex-direction: column; gap: 0.2rem; }
+  .notice { font-size: 0.9375rem; line-height: 1.45; color: var(--ink); }
+  .notice.more { color: var(--more-ink); font-weight: 600; }
 </style>

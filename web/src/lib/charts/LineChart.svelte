@@ -42,7 +42,9 @@
 
   const named = $derived(series.filter((s) => !s.quiet && s.points.length))
   const endRoom = $derived(Math.min(Math.max(...named.map((s) => textWidth(s.name, 11)), 0) + 12, width * 0.35))
-  const margin = $derived({ top: yTitle ? 22 : 10, right: endRoom, bottom: xTitle ? 38 : 24, left: 52 })
+  // The y labels sit inside the plot on the leading edge (above their grid line), so the chart lines up
+  // with the card's text and the plot spans the card's width (Apple's chart guidelines).
+  const margin = $derived({ top: yTitle ? 34 : 14, right: endRoom, bottom: xTitle ? 38 : 24, left: 2 })
   const yMax = $derived(Math.max(...series.flatMap((s) => s.points.map((p) => p.y)), 1))
   const x = $derived(scaleLinear().domain([xMin, Math.max(xMax, xMin + 1)]).range([margin.left, width - margin.right]))
   const y = $derived(scaleLinear().domain([0, yMax]).nice(4).range([height - margin.bottom, margin.top]))
@@ -73,20 +75,22 @@
 
 <div class="wrap" bind:clientWidth={width}>
   <svg {width} {height} role="img" aria-label={named.map((s) => `${s.name}: ${shortBrl(s.points.at(-1)?.y ?? 0)}`).join('; ')}
-    onpointermove={move} onpointerleave={() => (hover = null)}>
+    onpointermove={move} onpointerdown={move} onpointerleave={() => (hover = null)}>
     {#each yTicks as t}
-      <line x1={margin.left} x2={width - margin.right} y1={y(t)} y2={y(t)} stroke={GRID} />
-      <text x={margin.left - 6} y={y(t)} text-anchor="end" dominant-baseline="central" font-size="11" fill={MUTED}>{shortBrl(t)}</text>
+      {#if t > 0}
+        <line x1="0" x2={width - margin.right} y1={y(t)} y2={y(t)} stroke={GRID} />
+        <text x="0" y={y(t) - 4} font-size="11" fill={MUTED}>{shortBrl(t)}</text>
+      {/if}
     {/each}
-    <line x1={margin.left} x2={width - margin.right} y1={height - margin.bottom} y2={height - margin.bottom} stroke={AXIS} />
+    <line x1="0" x2={width - margin.right} y1={height - margin.bottom} y2={height - margin.bottom} stroke={AXIS} />
     {#each ticksX as t}
       <text x={x(t)} y={height - margin.bottom + 15} text-anchor="middle" font-size="11" fill={MUTED}>{xLabel(t)}</text>
     {/each}
-    {#if yTitle}<text x={margin.left - 46} y="11" font-size="11" fill={MUTED}>{yTitle}</text>{/if}
+    {#if yTitle}<text x="0" y="11" font-size="11" font-weight="600" fill={MUTED}>{yTitle}</text>{/if}
     {#if xTitle}<text x={width - margin.right} y={height - 2} text-anchor="end" font-size="11" fill={MUTED}>{xTitle}</text>{/if}
     {#each series as s}
       {#if s.points.length > 1}
-        <path d={path(s.points)} fill="none" stroke={s.color} stroke-width={s.width ?? 2} stroke-dasharray={s.dash}
+        <path class="mark-fade" d={path(s.points)} fill="none" stroke={s.color} stroke-width={s.width ?? 2} stroke-dasharray={s.dash}
           stroke-linejoin="round" stroke-linecap="round" />
       {/if}
       {#if s.dot || s.points.length === 1}
@@ -99,10 +103,13 @@
     {/each}
     {#if hover !== null}
       <line x1={x(hover)} x2={x(hover)} y1={margin.top} y2={height - margin.bottom} stroke={INK_2} stroke-opacity="0.35" />
+      {#each readout as r}
+        <circle cx={x(hover)} cy={y(r.point!.y)} r="4.5" fill={r.color} stroke="var(--surface)" stroke-width="2" />
+      {/each}
     {/if}
   </svg>
   {#if hover !== null && readout.length}
-    <div class="readout" style:left="{Math.min(x(hover) + 10, width - 190)}px">
+    <div class="readout" style:left="{x(hover) > width / 2 ? Math.max(0, x(hover) - 190) : Math.min(x(hover) + 12, width - 180)}px">
       <b>{(readoutLabel ?? xLabel)(hover)}</b>
       {#each readout as r}
         <div><span class="sw" style:background={r.color}></span>{r.name}: {formatBrl(r.point!.y)}</div>
@@ -114,8 +121,10 @@
 <style>
   .wrap { position: relative; width: 100%; min-width: 0; touch-action: pan-y; }
   svg { display: block; overflow: visible; }
-  .readout { position: absolute; top: 4px; background: rgba(255, 255, 255, 0.96); border: 1px solid var(--line);
-    border-radius: 0.5rem; padding: 0.4rem 0.6rem; font-size: 0.78rem; pointer-events: none; min-width: 170px;
-    box-shadow: var(--shadow-card); color: var(--ink); }
-  .sw { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 2px; margin-right: 0.35rem; }
+  /* Scrubbing anywhere on the plot reads every line at that day: a popover on a translucent material. */
+  .readout { position: absolute; top: 0; background: var(--material); -webkit-backdrop-filter: blur(20px);
+    backdrop-filter: blur(20px); border-radius: 10px; padding: 0.5rem 0.7rem; font-size: 0.8125rem;
+    pointer-events: none; min-width: 170px; box-shadow: var(--shadow-float); color: var(--ink); line-height: 1.5; }
+  .readout b { display: block; color: var(--muted); font-size: 0.75rem; font-weight: 600; }
+  .sw { display: inline-block; width: 0.55rem; height: 0.55rem; border-radius: 50%; margin-right: 0.4rem; }
 </style>

@@ -118,15 +118,18 @@
   .filter-row { display: flex; flex-wrap: wrap; gap: 0.75rem 1rem; align-items: flex-end; margin-bottom: 0.75rem; }
   .month { width: 11.5rem; }
   .view { width: 12.5rem; }
-  .focus { flex: 1 1 auto; }
-  .btn.on { border-color: var(--brand); color: var(--brand); }
-  .panel { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow-card);
-    padding: 1rem; display: flex; flex-direction: column; gap: 0.85rem; margin-bottom: 1rem; }
-  .chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
-  .chip { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 0.3rem 0.75rem;
-    cursor: pointer; font-size: 0.88rem; }
-  .chip.active { background: var(--brand-soft); border-color: var(--brand); color: var(--brand-strong); font-weight: 500; }
-  .hint { font-size: 0.8rem; color: var(--muted); }
+  .focus { flex: 1 1 auto; min-width: 0; }
+  .btn { background: var(--fill); color: var(--ink); font-weight: 500; min-height: 2.75rem; }
+  .btn.on { background: var(--brand-soft); color: var(--brand); font-weight: 600; }
+  .panel { background: var(--surface); border-radius: 14px; box-shadow: var(--shadow-float);
+    padding: 1rem 1.1rem; display: flex; flex-direction: column; gap: 0.9rem; margin-bottom: 1rem;
+    animation: panel-in 0.2s ease; }
+  @keyframes panel-in { from { opacity: 0; transform: translateY(-4px); } }
+  .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+  .chip { border: none; background: var(--fill); border-radius: 999px; padding: 0.35rem 0.85rem;
+    cursor: pointer; font-size: 0.875rem; font-weight: 500; color: var(--ink); }
+  .chip.active { background: var(--brand); color: var(--on-brand); font-weight: 600; }
+  .hint { font-size: 0.8125rem; color: var(--muted); }
   @media (max-width: 560px) {
     .month, .view { width: calc(50% - 0.5rem); }
   }

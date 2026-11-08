@@ -11,7 +11,7 @@
 -->
 <script lang="ts">
   import { scaleLinear } from 'd3-scale'
-  import { BAR_ROW, BRAND, BRAND_LIGHT, GREY, GRID, INK, INK_2, MUTED, clip, textWidth } from './palette'
+  import { AXIS, BAR_ROW, BRAND, BRAND_LIGHT, GREY, GRID, INK, INK_2, MUTED, clip, textWidth } from './palette'
 
   export interface Bar {
     label: string
@@ -58,7 +58,7 @@
     {#each ticks as t}
       <line x1={x(t)} x2={x(t)} y1={top} y2={height - 2} stroke={GRID} />
     {/each}
-    <line x1={nameWidth} x2={nameWidth} y1={top} y2={height - 2} stroke="#aab2ac" />
+    <line x1={nameWidth} x2={nameWidth} y1={top} y2={height - 2} stroke={AXIS} />
     {#each rows as row, i}
       {@const y = top + i * BAR_ROW}
       <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
@@ -68,7 +68,8 @@
         <rect x="0" {y} width={width} height={BAR_ROW} fill="transparent" />
         <text x="0" y={y + BAR_ROW / 2} dominant-baseline="central" font-size="12" fill={INK}
           font-weight={row.picked ? 600 : 400}>{names[i]}</text>
-        <rect x={nameWidth} y={y + 6} width={Math.max(0, x(row.value) - nameWidth)} height={barH} rx="3"
+        <rect class="mark-grow-x" style:animation-delay="{i * 30}ms" x={nameWidth} y={y + 6}
+          width={Math.max(0, x(row.value) - nameWidth)} height={barH} rx="4"
           fill={row.picked ? BRAND : BRAND_LIGHT} />
         {#if row.tick !== null && row.tick !== undefined}
           <line x1={x(row.tick)} x2={x(row.tick)} y1={y + 3} y2={y + BAR_ROW - 3} stroke={GREY} stroke-width="3" />
@@ -77,7 +78,7 @@
           <line x1={x(row.target)} x2={x(row.target)} y1={y + 2} y2={y + BAR_ROW - 2} stroke={INK} stroke-width="2.5" />
         {/if}
         <text x={textX(row)} y={y + BAR_ROW / 2}
-          dominant-baseline="central" font-size="11.5" fill={INK_2}>{row.text}</text>
+          dominant-baseline="central" font-size="11.5" fill={row.picked ? INK : INK_2} font-weight={row.picked ? 600 : 400}>{row.text}</text>
       </g>
     {/each}
     {#if reference !== null}

@@ -7,8 +7,8 @@
 <div class="msg {tone}" role={tone === 'error' ? 'alert' : 'status'}>{@render children()}</div>
 
 <style>
-  .msg { border-radius: var(--radius); padding: 0.7rem 0.9rem; font-size: 0.93rem; }
+  .msg { border-radius: 12px; padding: 0.75rem 0.95rem; font-size: 0.9375rem; }
   .info { background: var(--brand-soft); }
-  .warn, .error { background: var(--more-soft); color: #7a2f08; }
-  .ok { background: var(--less-soft); color: #173f6e; }
+  .warn, .error { background: var(--more-soft); color: var(--more-ink); }
+  .ok { background: var(--less-soft); color: var(--less-ink); }
 </style>

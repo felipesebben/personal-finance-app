@@ -26,7 +26,7 @@
   <svg {width} {height} aria-hidden="true">
     {#each values as v, i}
       {@const h = Math.max(1.5, (Math.abs(v) / max) * (height - 4))}
-      <rect x={i * (bw + gap)} y={height - h} width={bw} {height} rx="2"
+      <rect class="mark-grow-y" style:animation-delay="{i * 20}ms" x={i * (bw + gap)} y={height - h} width={bw} {height} rx="2"
         fill={i === partial ? BRAND_PALE : i === hi ? BRAND : BRAND_LIGHT}
         stroke={i === partial ? BRAND : 'none'} stroke-dasharray={i === partial ? '3 2' : undefined}>
         {#if labels[i]}<title>{labels[i]}</title>{/if}

@@ -28,6 +28,7 @@ parser.add_argument("--port", type=int, default=8599)
 parser.add_argument("--session", default=os.path.join(os.environ.get("SHOT_DIR") or os.path.join(
     os.environ.get("TMPDIR") or tempfile.gettempdir(), "hf-shot"), "session.json"))
 parser.add_argument("--logged-out", action="store_true", help="Open without a session (the login form).")
+parser.add_argument("--dark", action="store_true", help="Shoot in dark mode (the app follows the device).")
 args = parser.parse_args()
 
 out = Path(args.out_dir)
@@ -37,7 +38,8 @@ json.loads(session)  # fail early on a broken file
 
 with sync_playwright() as p:
     browser = p.chromium.launch(channel="chrome", headless=True)
-    view = browser.new_page(viewport={"width": args.width, "height": 900})
+    view = browser.new_page(viewport={"width": args.width, "height": 900},
+                            color_scheme="dark" if args.dark else "light")
     if not args.logged_out:
         view.add_init_script(f"localStorage.setItem('hf-session', {json.dumps(session)})")
     errors = []
