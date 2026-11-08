@@ -45,8 +45,8 @@
     font-family: Georgia, serif; font-style: italic; }
   .help[aria-expanded='true'] { background: var(--brand-soft); color: var(--brand); }
   .help-text { font-size: 0.8125rem; color: var(--ink-2); margin: 0.3rem 0; }
-  /* Numbers in the rounded face, as Apple's Health and Fitness summaries. */
-  .value { font-family: var(--font-rounded); font-size: 1.75rem; font-weight: 700; white-space: nowrap;
+  /* The number leads: large, bold, proportional digits at display size. */
+  .value { font-family: var(--font-display); font-size: 1.75rem; font-weight: 700; white-space: nowrap;
     margin: 0.2rem 0 0.25rem; font-variant-numeric: proportional-nums; letter-spacing: -0.02em; }
   .hero .value { font-size: 2.75rem; line-height: 1.1; letter-spacing: -0.03em; margin: 0.25rem 0 0.35rem; }
   /* Context under the number stays quiet (secondary label colour, regular weight), one short line each. */

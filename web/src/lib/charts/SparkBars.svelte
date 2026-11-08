@@ -4,7 +4,7 @@
   month in progress. No axes: a gist of the shape. Each bar has a tooltip.
 -->
 <script lang="ts">
-  import { BRAND, BRAND_LIGHT, BRAND_PALE, SPARK_HEIGHT } from './palette'
+  import { BRAND, BRAND_LIGHT, BRAND_PALE, SPARK_HEIGHT, barPath } from './palette'
 
   let { values, labels = [], highlight = -1, partial = -1, height = SPARK_HEIGHT }: {
     values: number[]
@@ -26,11 +26,11 @@
   <svg {width} {height} aria-hidden="true">
     {#each values as v, i}
       {@const h = Math.max(1.5, (Math.abs(v) / max) * (height - 4))}
-      <rect class="mark-grow-y" style:animation-delay="{i * 20}ms" x={i * (bw + gap)} y={height - h} width={bw} {height} rx="2"
+      <path class="mark-grow-y" style:animation-delay="{i * 20}ms" d={barPath(i * (bw + gap), height - h, bw, h, 3, 'top')}
         fill={i === partial ? BRAND_PALE : i === hi ? BRAND : BRAND_LIGHT}
         stroke={i === partial ? BRAND : 'none'} stroke-dasharray={i === partial ? '3 2' : undefined}>
         {#if labels[i]}<title>{labels[i]}</title>{/if}
-      </rect>
+      </path>
     {/each}
   </svg>
 </div>

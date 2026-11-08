@@ -11,7 +11,7 @@
 -->
 <script lang="ts">
   import { scaleLinear } from 'd3-scale'
-  import { AXIS, BAR_ROW, BRAND, BRAND_LIGHT, GREY, GRID, INK, INK_2, MUTED, clip, textWidth } from './palette'
+  import { AXIS, BAR_ROW, BRAND, barPath, BRAND_LIGHT, GREY, GRID, INK, INK_2, MUTED, clip, textWidth } from './palette'
 
   export interface Bar {
     label: string
@@ -33,7 +33,7 @@
 
   let width = $state(320)
   // Names are clipped to fit their column (at most 42% of the width), so they never run into the bars on a phone.
-  const fits = $derived(Math.max(6, Math.floor((width * 0.42 - 10) / (12.5 * 0.56))))
+  const fits = $derived(Math.max(6, Math.floor((width * 0.42 - 10) / (12.5 * 0.58))))
   const names = $derived(rows.map((r) => clip(r.label, Math.min(maxLabel, fits))))
   const nameWidth = $derived(Math.min(Math.max(...names.map((n) => textWidth(n, 12.5)), 40) + 10, width * 0.42))
   const textRoom = $derived(Math.max(...rows.map((r) => textWidth(r.text, 11.5)), 30) + 10)
@@ -71,8 +71,8 @@
         <rect x="0" {y} width={width} height={BAR_ROW} fill="transparent" />
         <text x="0" y={y + BAR_ROW / 2} dominant-baseline="central" font-size="12.5" fill={INK}
           font-weight={row.picked ? 600 : 400}>{names[i]}</text>
-        <rect class="mark-grow-x" style:animation-delay="{i * 30}ms" x={nameWidth} y={y + barY}
-          width={Math.max(0, x(row.value) - nameWidth)} height={barH} rx="4"
+        <path class="bar mark-grow-x" style:animation-delay="{i * 30}ms"
+          d={barPath(nameWidth, y + barY, Math.max(0, x(row.value) - nameWidth), barH, 5, 'right')}
           fill={row.picked ? BRAND : BRAND_LIGHT} />
         {#if row.tick !== null && row.tick !== undefined}
           <line x1={x(row.tick)} x2={x(row.tick)} y1={y + barY - 4} y2={y + barY + barH + 4} stroke={GREY} stroke-width="3" />
@@ -97,7 +97,7 @@
   .wrap { width: 100%; min-width: 0; }
   svg { display: block; overflow: visible; }
   .pickable { cursor: pointer; }
-  .pickable:hover rect:nth-of-type(2) { filter: brightness(0.92); }
+  .pickable:hover .bar { filter: brightness(0.92); }
   g:focus { outline: none; }
   g:focus-visible text:first-of-type { text-decoration: underline; }
 </style>

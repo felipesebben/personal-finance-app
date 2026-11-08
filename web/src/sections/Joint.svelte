@@ -50,7 +50,7 @@
     const { thisMonth, usual } = paceSeries(status)
     return [
       ...(usual.length ? [{ name: 'Usual', points: usual, color: MUTED, dash: '6 4', width: 2 }] : []),
-      ...(thisMonth.length ? [{ name: THIS_MONTH, points: thisMonth, color: BRAND, width: 2.75, dot: true }] : []),
+      ...(thisMonth.length ? [{ name: THIS_MONTH, points: thisMonth, color: BRAND, width: 2.75, dot: true, area: true }] : []),
     ]
   })
 

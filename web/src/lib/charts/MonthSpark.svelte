@@ -6,7 +6,7 @@
   usual" reads at a glance. Each bar's tooltip gives its amount.
 -->
 <script lang="ts">
-  import { BRAND, BRAND_LIGHT, BRAND_PALE, INK, MUTED, SPARK_HEIGHT } from './palette'
+  import { BRAND, BRAND_LIGHT, BRAND_PALE, INK, MUTED, SPARK_HEIGHT, barPath } from './palette'
 
   let { bars, reference = null, referenceName = 'usual', height = SPARK_HEIGHT }: {
     bars: { label: string; value: number; title: string; picked?: boolean; partial?: boolean }[]
@@ -30,7 +30,7 @@
     {#each bars as b, i}
       <g>
         <title>{b.title}</title>
-        <rect class="mark-grow-y" style:animation-delay="{i * 20}ms" x={i * (bw + gap)} y={y(b.value)} width={bw} height={Math.max(1.5, plot - y(b.value))} rx="2"
+        <path class="mark-grow-y" style:animation-delay="{i * 20}ms" d={barPath(i * (bw + gap), Math.min(y(b.value), plot - 1.5), bw, Math.max(1.5, plot - y(b.value)), 3, 'top')}
           fill={b.partial ? BRAND_PALE : b.picked ? BRAND : BRAND_LIGHT}
           stroke={b.partial ? BRAND : 'none'} stroke-dasharray={b.partial ? '3 2' : undefined} />
         <text x={i * (bw + gap) + bw / 2} y={height - 2} text-anchor="middle" font-size="9.5"

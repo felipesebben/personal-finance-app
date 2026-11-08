@@ -7,7 +7,7 @@
 -->
 <script lang="ts">
   import { scaleLinear } from 'd3-scale'
-  import { AXIS, BAR_ROW, INK_2, LESS, MORE, textWidth } from './palette'
+  import { AXIS, BAR_ROW, INK_2, LESS, MORE, barPath, textWidth } from './palette'
 
   let { rows, top = 4 }: {
     rows: { label: string; value: number | null; text: string }[]
@@ -30,8 +30,8 @@
       <g>
         <title>{row.label}: {row.text}</title>
         {#if row.value !== null}
-          <rect class="mark-grow-x" style:transform-origin={v < 0 ? 'right center' : 'left center'}
-            x={Math.min(x(0), x(v))} y={y + (BAR_ROW - 18) / 2} width={Math.abs(x(v) - x(0))} height={18} rx="3"
+          <path class="mark-grow-x" style:transform-origin={v < 0 ? 'right center' : 'left center'}
+            d={barPath(Math.min(x(0), x(v)), y + (BAR_ROW - 18) / 2, Math.abs(x(v) - x(0)), 18, 5, v < 0 ? 'left' : 'right')}
             fill={v > 0 ? MORE : LESS} />
         {/if}
         <text x={row.value === null ? x(0) + 6 : v >= 0 ? x(v) + 5 : x(v) - 5} y={y + BAR_ROW / 2}

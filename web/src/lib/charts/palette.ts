@@ -36,10 +36,32 @@ export const SPARK_HEIGHT = 68
 
 /** Rough width of a label in px at the 12px chart font (for the names column). */
 export function textWidth(text: string, px = 12): number {
-  return Math.ceil(text.length * px * 0.56)
+  return Math.ceil(text.length * px * 0.58)
 }
 
 /** Shortens a label to `max` characters with an ellipsis. */
 export function clip(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text
+}
+
+/**
+ * A bar as an SVG path: square where it meets the axis, rounded only at its
+ * far end (`end`: the side the value grows towards), as Apple's charts draw
+ * them. The radius never exceeds half the bar's thickness or its length.
+ */
+export function barPath(x: number, y: number, w: number, h: number, r: number, end: 'right' | 'left' | 'top'): string {
+  if (w <= 0 || h <= 0) return ''
+  const f = (n: number) => Math.round(n * 100) / 100
+  if (end === 'top') {
+    const k = Math.min(r, w / 2, h)
+    return `M${f(x)},${f(y + h)}V${f(y + k)}A${f(k)},${f(k)} 0 0 1 ${f(x + k)},${f(y)}H${f(x + w - k)}`
+      + `A${f(k)},${f(k)} 0 0 1 ${f(x + w)},${f(y + k)}V${f(y + h)}Z`
+  }
+  const k = Math.min(r, h / 2, w)
+  if (end === 'right') {
+    return `M${f(x)},${f(y)}H${f(x + w - k)}A${f(k)},${f(k)} 0 0 1 ${f(x + w)},${f(y + k)}V${f(y + h - k)}`
+      + `A${f(k)},${f(k)} 0 0 1 ${f(x + w - k)},${f(y + h)}H${f(x)}Z`
+  }
+  return `M${f(x + w)},${f(y)}H${f(x + k)}A${f(k)},${f(k)} 0 0 0 ${f(x)},${f(y + k)}V${f(y + h - k)}`
+    + `A${f(k)},${f(k)} 0 0 0 ${f(x + k)},${f(y + h)}H${f(x + w)}Z`
 }
