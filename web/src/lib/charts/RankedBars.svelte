@@ -32,15 +32,18 @@
   } = $props()
 
   let width = $state(320)
-  const names = $derived(rows.map((r) => clip(r.label, maxLabel)))
-  const nameWidth = $derived(Math.min(Math.max(...names.map((n) => textWidth(n)), 40) + 10, width * 0.42))
+  // Names are clipped to fit their column (at most 42% of the width), so they never run into the bars on a phone.
+  const fits = $derived(Math.max(6, Math.floor((width * 0.42 - 10) / (12.5 * 0.56))))
+  const names = $derived(rows.map((r) => clip(r.label, Math.min(maxLabel, fits))))
+  const nameWidth = $derived(Math.min(Math.max(...names.map((n) => textWidth(n, 12.5)), 40) + 10, width * 0.42))
   const textRoom = $derived(Math.max(...rows.map((r) => textWidth(r.text, 11.5)), 30) + 10)
   const max = $derived(Math.max(...rows.flatMap((r) => [r.value, r.tick ?? 0, r.target ?? 0]), reference ?? 0, 1))
   const x = $derived(scaleLinear().domain([0, max]).range([nameWidth, Math.max(nameWidth + 40, width - textRoom)]))
   const top = $derived(reference !== null && referenceLabel ? 18 : 4)
   const height = $derived(rows.length * BAR_ROW + top + 4)
   const ticks = $derived(x.ticks(4).filter((t) => t > 0))
-  const barH = BAR_ROW - 12
+  const barH = 20
+  const barY = (BAR_ROW - barH) / 2
 
   /** The value sits at the bar's tip; a tick that would cut through it pushes it just past the tick. */
   function textX(row: Bar): number {
@@ -66,16 +69,16 @@
         tabindex={onpick ? 0 : undefined} onkeydown={(e) => e.key === 'Enter' && onpick?.(row.label)}>
         <title>{row.title ?? `${row.label}: ${row.text}`}</title>
         <rect x="0" {y} width={width} height={BAR_ROW} fill="transparent" />
-        <text x="0" y={y + BAR_ROW / 2} dominant-baseline="central" font-size="12" fill={INK}
+        <text x="0" y={y + BAR_ROW / 2} dominant-baseline="central" font-size="12.5" fill={INK}
           font-weight={row.picked ? 600 : 400}>{names[i]}</text>
-        <rect class="mark-grow-x" style:animation-delay="{i * 30}ms" x={nameWidth} y={y + 6}
+        <rect class="mark-grow-x" style:animation-delay="{i * 30}ms" x={nameWidth} y={y + barY}
           width={Math.max(0, x(row.value) - nameWidth)} height={barH} rx="4"
           fill={row.picked ? BRAND : BRAND_LIGHT} />
         {#if row.tick !== null && row.tick !== undefined}
-          <line x1={x(row.tick)} x2={x(row.tick)} y1={y + 3} y2={y + BAR_ROW - 3} stroke={GREY} stroke-width="3" />
+          <line x1={x(row.tick)} x2={x(row.tick)} y1={y + barY - 4} y2={y + barY + barH + 4} stroke={GREY} stroke-width="3" />
         {/if}
         {#if row.target !== null && row.target !== undefined}
-          <line x1={x(row.target)} x2={x(row.target)} y1={y + 2} y2={y + BAR_ROW - 2} stroke={INK} stroke-width="2.5" />
+          <line x1={x(row.target)} x2={x(row.target)} y1={y + barY - 5} y2={y + barY + barH + 5} stroke={INK} stroke-width="2.5" />
         {/if}
         <text x={textX(row)} y={y + BAR_ROW / 2}
           dominant-baseline="central" font-size="11.5" fill={row.picked ? INK : INK_2} font-weight={row.picked ? 600 : 400}>{row.text}</text>

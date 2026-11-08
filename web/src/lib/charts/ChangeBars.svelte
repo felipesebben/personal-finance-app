@@ -31,7 +31,7 @@
         <title>{row.label}: {row.text}</title>
         {#if row.value !== null}
           <rect class="mark-grow-x" style:transform-origin={v < 0 ? 'right center' : 'left center'}
-            x={Math.min(x(0), x(v))} y={y + 7} width={Math.abs(x(v) - x(0))} height={BAR_ROW - 14} rx="3"
+            x={Math.min(x(0), x(v))} y={y + (BAR_ROW - 18) / 2} width={Math.abs(x(v) - x(0))} height={18} rx="3"
             fill={v > 0 ? MORE : LESS} />
         {/if}
         <text x={row.value === null ? x(0) + 6 : v >= 0 ? x(v) + 5 : x(v) - 5} y={y + BAR_ROW / 2}

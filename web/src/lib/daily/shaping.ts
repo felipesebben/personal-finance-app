@@ -14,6 +14,7 @@
  */
 import { addMonths, daysInMonth, monthLabel, monthName, ordinal, weekday } from '../dates'
 import { cents, formatBrl, shortBrl } from '../money'
+import { delta } from '../delta'
 
 export type Lens = 'Household' | 'My share'
 
@@ -279,20 +280,17 @@ export function pace(days: Day[], data: DailyPayload, lens: Lens, since?: string
 
 export type Line = [string, 'more' | 'less' | null]
 
-/** ['▲ R$ 150,00 (12%) more than September', 'more']; the tone colours the line. */
+/** ['▲ R$ 150 (12%) vs September', 'more']: one short line, the tone colours it (lib/delta.ts). */
 export function versus(change: number, previous: number, against: string): Line {
-  if (Math.round(change) === 0) return [`The same as ${against}`, null]
-  const more = change > 0
-  const pct = previous ? ` (${pct0(change / previous)})` : ''
-  return [`${more ? '▲' : '▼'} ${formatBrl(Math.abs(change))}${pct} ${more ? 'more' : 'less'} than ${against}`,
-    more ? 'more' : 'less']
+  return delta(change, previous, against)
 }
 
 export interface Headline { label: string; amount: string; lines: Line[] }
 
 /**
  * The hero, leading with the answer: "Spent so far in October", the amount,
- * and lines like "▲ R$ 210,00 (13%) more than September by the 17th".
+ * and short lines like "▲ R$ 210 (13%) vs September" (same days while the
+ * month is going; the card's (i) says so).
  * `focus` (filtering.note) is added to the label when something is filtered
  * out; `started` explains a missing comparison.
  */
@@ -301,15 +299,12 @@ export function headline(p: Pace, focus = '', started: string | null = null): He
   const previous = monthName(p.previous)
   let label = p.is_partial ? `Spent so far in ${name}` : `Spent in ${name}`
   if (focus) label += ` · ${focus}`
-  const by = p.is_partial ? ` by the ${ordinal(p.day)}` : ''
   const lines: Line[] = []
-  if (p.has_last) lines.push(versus(p.so_far - p.last_by_day, p.last_by_day, `${previous}${by}`))
-  if (p.usual_by_day !== null) lines.push(versus(p.so_far - p.usual_by_day, p.usual_by_day, `usual${by}`))
-  if (p.heading_for !== null) {
-    lines.push([`Heading for about ${formatBrl(p.heading_for)} if the rest of ${name} goes as usual`, null])
-  }
+  if (p.has_last) lines.push(versus(p.so_far - p.last_by_day, p.last_by_day, previous))
+  if (p.usual_by_day !== null) lines.push(versus(p.so_far - p.usual_by_day, p.usual_by_day, 'usual'))
+  if (p.heading_for !== null) lines.push([`Heading for about ${shortBrl(p.heading_for)}`, null])
   if (!lines.length && p.last_partly_from) {
-    lines.push([`${previous}: ${formatBrl(p.last_total)}, logged from the ${ordinal(p.last_partly_from)} only`, null])
+    lines.push([`${previous}: ${shortBrl(p.last_total)}, logged from the ${ordinal(p.last_partly_from)}`, null])
   }
   if (!p.has_last && p.usual_by_day === null) {
     const start = started
@@ -340,12 +335,12 @@ export interface KpiCard {
  */
 export function cards(p: Pace): KpiCard[] {
   const previous = monthName(p.previous)
-  const by = p.is_partial ? `by the ${ordinal(p.day)}` : 'over the month'
+  const by = `by the ${ordinal(p.day)}`
   const out: KpiCard[] = []
 
   let lines: Line[] = []
   if (p.has_last) {
-    if (p.is_partial) lines.push([`${formatBrl(p.last_by_day)} of it ${by}`, null])
+    if (p.is_partial) lines.push([`${shortBrl(p.last_by_day)} ${by}`, null])
     if (p.last_usual !== null) lines.push(versus(p.last_total - p.last_usual, p.last_usual, 'its usual'))
   }
   const partly = p.last_partly_from
@@ -354,15 +349,15 @@ export function cards(p: Pace): KpiCard[] {
     key: 'last', label: `Last month · ${previous}`,
     value: p.has_last || partly ? formatBrl(p.last_total) : '—',
     lines: lines.length ? lines : [['Not logged in full, so not compared.', null]],
-    help: `All of ${previous}, finished. "Its usual" is the average of the three months before it. The bars are each month's total.`,
+    help: `All of ${previous}, finished${p.is_partial ? `; ${formatBrl(p.last_by_day)} of it ${by}` : ''}. "Its usual" is the average of the three months before it. The bars are each month's total.`,
   })
 
   if (p.usual_total !== null) {
     const span = `${monthName(p.usual_of[0])}–${monthName(p.usual_of[p.usual_of.length - 1])}`
-    lines = [[`The average of ${span}`, null]]
-    if (p.is_partial && p.usual_by_day !== null) lines.push([`${formatBrl(p.usual_by_day)} of it ${by}`, null])
+    lines = [[`Average of ${span}`, null]]
+    if (p.is_partial && p.usual_by_day !== null) lines.push([`${shortBrl(p.usual_by_day)} ${by}`, null])
     out.push({ key: 'usual', label: 'Usual month', value: formatBrl(p.usual_total), lines,
-      help: 'The average of the three months before this one: what a normal month costs. The bars are those three months, the line their average.' })
+      help: `The average of ${span}, the three months before this one: what a normal month costs. The bars are those three months, the line their average.` })
   } else {
     out.push({ key: 'usual', label: 'Usual month', value: '—', lines: [['Needs three months of history.', null]],
       help: 'The average of the three months before this one: what a normal month costs.' })
@@ -370,19 +365,18 @@ export function cards(p: Pace): KpiCard[] {
 
   if (p.is_partial && p.reference !== null && p.days_left) {
     const ref = p.reference_name === 'usual' ? 'the usual month' : p.reference_name!
+    // How much is spent against how much of the month has gone is the bar under the card, not another line.
     const spentShare = p.reference ? p.so_far / p.reference : 0
-    const timeShare = p.day / p.days
-    const spent = spentShare < 2 ? pct0(spentShare) : `${spentShare.toFixed(1).replace('.', ',')}×`
-    const paceLine: Line = [`${spent} of ${ref} spent, ${pct0(timeShare)} of the month gone`,
-      spentShare > timeShare + 0.005 ? 'more' : spentShare < timeShare - 0.005 ? 'less' : null]
+    const pace = `${pct0(spentShare)} of ${ref} spent with ${pct0(p.day / p.days)} of the month gone.`
+    const left = `${p.days_left} day${p.days_left === 1 ? '' : 's'} left`
     if (p.allowance !== null) {
       out.push({ key: 'allowance', label: `To stay within ${ref}`, value: `${formatBrl(p.allowance)} a day`,
-        lines: [[`For the ${p.days_left} days after today`, null], paceLine],
-        help: `What's left of ${ref} (${formatBrl(p.reference)}) divided by the days left. The bar is how much of it is spent; the tick, how much of the month has gone.` })
+        lines: [[left, null]],
+        help: `What's left of ${ref} (${formatBrl(p.reference)}) divided by the days after today. ${pace} The bar is how much of it is spent; the tick, how much of the month has gone.` })
     } else {
       out.push({ key: 'allowance', label: `Past ${ref}`, value: formatBrl(p.so_far - p.reference),
-        lines: [[`▲ over ${ref}, with ${p.days_left} days to go`, 'more'], paceLine],
-        help: `Spent so far beyond ${ref} (${formatBrl(p.reference)}).` })
+        lines: [[`▲ over ${ref} · ${left}`, 'more']],
+        help: `Spent so far beyond ${ref} (${formatBrl(p.reference)}). ${pace}` })
     }
   } else {
     out.push({ key: 'days', label: 'Days with spending', value: `${p.days_with_spending} of ${p.day}`,

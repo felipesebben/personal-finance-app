@@ -3,7 +3,8 @@
  * the sentences around it. Port of frontend/joint_shaping.py; tests in
  * joint.test.ts.
  */
-import { cents, formatBrl, signedBrl } from './money'
+import { cents, formatBrl, shortBrl } from './money'
+import { delta } from './delta'
 import { monthName, ordinal, TZ } from './dates'
 import type { HouseholdMember } from './household'
 
@@ -113,11 +114,10 @@ export function jointCards(status: JointStatus): [string, string, [string, strin
   const gap = paceGap(status)
   const spentLines: [string, string | null][] = []
   if (gap !== null) {
-    spentLines.push([`${gap > 0 ? '▲' : gap < 0 ? '▼' : ''} ${signedBrl(gap)} vs usual`.trim(),
-      gap > 0 ? 'more' : gap < 0 ? 'less' : null])
+    spentLines.push(delta(gap, null, 'usual'))
   }
   spentLines.push([status.usual_month_total !== null && status.usual_month_total !== undefined
-    ? `A usual month: ${formatBrl(cents(status.usual_month_total))}` : 'No usual month yet', null])
+    ? `Usual month ${shortBrl(cents(status.usual_month_total))}` : 'No usual month yet', null])
   const runsOut = status.runs_out_on
   return [
     ['Left in the account', status.balance !== null && status.balance !== undefined ? formatBrl(cents(status.balance)) : '–',

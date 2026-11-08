@@ -71,9 +71,9 @@ describe('pace, headline and cards', () => {
     const h = headline(pace(frame(), SAMPLE, 'Household'))
     expect([h.label, h.amount]).toEqual(['Spent so far in October', 'R$ 300,00'])
     expect(h.lines).toEqual([
-      ['▲ R$ 150,00 (100%) more than September by the 10th', 'more'],
-      ['▲ R$ 150,00 (100%) more than usual by the 10th', 'more'],
-      ['Heading for about R$ 550,00 if the rest of October goes as usual', null],
+      ['▲ R$ 150 (100%) vs September', 'more'],
+      ['▲ R$ 150 (100%) vs usual', 'more'],
+      ['Heading for about R$ 550', null],
     ])
     expect(headline(pace(frame(), SAMPLE, 'Household'), 'day-to-day costs').label)
       .toBe('Spent so far in October · day-to-day costs')
@@ -83,7 +83,7 @@ describe('pace, headline and cards', () => {
     const finished = payload([row('2026-09-03', '150.00'), row('2026-10-04', '100.00')], { isPartial: false, asOfDay: 31 })
     const h = headline(pace(frame(finished), finished, 'Household'))
     expect(h.label).toBe('Spent in October')
-    expect(h.lines).toEqual([['▼ R$ 50,00 (33%) less than September', 'less']])
+    expect(h.lines).toEqual([['▼ R$ 50 (33%) vs September', 'less']])
     const first = payload([row('2026-10-04', '100.00')])
     expect(headline(pace(frame(first), first, 'Household')).lines)
       .toEqual([['Nothing to compare with yet. Comparisons start in November, against October.', null]])
@@ -106,11 +106,12 @@ describe('pace, headline and cards', () => {
     const cs = Object.fromEntries(cards(pace(frame(), SAMPLE, 'Household')).map((c) => [c.key, c]))
     expect(Object.keys(cs)).toEqual(['last', 'usual', 'allowance'])
     expect([cs.last.label, cs.last.value]).toEqual(['Last month · September', 'R$ 600,00'])
-    expect(cs.last.lines[0]).toEqual(['R$ 150,00 of it by the 10th', null])
-    expect(cs.usual.lines[0]).toEqual(['The average of July–September', null])
+    expect(cs.last.lines[0]).toEqual(['R$ 150 by the 10th', null])
+    expect(cs.usual.lines[0]).toEqual(['Average of July–September', null])
     expect(cs.allowance.label).toBe('To stay within the usual month')
     expect(cs.allowance.value).toBe('R$ 4,76 a day')
-    expect(cs.allowance.lines[1]).toEqual(['75% of the usual month spent, 32% of the month gone', 'more'])
+    expect(cs.allowance.lines).toEqual([['21 days left', null]])
+    expect(cs.allowance.help).toContain('75% of the usual month spent with 32% of the month gone.')
   })
 
   it('says when already past the usual month', () => {
@@ -228,7 +229,7 @@ describe('a partly logged last month: shown for context, never a verdict', () =>
     const p = pace(days, PARTLY, 'Household', since, started)
     expect([p.has_last, p.last_partly_from, p.last_total]).toEqual([false, 28, 40000])
     const head = headline(p, '', started)
-    expect(head.lines.map(([t]) => t)).toEqual(['September: R$ 400,00, logged from the 28th only',
+    expect(head.lines.map(([t]) => t)).toEqual(['September: R$ 400, logged from the 28th',
       'Comparisons start in November, against October.'])
     expect(head.lines.every(([, tone]) => tone === null)).toBe(true)
     const last = cards(p).find((c) => c.key === 'last')!

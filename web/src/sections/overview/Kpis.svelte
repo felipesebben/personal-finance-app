@@ -21,7 +21,7 @@
 
   let { ctx }: { ctx: OverviewContext } = $props()
 
-  const MIN = 250
+  const MIN = 260
   const shown = $derived(ctx.months.slice(-6))
   const total = $derived(compareTotal(ctx.rows, ctx.selected, ctx.isPartial, ctx.lens))
   const average = $derived(previousFullAverage(ctx.rows, ctx.months, ctx.selected, ctx.lens, 3, ctx.isPartial, ctx.since))
@@ -66,7 +66,7 @@
       <EmptyChart text="Appears once there's history to compare with." height={SPARK_HEIGHT} />
     {:else}
       <Kpi label={`Usual month${ctx.isPartial ? ' (same days)' : ''}`} value={formatBrl(average)}
-        lines={[deltaLine(total.current - average, average ? (total.current - average) / average : null, 'it')]}
+        lines={[deltaLine(total.current - average, average ? (total.current - average) / average : null, 'usual')]}
         help="The average of the three months before this one, over the same days while this month is going. The dashed line marks it." />
       <MonthSpark bars={usualBars} reference={average} referenceName={`Usual month: ${formatBrl(average)}`} />
     {/if}

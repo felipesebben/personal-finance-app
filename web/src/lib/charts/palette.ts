@@ -29,10 +29,10 @@ export const AXIS = 'var(--axis)'
 export const GRID = 'var(--grid)'
 
 /** Height of one ranked bar row, and of an x axis under it (heights are rows + axis). */
-export const BAR_ROW = 30
+export const BAR_ROW = 36
 export const X_AXIS = 22
 /** The chart slot in a KPI card. */
-export const SPARK_HEIGHT = 56
+export const SPARK_HEIGHT = 68
 
 /** Rough width of a label in px at the 12px chart font (for the names column). */
 export function textWidth(text: string, px = 12): number {

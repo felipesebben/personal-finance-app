@@ -15,7 +15,7 @@
   } = $props()
 </script>
 
-<section class="card" class:compact style:min-height={minHeight ? `${minHeight}px` : undefined}>
+<section class="card" class:compact style:--min-height={minHeight ? `${minHeight}px` : undefined}>
   {#if title || actions}
     <header>
       <div>
@@ -34,11 +34,12 @@
     background: var(--surface);
     border-radius: var(--radius-card);
     box-shadow: var(--shadow-card);
-    padding: 1.15rem 1.25rem 1.25rem;
+    padding: 1.35rem 1.5rem 1.5rem;
     display: flex;
     flex-direction: column;
-    gap: 0.85rem;
+    gap: 1rem;
     min-width: 0;
+    min-height: var(--min-height, 0);
   }
   .card.compact { padding: 0.95rem 1.05rem; gap: 0.5rem; }
   header { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem; flex-wrap: wrap; }
@@ -46,6 +47,7 @@
   header p { margin-top: 0.2rem; font-size: 0.9375rem; color: var(--muted); }
   .actions { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
   @media (max-width: 560px) {
-    .card { padding: 1rem; border-radius: 14px; }
+    /* One card per row on a phone: no row to line up with, so no reserved height. */
+    .card { padding: 1rem; border-radius: 14px; min-height: 0; }
   }
 </style>

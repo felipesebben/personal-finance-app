@@ -27,9 +27,11 @@
   </div>
   {#if open && help}<p class="help-text">{help}</p>{/if}
   <div class="value">{value}</div>
-  {#each lines as [text, tone]}
-    <div class="line {tone ?? ''}">{text}</div>
-  {/each}
+  {#if lines.length}
+    <div class="lines">
+      {#each lines as [text, tone]}<div class="line {tone ?? ''}">{text}</div>{/each}
+    </div>
+  {/if}
   {@render children?.()}
 </div>
 
@@ -47,10 +49,12 @@
   .value { font-family: var(--font-rounded); font-size: 1.75rem; font-weight: 700; white-space: nowrap;
     margin: 0.2rem 0 0.25rem; font-variant-numeric: proportional-nums; letter-spacing: -0.02em; }
   .hero .value { font-size: 2.75rem; line-height: 1.1; letter-spacing: -0.03em; margin: 0.25rem 0 0.35rem; }
-  .line { font-size: 0.875rem; color: var(--muted); }
-  .hero .line { font-size: 0.9375rem; }
-  .line.more { color: var(--more); font-weight: 600; }
-  .line.less { color: var(--less); font-weight: 600; }
+  /* Context under the number stays quiet (secondary label colour, regular weight), one short line each. */
+  .lines { display: flex; flex-direction: column; gap: 0.1rem; margin-top: 0.1rem; }
+  .line { font-size: 0.8125rem; color: var(--muted); text-wrap: pretty; }
+  .hero .line { font-size: 0.875rem; }
+  .line.more { color: var(--more); font-weight: 500; }
+  .line.less { color: var(--less); font-weight: 500; }
   @media (max-width: 560px) {
     .hero .value { font-size: 2.25rem; }
   }
